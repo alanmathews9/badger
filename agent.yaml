@@ -1,0 +1,99 @@
+spec_version: "0.1.0"
+name: badger
+version: 0.1.0
+description: >-
+  Federated workplace search. Answers questions about your work by querying
+  Gmail, Google Drive and GitHub live at ask-time, and citing every source.
+  No crawler, no index, no copy of your data.
+author: alan-mathews
+license: MIT
+
+tags:
+  - workplace-search
+  - federated-search
+  - enterprise-search
+  - gmail
+  - google-drive
+  - github
+
+# NOTE: model ids must be "provider:model" AND must exist in the runtime's
+# model registry. Unknown ids crash with "Cannot read properties of undefined
+# (reading 'baseUrl')". Verified working as of gitagent 2.1.0 — see NOTES.md.
+#
+# The "google:" prefix is load-bearing: these same ids also exist under the
+# github-copilot provider. "google:" selects the AI Studio path
+# (generativelanguage.googleapis.com) and reads GEMINI_API_KEY.
+#
+# Being in the runtime's registry is NOT enough — the model must also be
+# available to this API key's project and tier. Run ./scripts/probe-models.sh
+# after any key or billing change. Results on 2026-08-16:
+#   gemini-3-flash-preview   OK
+#   gemini-2.5-flash         OK
+#   gemini-flash-latest      OK
+#   gemini-2.5-pro           404 — retired for this project, permanent
+#   gemini-3-pro-preview     404 — retired for this project, permanent
+#   gemini-2.0-flash         404 — retired for this project, permanent
+#   gemini-3.1-pro-preview   429 quota 0 — live but tier-gated; needs billing
+# All three survivors keep the 1M context window, which is what matters when
+# one federated query drags back whole threads and documents at once.
+model:
+  preferred: "google:gemini-3-flash-preview"
+  fallback:
+    - "google:gemini-2.5-flash"
+    - "google:gemini-flash-latest"
+  constraints:
+    temperature: 0.1        # search answers should be reproducible, not creative
+    max_tokens: 8192
+
+# Advisory only in gitagent 2.1.0 — the runtime loads all builtins regardless.
+# Kept accurate so the manifest documents intent and stays portable to other
+# GAP runtimes that DO honour it. Real enforcement lives in RULES.md + hooks.
+tools: [read, memory]
+
+runtime:
+  max_turns: 30
+  timeout: 300            # seconds; federated fan-out across 3 sources is slow
+
+skills:
+  - search-gmail
+  - search-drive
+  - search-github
+  - federate
+  - cite
+
+compliance:
+  risk_level: medium
+  data_classification: confidential
+  human_in_the_loop: false
+  recordkeeping:
+    audit_logging: true
+    retention_days: 30
+
+# ---------------------------------------------------------------------------
+# Federated sources. Placeholders only — credentials and final server choices
+# land next session. Shape is verified against dist/mcp/manager.js:
+#   - "${VAR}" is interpolated from env at connect time (unset -> empty string)
+#   - tools register as <server>__<tool>, e.g. gmail__search_threads
+#   - a server that fails to connect is warned about and SKIPPED, not fatal
+# ---------------------------------------------------------------------------
+mcp_servers: {}
+  # gmail:
+  #   command: npx
+  #   args: ["-y", "<gmail-mcp-package>"]
+  #   env:
+  #     GOOGLE_OAUTH_CREDENTIALS: "${GOOGLE_OAUTH_CREDENTIALS}"
+  #   timeoutMs: 30000
+  #
+  # drive:
+  #   command: npx
+  #   args: ["-y", "<gdrive-mcp-package>"]
+  #   env:
+  #     GOOGLE_OAUTH_CREDENTIALS: "${GOOGLE_OAUTH_CREDENTIALS}"
+  #   timeoutMs: 30000
+  #
+  # github:
+  #   type: http
+  #   url: "https://api.githubcopilot.com/mcp/"
+  #   headers:
+  #     Authorization: "Bearer ${GITHUB_TOKEN}"
+  #   timeoutMs: 30000
