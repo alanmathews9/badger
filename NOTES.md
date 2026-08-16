@@ -123,6 +123,42 @@ upgrade, and it comes with a bonus: paid tier should also unlock
 `gemini-3.1-pro-preview` (see §7), so the rate limit and the model-quality
 question resolve together.
 
+## 4b. Badger's fixed overhead is ~35k tokens per turn
+
+Groq rejected a one-line prompt with `Requested 34722` tokens. That number is
+the floor for any Badger turn: system prompt (SOUL.md + RULES.md + memory +
+runtime scaffolding) plus the JSON schemas for all eight always-loaded builtin
+tools.
+
+The allowlist hook blocks tools at **call** time, not registration time, so we
+pay for the schemas of tools Badger is forbidden to use. Every MCP server adds
+its own on top — `@modelcontextprotocol/server-filesystem` alone contributed 14
+tools. Three real sources will push the floor higher still.
+
+Implications: pick MCP servers with narrow tool surfaces where there's a
+choice, and treat "tokens per minute" limits as the binding constraint rather
+than "requests per minute".
+
+## 4c. Free tiers, tested: neither provider can run Badger
+
+- **Gemini free**: 5 requests/minute. A turn with tool calls burns one request
+  per round trip; a three-source query needs 6–12. Dies mid-fan-out.
+- **Groq free**: 8,000 tokens/minute on `openai/gpt-oss-120b`, against our ~35k
+  floor. Cannot complete a single turn. Other Groq models sit at 6k–12k TPM,
+  so none of them clears the bar either.
+
+**Billing is a phase-2 prerequisite, not an optimisation.** Preferred fix is
+billing on the AI Studio project: it lifts the rate limit, keeps the 1M context
+window that suits federated search, and should unlock `gemini-3.1-pro-preview`
+(§7) in one move. Groq's Dev Tier is a viable alternative — very fast, cheap —
+but caps context at 131k and offers no Pro-tier reasoning.
+
+Groq registry note: pi-ai's model list is stale here too.
+`moonshotai/kimi-k2-instruct-0905` resolves locally but 404s at the API. Query
+`GET https://api.groq.com/openai/v1/models` with the key to get the real list —
+it is a metadata call and consumes no token quota, so it is always the cheapest
+first move with a new provider.
+
 ## 5. Timeouts stack badly across a fan-out
 
 Default `timeoutMs` per server is 30 000, covering connect *and* the initial
