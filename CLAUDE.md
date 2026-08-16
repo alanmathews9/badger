@@ -34,6 +34,34 @@ forward is underweighting four fifths of the grade.
 
 Do not pull later phases forward.
 
+## Git policy
+
+The history is part of the deliverable. For a submission whose thesis is *the
+agent is a git repo*, `git log` is the first thing a reviewer reads. Write
+commit messages like changelog entries — what changed and why, not "wip".
+
+**Always run Badger through `./scripts/badger.sh`, not `gitagent` directly.**
+The runtime auto-commits on every invocation and there is no flag to disable
+it: `ensureRepo()` emits "Scaffold gitagent agent" and the web UI emits
+"auto-save before new chat". Nine such commits accumulated in the first
+session. The wrapper records HEAD, runs the agent, then soft-resets the
+runtime's commits so their file changes survive as staged work and a human
+writes the real message. It deliberately leaves `memory` and `skill_learner`
+commits alone, since those carry meaningful messages, and it aborts the cleanup
+entirely if it sees any commit it does not recognise.
+
+If noise accumulates anyway, squash **per milestone** — at phase boundaries,
+not continuously. The safe sequence, which was used to create the baseline:
+
+    git branch backup-pre-squash
+    git reset --soft $(git rev-list --max-parents=0 HEAD)
+    git commit --amend -F <message-file>
+    git diff backup-pre-squash          # must be empty
+    # compare `git rev-parse HEAD^{tree}` against the backup's tree too
+
+Two independent checks, then delete the backup. Never rewrite history without
+that branch existing first.
+
 ## Working notes
 
 `NOTES.md` holds everything verified about gitagent 2.1.0 — MCP config shape,
@@ -48,7 +76,10 @@ Three things from it that change how you work in this repo:
   before parsing arguments. Always pass `-d`.
 - **There is no tool allowlist and `tools:` in `agent.yaml` is ignored.** Every
   MCP tool a server exposes gets registered, and `cli` (a shell) is always
-  loaded. Read-only is enforced by hooks and RULES.md, by us.
+  loaded. Read-only is enforced by `hooks/allow-read-only.sh` — an explicit
+  allowlist of exact tool names in `hooks/allowed-tools.txt`. Adding a source
+  in phase 2 means adding its read tools there, or Badger cannot call them.
+  That friction is the design: unknown tools fail closed.
 - **Model ids must be `provider:model` and known to the runtime.** Unknown ids
   crash with an unrelated-looking `baseUrl` error. `anthropic:claude-opus-4-6`
   works; `anthropic:claude-opus-5` does not.

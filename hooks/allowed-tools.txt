@@ -1,0 +1,37 @@
+# Badger's complete tool allowlist. One exact tool name per line.
+# Anything not listed here is blocked — including tools that do not exist yet.
+#
+# This is an allowlist, not a blocklist, on purpose. Matching on verbs like
+# "send" or "delete" fails open on neutrally-named mutators: gmail__modify_labels,
+# drive__update_permissions, or a future github__merge_pull_request would all
+# sail through a verb filter while changing state. Listing exact names fails
+# closed instead: a tool we have not vetted cannot run.
+#
+# MCP tools are namespaced <server>__<tool>, where <server> is the key in
+# agent.yaml's mcp_servers map. Renaming a server there silently invalidates
+# every entry below, so the two must be changed together.
+
+# --- builtins -------------------------------------------------------------
+# Badger reads and reports. It does not need cli, write, edit, capture_photo
+# or skill_learner, so they are absent and therefore blocked.
+read
+memory
+
+# --- gmail ----------------------------------------------------------------
+# PROVISIONAL: exact names depend on the MCP server chosen in phase 2.
+# Verify each against the server's own tools/list before trusting this file.
+gmail__search_threads
+gmail__get_thread
+gmail__get_message
+
+# --- google drive ---------------------------------------------------------
+drive__search_files
+drive__read_file_content
+drive__get_file_metadata
+drive__list_recent_files
+
+# --- github ---------------------------------------------------------------
+github__search_code
+github__search_issues
+github__search_repositories
+github__get_file_contents

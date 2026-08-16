@@ -73,6 +73,26 @@ the user's account. Defence, in order of strength:
 
 Read-only PAT scopes for GitHub are a fourth layer and cost nothing — use them.
 
+**The hook itself fails open in four ways**, all of which the script must dodge:
+a non-zero exit, an uncaught error, a 10s timeout, or *any non-JSON on stdout*
+is treated as `allow` (`runHooks`: "Hook errors don't block execution by
+default"). This is why `hooks/allow-read-only.sh` is dependency-free POSIX `sh`
+and always exits 0 with a printed JSON object. **Never make it depend on `jq`** —
+if `jq` were missing on the VPS, every tool call would silently be permitted.
+
+Block reasons *are* visible to the model: `wrapToolWithHooks` throws, and
+pi-agent-core's `agent-loop.js` converts a thrown execute error into
+`createErrorToolResult(error.message)` with `isError: true`. So the model reads
+`Tool "X" blocked by hook: <reason>` and can act on it. The reason text is
+written to tell Badger what to do instead.
+
+Verified live against `@modelcontextprotocol/server-filesystem`, which
+registered **14 tools** including `fs__write_file`, `fs__edit_file` and
+`fs__move_file` from a single line of config — a good illustration of how fast
+the unfiltered tool surface grows. `fs__read_file` (allowlisted) succeeded;
+`fs__search_files` and the `task_tracker` builtin (both absent from the
+allowlist) were refused at the call site.
+
 ## 4. Failures are silent by design — Badger must un-silence them
 
 `connectServer` is fail-soft: a server that can't connect logs
@@ -86,6 +106,22 @@ connected. Mitigation: an `on_session_start` hook that connects each configured
 source, and injects the live/dead roster into context. The `federate` skill
 must state which sources actually answered. This is also why SOUL.md and
 RULES.md both carry the "never hide a blind spot" rule.
+
+## 4a. The free tier's 5 requests/minute is a hard blocker for federated search
+
+Hit during hook testing: `gemini-3-flash` on the free tier allows
+**5 requests per minute** (`GenerateRequestsPerMinutePerProjectPerModel-FreeTier`,
+`quotaValue: 5`). Every model turn is a request, and a tool-using turn burns one
+per round trip — Badger spent three on a single two-tool prompt before failing.
+
+A real federated query fans out across Gmail, Drive and GitHub, then reasons
+over what comes back. That is comfortably 6–12 round trips. **Badger cannot do
+its actual job on the free tier**, regardless of which model we pick.
+
+This makes enabling billing a phase-2 prerequisite rather than a quality
+upgrade, and it comes with a bonus: paid tier should also unlock
+`gemini-3.1-pro-preview` (see §7), so the rate limit and the model-quality
+question resolve together.
 
 ## 5. Timeouts stack badly across a fan-out
 
