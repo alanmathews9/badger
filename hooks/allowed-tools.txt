@@ -31,7 +31,31 @@ drive__get_file_metadata
 drive__list_recent_files
 
 # --- github ---------------------------------------------------------------
+# VERIFIED against github-mcp-server 1.9.0 via:
+#   node scripts/mcp-tools.mjs --stdio github-mcp-server stdio --read-only
+# with GITHUB_TOOLSETS=context,repos,issues,pull_requests,users (26 tools
+# offered). Listed below are the ones Badger's skills need; the rest of the 26
+# are read-only too but stay unlisted until a skill actually calls for them.
+
+# search — the entry point for most questions
 github__search_code
-github__search_issues
 github__search_repositories
+github__search_issues
+github__search_pull_requests
+github__search_commits
+github__search_users
+
+# read — for pulling detail on something search surfaced
 github__get_file_contents
+github__issue_read
+github__pull_request_read
+github__get_commit
+github__list_commits
+github__list_issues
+github__list_pull_requests
+
+# ownership — answers "who owns X"
+github__list_repository_collaborators
+
+# identity — resolves "my" / "our" in a question to the authenticated user
+github__get_me

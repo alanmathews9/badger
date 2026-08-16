@@ -159,6 +159,54 @@ Groq registry note: pi-ai's model list is stale here too.
 it is a metadata call and consumes no token quota, so it is always the cheapest
 first move with a new provider.
 
+## 4d. GitHub source, wired and audited
+
+`brew install github-mcp-server` (1.9.0) — no Docker or Go needed, despite the
+README offering only those two. Run as stdio with a plain PAT.
+
+**`--read-only` is real and worth more than any prompt.** Audited both ways
+with `scripts/mcp-tools.mjs`, which lists a server's tools without a model or
+any LLM spend:
+
+- without the flag: **42 tools**, including `merge_pull_request`, `delete_file`,
+  `create_or_update_file`, `issue_write`, `fork_repository`,
+  `add_comment_to_pending_review`, `pull_request_review_write`
+- with the flag: **26 tools**, all read
+
+That list is also the best argument against verb-matching: `issue_write` and
+`pull_request_review_write` contain "write", but `merge_pull_request`,
+`fork_repository` and `add_comment_to_pending_review` do not, and all five
+mutate. The allowlist takes 15 of the 26 by exact name.
+
+`GITHUB_TOOLSETS` restricts which toolsets register at all
+(`context,repos,issues,pull_requests,users` → 26; `context,repos` → 16). Since
+schemas are sent for every registered tool, this is the only real lever on the
+~35k token floor from §4b — worth trimming further once the skills exist and we
+know which tools they actually call.
+
+A remote server exists at `https://api.githubcopilot.com/mcp/`, with
+`/readonly` and per-toolset `/x/<toolset>/readonly` variants. It authenticates
+against the Copilot endpoint rather than accepting a plain PAT, so local stdio
+is the simpler route for us.
+
+**Tool registration is static**, so a placeholder token is enough to enumerate
+a server's surface. That means every source can be audited before a real
+credential exists — do this for Gmail and Drive before wiring them.
+
+## 4e. Silent source failure, observed for real
+
+With `GITHUB_TOKEN` empty, `${VAR}` interpolation substituted an empty string,
+`github-mcp-server` exited with `authentication required`, and gitagent printed
+one stderr line — `[mcp:github] failed to connect ... skipping` — then started
+Badger normally with **zero sources and no indication to the model**. Exactly
+the failure §4 predicts.
+
+Fixed by `hooks/check-sources.sh` (`on_session_start`), which cross-checks
+`hooks/required-env.txt` against the environment and blocks the session if a
+declared source has no credential. Verified: the run now aborts with a named
+list of what is missing instead of answering blind. Refusing to start beats
+reporting "nothing found" for a source never contacted.
+
 ## 5. Timeouts stack badly across a fan-out
 
 Default `timeoutMs` per server is 30 000, covering connect *and* the initial

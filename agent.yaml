@@ -76,7 +76,32 @@ compliance:
 #   - tools register as <server>__<tool>, e.g. gmail__search_threads
 #   - a server that fails to connect is warned about and SKIPPED, not fatal
 # ---------------------------------------------------------------------------
-mcp_servers: {}
+mcp_servers:
+  # Source 1 of 3. Install: brew install github-mcp-server
+  #
+  # Four independent layers keep this read-only, strongest first:
+  #   1. --read-only    the server refuses to register write tools at all.
+  #                     Verified: 42 tools without it, 26 with. It removes
+  #                     merge_pull_request, delete_file, create_or_update_file,
+  #                     issue_write and 12 others.
+  #   2. GITHUB_TOOLSETS  limits which toolsets register at all. This is also
+  #                     the only lever on the ~35k token floor, since schemas
+  #                     are sent for every registered tool (NOTES.md §4b).
+  #   3. the allowlist  hooks/allowed-tools.txt gates by exact name at call time.
+  #   4. PAT scopes     grant read-only scopes only: repo:status, public_repo,
+  #                     read:org. Nothing here can exceed what the token allows.
+  #
+  # A remote alternative exists — https://api.githubcopilot.com/mcp/readonly,
+  # with per-toolset variants at /mcp/x/<toolset>/readonly — but it authenticates
+  # against the Copilot endpoint. Local stdio keeps us on a plain PAT.
+  github:
+    command: github-mcp-server
+    args: ["stdio", "--read-only"]
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
+      GITHUB_TOOLSETS: "context,repos,issues,pull_requests,users"
+    timeoutMs: 30000
+
   # gmail:
   #   command: npx
   #   args: ["-y", "<gmail-mcp-package>"]

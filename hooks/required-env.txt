@@ -1,0 +1,11 @@
+# Credentials each declared source needs, as: <source>=<ENV_VAR>
+#
+# One line per MCP server in agent.yaml's mcp_servers map. If a server is
+# declared there, its credential must exist — otherwise the runtime skips it
+# with a one-line warning and Badger searches fewer sources than it thinks it
+# has. Comment out a line only when its server is also commented out.
+
+github=GITHUB_TOKEN
+
+# gmail=GOOGLE_OAUTH_CREDENTIALS
+# drive=GOOGLE_OAUTH_CREDENTIALS

@@ -10,6 +10,13 @@
 # boundary. RULES.md states the policy; this enforces it.
 
 hooks:
+  on_session_start:
+    - script: check-sources.sh
+      description: >-
+        Refuse to start if a source declared in agent.yaml has no credential.
+        The runtime skips unreachable servers silently, so without this Badger
+        can report "nothing found" for a source it never contacted.
+
   pre_tool_use:
     - script: allow-read-only.sh
       description: >-
