@@ -240,6 +240,13 @@ until billing opens a newer Live model.
 the UI, and leaves text chat running against `agent.yaml`'s Gemini model. That
 is the configuration to demo and to host.
 
+**The web UI creates and checks out a session branch.** Opening it left the repo
+on `chat/20260816-223212`, and every commit made afterwards — including
+deliberate ones — landed there while `main` silently stayed behind on the old
+noisy history. Nothing is lost, but work can end up on a branch you did not
+choose. Run `git rev-parse --abbrev-ref HEAD` after using the UI, and see the
+git policy in CLAUDE.md.
+
 **The text composer is broken in text-only mode.** The input exists in the DOM
 but is laid out at a fixed `left: 810, width: 196` — a sliver in the middle
 column, outside the chat pane, and off-screen entirely on a wide display. It
