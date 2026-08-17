@@ -42,10 +42,42 @@ hosting, no digest agent.
 **`GITHUB_TOKEN` is empty, and the GitHub source is deliberately commented out
 in two files** — `agent.yaml` (the `github:` block) and `hooks/required-env.txt`
 (the `github=GITHUB_TOKEN` line). That was done to test the model in isolation.
+Uncomment **both** when the token exists, or the session will refuse to start.
 
-When a PAT exists (scopes: `repo:status`, `public_repo`, `read:org`), uncomment
-**both**, put the token in `.env`, and run the first real federated query. Until
-then Badger has nothing to search.
+### Demo repo and token — decided 2026-08-17
+
+**Private repo, fine-grained PAT, scoped to that one repository.** A public demo
+repo would contradict the enterprise-search premise, and single-repo scope is
+the same least-privilege discipline as the read-only allowlist. The repo will
+hold invented internal company data — docs, issues, discussions — for Badger to
+search.
+
+Fine-grained token, repository permissions (**read** on all):
+
+| Permission | Needed for |
+|---|---|
+| Metadata | mandatory, implied |
+| Contents | `get_file_contents`, `list_commits`, `get_commit`, `search_code` |
+| Issues | `issue_read`, `list_issues`, `search_issues` |
+| Pull requests | `pull_request_read`, `list_pull_requests`, `search_pull_requests` |
+
+Do **not** use classic scopes (`repo:status`, `public_repo`, `read:org`) — an
+earlier note in this file said to, and it was wrong for a private repo.
+
+### Open risk: code search on a private repo
+
+`github__search_code` is the primary entry point for most questions, and
+**whether it works with a fine-grained token against a private repo is
+unverified.** GitHub's REST reference does not state fine-grained support for
+the search endpoints, and the server's policy doc is missing. Code search also
+only indexes the default branch and files under 384 KB.
+
+**Test this first, before writing the `search-github` skill.** If it fails, the
+skill must reach the same answers another way — `get_file_contents` on known
+paths, `list_commits`, and `search_issues` / `search_pull_requests`, which use
+different endpoints. Design that fallback in from the start rather than
+discovering it during a demo. `list_repository_collaborators` may also need
+Administration:read; drop it if it 403s, as nothing critical depends on it.
 
 ## Then, in order
 

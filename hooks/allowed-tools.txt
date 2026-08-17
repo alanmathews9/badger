@@ -55,6 +55,8 @@ github__list_issues
 github__list_pull_requests
 
 # ownership — answers "who owns X"
+# May require Administration:read on a fine-grained token. If it 403s, drop it:
+# CODEOWNERS via get_file_contents and commit history cover the same question.
 github__list_repository_collaborators
 
 # identity — resolves "my" / "our" in a question to the authenticated user

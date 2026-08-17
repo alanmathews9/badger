@@ -99,8 +99,10 @@ mcp_servers:
   #                     is only ~2.2k tokens/turn, so this is not a cost lever
   #                     (NOTES.md §4b).
   #   3. the allowlist  hooks/allowed-tools.txt gates by exact name at call time.
-  #   4. PAT scopes     grant read-only scopes only: repo:status, public_repo,
-  #                     read:org. Nothing here can exceed what the token allows.
+  #   4. PAT scopes     fine-grained token scoped to the single demo repo, read
+  #                     on Metadata + Contents + Issues + Pull requests. Nothing
+  #                     here can exceed what the token allows. Not classic
+  #                     scopes: the demo repo is private (see CLAUDE.md).
   #
   # A remote alternative exists — https://api.githubcopilot.com/mcp/readonly,
   # with per-toolset variants at /mcp/x/<toolset>/readonly — but it authenticates
