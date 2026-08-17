@@ -26,9 +26,12 @@ import { authEnabled, clearSessionCookie, hasValidSession, issueSessionCookie, p
 import {
   beginGithubConnect,
   chooseRepo,
-  disconnectGithub,
+  disconnectAccount,
+  labelAccounts,
+  listGithubAccounts,
   listRepositories,
   resolveContext,
+  selectAccount,
 } from "./connections.mjs";
 import { budgetStatus, claimAskSlot, clientIp, rateLimit } from "./limits.mjs";
 import { splashPage } from "./splash.mjs";
@@ -77,7 +80,9 @@ const server = createServer(async (req, res) => {
     if (url.pathname === "/api/sources" && req.method === "GET") return await handleSources(req, res);
     if (url.pathname === "/api/connect/github" && req.method === "POST") return await handleConnect(req, res, url);
     if (url.pathname === "/api/connect/callback") return await handleConnectCallback(res);
-    if (url.pathname === "/api/disconnect/github" && req.method === "POST") return await handleDisconnect(req, res);
+    if (url.pathname === "/api/accounts" && req.method === "GET") return await handleAccounts(req, res);
+    if (url.pathname === "/api/accounts/select" && req.method === "POST") return await handleSelectAccount(req, res);
+    if (url.pathname === "/api/accounts/disconnect" && req.method === "POST") return await handleDisconnect(req, res);
     if (url.pathname === "/api/repos" && req.method === "GET") return await handleRepos(req, res);
     if (url.pathname === "/api/repos" && req.method === "POST") return await handleChooseRepo(req, res);
     if (url.pathname === "/api/ask" && req.method === "GET") return await handleAsk(url, req, res);
@@ -214,10 +219,41 @@ async function handleConnectCallback(res) {
   res.end();
 }
 
+/** GET /api/accounts -> every GitHub account this visitor has connected. */
+async function handleAccounts(req, res) {
+  const userId = userIdFor(req);
+  try {
+    const accounts = await labelAccounts(userId, await listGithubAccounts(userId));
+    const ctx = await resolveContext(userId);
+    return json(res, 200, { accounts, activeId: ctx.account, repo: ctx.repo });
+  } catch (err) {
+    console.error("[accounts]", err);
+    return json(res, 502, { error: "could not read your connections" });
+  }
+}
+
+async function handleSelectAccount(req, res) {
+  try {
+    const { accountId } = JSON.parse(await readBody(req));
+    await selectAccount(userIdFor(req), accountId);
+    return json(res, 200, { ok: true });
+  } catch (err) {
+    return json(res, 400, { error: err?.message ?? "could not switch account" });
+  }
+}
+
+/**
+ * POST /api/accounts/disconnect — remove one of *your* accounts.
+ *
+ * connections.mjs checks the account belongs to the asking session before
+ * deleting anything. Without that check an id posted by anyone would delete
+ * someone else's connection.
+ */
 async function handleDisconnect(req, res) {
   try {
-    const removed = await disconnectGithub(userIdFor(req));
-    return json(res, 200, { disconnected: removed });
+    const { accountId } = JSON.parse(await readBody(req));
+    const removed = await disconnectAccount(userIdFor(req), accountId);
+    return json(res, removed ? 200 : 404, removed ? { disconnected: true } : { error: "no such connection" });
   } catch (err) {
     console.error("[disconnect]", err);
     return json(res, 502, { error: "could not disconnect" });
@@ -236,7 +272,7 @@ async function handleRepos(req, res) {
 async function handleChooseRepo(req, res) {
   try {
     const { repo } = JSON.parse(await readBody(req));
-    chooseRepo(userIdFor(req), repo);
+    await chooseRepo(userIdFor(req), repo);
     return json(res, 200, { repo });
   } catch (err) {
     return json(res, 400, { error: err?.message ?? "bad request" });
@@ -356,7 +392,12 @@ async function handleAsk(url, req, res) {
     hooks: {
       preToolUse: (hookCtx) => ({
         action: "modify",
-        args: { ...hookCtx.args, _badger_user: ctx.userId, _badger_repo: ctx.repo },
+        args: {
+          ...hookCtx.args,
+          _badger_user: ctx.userId,
+          _badger_repo: ctx.repo,
+          _badger_account: ctx.account,
+        },
       }),
     },
   });

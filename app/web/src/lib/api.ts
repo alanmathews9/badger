@@ -75,8 +75,37 @@ export async function connectGithub(): Promise<string> {
   return body.redirectUrl;
 }
 
-export async function disconnectGithub(): Promise<void> {
-  const res = await fetch("/api/disconnect/github", { method: "POST" });
+export type Account = {
+  id: string;
+  status: string;
+  label: string;
+  login: string | null;
+  createdAt: string;
+};
+
+export type AccountsResponse = { accounts: Account[]; activeId: string | null; repo: string | null };
+
+export async function fetchAccounts(): Promise<AccountsResponse> {
+  const res = await fetch("/api/accounts");
+  if (!res.ok) return { accounts: [], activeId: null, repo: null };
+  return await res.json();
+}
+
+export async function selectAccount(accountId: string): Promise<void> {
+  const res = await fetch("/api/accounts/select", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ accountId }),
+  });
+  if (!res.ok) throw new Error("could not switch account");
+}
+
+export async function disconnectAccount(accountId: string): Promise<void> {
+  const res = await fetch("/api/accounts/disconnect", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ accountId }),
+  });
   if (!res.ok) throw new Error("could not disconnect");
 }
 

@@ -16,7 +16,7 @@
 import { Composio } from "@composio/core";
 import { DEMO_REPO, DEMO_USER_ID } from "../../tools/scripts/_github.mjs";
 
-const REQUIRE_OWN = process.env.BADGER_REQUIRE_OWN_CONNECTION === "1";
+const DEMO_FALLBACK = process.env.BADGER_DEMO_FALLBACK === "1";
 
 let composio = null;
 function client() {
@@ -27,25 +27,82 @@ function client() {
 /** Which repository a given user's searches are scoped to, in memory. */
 const repoChoice = new Map();
 
+/** Which connected account each user has selected, and their repo choice. */
+const accountChoice = new Map();
+/** GitHub login per connected account, so the UI can label them usefully. */
+const loginCache = new Map();
+
 /**
- * Is this user connected in their own right?
- * Returns the connected account, or null.
+ * Every GitHub account this user has connected.
+ *
+ * Composio allows several per toolkit, and tool calls can target one by id, so
+ * a person with a work account and a personal account can hold both and switch
+ * between them rather than disconnecting and reconnecting.
  */
-export async function githubConnection(userId) {
+export async function listGithubAccounts(userId) {
   try {
     const res = await client().connectedAccounts.list({ userIds: [userId] });
-    const items = res?.items ?? [];
-    return (
-      items.find(
-        (a) =>
-          (a.toolkit?.slug ?? a.toolkitSlug)?.toLowerCase() === "github" &&
-          String(a.status).toUpperCase() === "ACTIVE",
-      ) ?? null
-    );
+    return (res?.items ?? [])
+      .filter((a) => (a.toolkit?.slug ?? a.toolkitSlug)?.toLowerCase() === "github")
+      .filter((a) => !a.isDisabled)
+      .map((a) => ({
+        id: a.id,
+        status: String(a.status ?? "").toUpperCase(),
+        // `alias` is user-set and usually null; `wordId` is Composio's own
+        // readable handle. The GitHub login replaces both once we know it.
+        label: loginCache.get(a.id) ?? a.alias ?? a.wordId ?? a.id,
+        login: loginCache.get(a.id) ?? null,
+        createdAt: (a.createdAt ?? a.created_at ?? "").slice(0, 10),
+      }))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   } catch (err) {
     console.error("[connections] list failed", err?.message);
-    return null;
+    return [];
   }
+}
+
+/**
+ * Ask GitHub who each account belongs to, so accounts are labelled by login
+ * rather than by an opaque id. One call per account, cached for the process,
+ * and only ever made for accounts belonging to the asking user.
+ */
+export async function labelAccounts(userId, accounts) {
+  const unknown = accounts.filter((a) => !loginCache.has(a.id) && a.status === "ACTIVE");
+  if (!unknown.length) return accounts;
+
+  const session = await client().create(userId, {
+    toolkits: ["github"],
+    tools: { github: { enable: ["GITHUB_GET_THE_AUTHENTICATED_USER"] } },
+  });
+
+  await Promise.allSettled(
+    unknown.map(async (account) => {
+      const res = await session.execute("GITHUB_GET_THE_AUTHENTICATED_USER", {
+        connectedAccountId: account.id,
+      });
+      const login = res?.data?.login ?? res?.data?.details?.login;
+      if (login) loginCache.set(account.id, login);
+    }),
+  );
+
+  return accounts.map((a) => ({
+    ...a,
+    login: loginCache.get(a.id) ?? a.login,
+    label: loginCache.get(a.id) ?? a.label,
+  }));
+}
+
+/** The account this user is currently searching as, or the first active one. */
+export async function activeAccount(userId) {
+  const accounts = (await listGithubAccounts(userId)).filter((a) => a.status === "ACTIVE");
+  if (!accounts.length) return null;
+  const chosen = accountChoice.get(userId);
+  return accounts.find((a) => a.id === chosen) ?? accounts[0];
+}
+
+/** Is this user connected in their own right? */
+export async function githubConnection(userId) {
+  return await activeAccount(userId);
 }
 
 /**
@@ -56,17 +113,22 @@ export async function githubConnection(userId) {
  * data is on screen.
  */
 export async function resolveContext(userId) {
-  const own = await githubConnection(userId);
+  const own = await activeAccount(userId);
   if (own) {
     return {
       userId,
-      repo: repoChoice.get(userId) ?? null,
+      repo: repoChoice.get(`${userId}:${own.id}`) ?? null,
       mode: "own",
       account: own.id,
+      label: own.label,
     };
   }
-  if (REQUIRE_OWN) return { userId, repo: null, mode: "none", account: null };
-  return { userId: DEMO_USER_ID, repo: DEMO_REPO, mode: "demo", account: null };
+  // The shared demo corpus, when one is configured. Off by default now that
+  // visitors connect their own accounts: BADGER_DEMO_FALLBACK=1 restores it.
+  if (DEMO_FALLBACK) {
+    return { userId: DEMO_USER_ID, repo: DEMO_REPO, mode: "demo", account: null, label: "demo" };
+  }
+  return { userId, repo: null, mode: "none", account: null, label: null };
 }
 
 /**
@@ -106,13 +168,31 @@ export async function beginGithubConnect(userId, callbackUrl) {
   return { redirectUrl: url, connectionId: request?.id ?? null };
 }
 
-/** Drop this user's GitHub connection. Their own account, their own choice. */
-export async function disconnectGithub(userId) {
-  const own = await githubConnection(userId);
-  if (!own) return false;
-  await client().connectedAccounts.delete(own.id);
-  repoChoice.delete(userId);
+/**
+ * Disconnect one account.
+ *
+ * The ownership check is the security boundary, not a nicety: account ids are
+ * guessable-ish strings, and without it any signed-in visitor could delete
+ * anyone else's connection by posting an id. Only accounts belonging to the
+ * asking user are ever passed to Composio's delete.
+ */
+export async function disconnectAccount(userId, accountId) {
+  const mine = await listGithubAccounts(userId);
+  const target = mine.find((a) => a.id === accountId);
+  if (!target) return false;
+
+  await client().connectedAccounts.delete(target.id);
+  loginCache.delete(target.id);
+  repoChoice.delete(`${userId}:${target.id}`);
+  if (accountChoice.get(userId) === target.id) accountChoice.delete(userId);
   return true;
+}
+
+/** Switch which connected account this user searches as. */
+export async function selectAccount(userId, accountId) {
+  const mine = await listGithubAccounts(userId);
+  if (!mine.some((a) => a.id === accountId)) throw new Error("not your account");
+  accountChoice.set(userId, accountId);
 }
 
 /**
@@ -123,6 +203,7 @@ export async function disconnectGithub(userId) {
  * still read-only.
  */
 export async function listRepositories(userId) {
+  const account = await activeAccount(userId);
   const session = await client().create(userId, {
     toolkits: ["github"],
     tools: { github: { enable: ["GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER"] } },
@@ -130,6 +211,8 @@ export async function listRepositories(userId) {
   const res = await session.execute("GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER", {
     per_page: 100,
     sort: "updated",
+    // Target the account in use, not whichever Composio would pick.
+    ...(account ? { connectedAccountId: account.id } : {}),
   });
   if (res?.error != null) throw new Error(String(res.error).slice(0, 200));
 
@@ -144,11 +227,10 @@ export async function listRepositories(userId) {
     .filter((r) => r.slug);
 }
 
-export function chooseRepo(userId, slug) {
+/** Repositories are chosen per connected account, since each sees different ones. */
+export async function chooseRepo(userId, slug) {
   if (!/^[\w.-]+\/[\w.-]+$/.test(String(slug ?? ""))) throw new Error("not a repository slug");
-  repoChoice.set(userId, slug);
-}
-
-export function chosenRepo(userId) {
-  return repoChoice.get(userId) ?? null;
+  const account = await activeAccount(userId);
+  if (!account) throw new Error("connect a GitHub account first");
+  repoChoice.set(`${userId}:${account.id}`, slug);
 }

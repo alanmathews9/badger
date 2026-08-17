@@ -41,7 +41,10 @@ export function contextFrom(args = {}) {
   const userId = args._badger_user || DEMO_USER_ID;
   const slug = args._badger_repo || DEMO_REPO;
   const [owner, repo] = String(slug).split("/");
-  return { userId, slug, owner, repo };
+  // Which connected account to run as. A user may hold several GitHub
+  // accounts; without this Composio picks one of them for us.
+  const accountId = args._badger_account || null;
+  return { userId, slug, owner, repo, accountId };
 }
 
 // Kept for the CLI path, where there is one user by definition.
@@ -89,10 +92,10 @@ function session(userId) {
  * Execute one allowlisted Composio tool as a given end user.
  * Response shape is { data, error, logId } — there is no `successful` field.
  */
-export async function exec(slug, args, userId = DEMO_USER_ID) {
+export async function exec(slug, args, userId = DEMO_USER_ID, accountId = null) {
   if (!ALLOW.includes(slug)) throw new Error(`tool not allowlisted: ${slug}`);
   const s = await session(userId);
-  const res = await s.execute(slug, args);
+  const res = await s.execute(slug, accountId ? { ...args, connectedAccountId: accountId } : args);
   if (res?.error != null) {
     throw new Error(`${slug} failed: ${JSON.stringify(res.error).slice(0, 300)}`);
   }
