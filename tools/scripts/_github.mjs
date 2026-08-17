@@ -30,7 +30,11 @@ const SLUG = process.env.BADGER_GITHUB_REPO ?? "alanmathews9/arkind-internal";
 export const [OWNER, REPO] = SLUG.split("/");
 export const REPO_SLUG = SLUG;
 
-const ALLOW = [
+// Exported so scripts/composio-session.mjs reports the agent's real surface
+// rather than a second, drifted copy of it. `npm run composio:status` printed
+// 12 tools while the agent could reach 8, which is the wrong number to hand
+// anyone auditing the read-only claim.
+export const ALLOW = [
   "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
   "GITHUB_GET_AN_ISSUE",
   "GITHUB_LIST_ISSUE_COMMENTS",

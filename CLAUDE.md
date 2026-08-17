@@ -90,7 +90,27 @@ not a server — so splitting buys no isolation and costs version pinning.
   executor), Composio per-tool enable list (8 of GitHub's 823 actions), the
   scripts can only call those 8, and `hooks/allow-read-only.sh` gates by exact
   name. The SDK path adds `allowedTools`, which removes tools from the model's
-  schema entirely and cannot fail open.
+  schema entirely and cannot fail open. `npm run composio:status` prints which
+  tools the agent can reach and which are diagnostic-only, and shouts if the
+  enable list is not holding.
+
+  **All four layers are software. The credential underneath is not read-only,
+  and cannot be.** Measured 2026-08-17: the Composio connected account is
+  `OAUTH2` holding `codespace, gist, notifications, project, repo, user,
+  workflow` — account-wide, write-capable, not scoped to the demo repo. This is
+  not fixable by tightening Composio: its GitHub toolkit offers OAUTH2 only (no
+  PAT/bearer scheme), and **GitHub has no read-only OAuth scope for private
+  repositories** — `repo` is the narrowest scope that can read one, and it
+  grants write. So the enforcement *has* to live in the tool layer, which is
+  why there are four of them and why the allowlist is by exact name.
+
+  Two honest improvements, in order of value: request a custom auth config with
+  `repo` alone, dropping six of seven scopes (no Actions workflow edits, no
+  gists); and note that a **GitHub App** with `contents:read`, `issues:read`,
+  `pull_requests:read` on one repository would be genuinely read-only at the
+  credential — but Composio's GitHub toolkit does not offer that scheme, so
+  taking it would mean going around Composio and reopening the multi-user
+  problem that chose Composio in the first place.
 
 - **The web product** in `app/` — three screens (Home, Results, Ask) on Vite +
   React + Tailwind + shadcn/ui. `POST /api/search` retrieves live from GitHub
