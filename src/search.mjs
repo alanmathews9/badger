@@ -16,37 +16,20 @@
 // ANDs every word, so the more the user types the less they find. Measured on
 // the demo repo: "billing" -> 1 hit, "payments" -> 3, "billing payments" -> 0.
 //
-// Onyx hits the same wall and answers it at the top of its search_pipeline:
-// strip the query to its meaningful keywords, then let the engine score
-// documents on *partial* overlap. We can do the first half exactly as they do.
-// For the second half GitHub gives us no partial scoring — it only filters —
-// so we OR the terms into one query and rank the rows ourselves, here.
+// Query planning — stripping the sentence to keywords and OR-ing them — lives
+// in tools/scripts/_search-query.mjs, shared with the agent's own
+// github_search tool. It used to live here alone, and the agent's copy of the
+// behaviour was the bug: the UI found twenty hits while Badger, asked the same
+// question, reported that it had found nothing.
+//
+// What stays here is the half GitHub will not do: it filters, it never scores
+// partial matches, so the ranking and the highlighting happen locally.
 //
 // One API call per search. The search endpoint is capped at 30 requests per
 // minute and returns 403 rather than an empty list when you cross it, so
 // per-term fan-out would have been the expensive way to get the same rows.
 import { exec, asList, clip, OWNER, REPO, REPO_SLUG } from "../tools/scripts/_github.mjs";
-
-// GitHub rejects a query with more than five logical operators — six OR'd
-// terms is the ceiling, verified against the API. Seven terms fails with
-// "Validation Failed: More than N operators", not with fewer results.
-const MAX_TERMS = 6;
-
-// Enough of English to strip the scaffolding out of a spoken question without
-// a dependency. Deliberately short: a stopword list that eats real query terms
-// is worse than none, so this covers function words only.
-const STOPWORDS = new Set(
-  ("a about all am an and any are as at be been being but by can did do does doing done for from" +
-    " had has have having he her here hers him his how i if in into is it its me my no nor not of" +
-    " off on once only or other our out over own same she should so some such than that the their" +
-    " them then there these they this those through to too under until up us was we were what when" +
-    " where which while who whom why will with would you your")
-    .split(" "),
-);
-
-// A query containing GitHub syntax is a power user's, and rewriting it would
-// be rude. These pass through untouched.
-const QUALIFIER = /\b(repo|is|in|label|author|assignee|state|type|created|updated|merged|closed|sort|no|milestone):/i;
+import { buildQuery, planQuery } from "../tools/scripts/_search-query.mjs";
 
 /**
  * One result row, shaped after Onyx's SearchDoc so the UI has the same fields
@@ -80,8 +63,9 @@ export async function search(query, { limit = 20 } = {}) {
   const raw = String(query ?? "").trim();
   if (!raw) throw new SearchError("empty query", 400);
 
-  const { terms, droppedTerms, passthrough } = planQuery(raw);
-  const resolved = buildQuery(raw, terms, passthrough);
+  const plan = planQuery(raw);
+  const { terms, droppedTerms } = plan;
+  const resolved = buildQuery(raw, plan, { repoSlug: REPO_SLUG });
   const perPage = Math.min(Math.max(Number(limit) || 20, 1), 30);
 
   const startedAt = Date.now();
@@ -109,52 +93,6 @@ export async function search(query, { limit = 20 } = {}) {
     apiCalls: 1,
     results: rows,
   };
-}
-
-/**
- * Decide what to actually search for.
- *
- * Returns the keyword terms, any terms dropped for exceeding GitHub's operator
- * ceiling (the UI should say so rather than silently under-searching), and
- * whether the query is passed through verbatim.
- */
-function planQuery(raw) {
-  // Quoted phrases and GitHub qualifiers both mean "the user knows what they
-  // are asking for" — leave the query alone.
-  if (QUALIFIER.test(raw) || raw.includes('"')) {
-    return { terms: [], droppedTerms: [], passthrough: true };
-  }
-
-  const seen = new Set();
-  const candidates = [];
-  for (const word of raw.toLowerCase().split(/[^\p{L}\p{N}_-]+/u)) {
-    const term = word.replace(/^[-_]+|[-_]+$/g, "");
-    if (term.length < 2 || STOPWORDS.has(term) || seen.has(term)) continue;
-    seen.add(term);
-    candidates.push(term);
-  }
-
-  // Everything is a stopword ("how do we do it?"). Searching for nothing finds
-  // nothing, so fall back to the query as typed.
-  if (!candidates.length) return { terms: [], droppedTerms: [], passthrough: true };
-
-  return {
-    terms: candidates.slice(0, MAX_TERMS),
-    droppedTerms: candidates.slice(MAX_TERMS),
-    passthrough: false,
-  };
-}
-
-/**
- * The `repo:` qualifier is always appended, for the same reason the agent's
- * own tool appends it: a bare natural-language query puts GitHub into semantic
- * mode, and semantic mode cannot see issue comments — which is where this
- * corpus deliberately keeps its real answers. Any qualifier switches GitHub to
- * classic keyword search, which does reach comment text. See NOTES.md §4f.
- */
-function buildQuery(raw, terms, passthrough) {
-  const body = passthrough ? raw : terms.join(" OR ");
-  return /\brepo:/.test(raw) ? body : `${body} repo:${REPO_SLUG}`;
 }
 
 async function runSearch(q, perPage) {

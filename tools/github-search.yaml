@@ -10,9 +10,12 @@ input_schema:
     query:
       type: string
       description: >
-        What to look for. Plain words work. GitHub qualifiers are honoured —
-        add "in:title,body,comments" to force keyword search that reaches
-        comment text, "state:closed", "author:name", "label:x".
+        What to look for. Ask in plain words — the query is reduced to keywords
+        and OR'd for you, so a whole question works and you do not need to
+        guess which single word will match. Comment text is searched too.
+        GitHub qualifiers are honoured and still narrow the results:
+        "state:closed", "author:name", "label:x". A "quoted phrase" is searched
+        exactly as written instead of being reduced.
     kind:
       type: string
       enum: [issue, pr, any]
