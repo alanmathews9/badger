@@ -11,9 +11,9 @@ import type { SearchRow } from "@/lib/api";
  *                 later. It stays in the same place for every source, so the
  *                 eye can scan a mixed list by origin.
  *   title start — WHAT it is and what state it is in, in GitHub's own icons
- *                 and colours: green open, purple merged/completed, red
- *                 closed, grey draft. A GitHub user reads it without a legend,
- *                 which is why this replaced the text badges.
+ *                 and colours: green open, purple merged or completed. A
+ *                 GitHub user reads it without a legend, which is why this
+ *                 replaced the text badges.
  *
  * The title is a plain blue link. Nothing else on the row is blue, so blue
  * means "this goes somewhere".
@@ -21,14 +21,14 @@ import type { SearchRow } from "@/lib/api";
 export function ResultRow({ row, terms }: { row: SearchRow; terms: string[] }) {
   return (
     <li className="flex gap-3 border-t border-stone-100 py-3 first:border-t-0">
-      <span className="mt-0.5 shrink-0 text-stone-900" title="From GitHub">
+      <span className="mt-0.5 shrink-0 text-stone-900">
         <GitHubMark size={16} />
       </span>
 
       <div className="min-w-0 flex-1">
         <h3 className="flex items-baseline gap-1.5 text-[15px]/[1.4]">
           <span className="translate-y-[2px]">
-            <StateIcon kind={row.kind} state={row.state} draft={isDraft(row)} />
+            <StateIcon kind={row.kind} state={row.state} />
           </span>
           <a
             href={row.url}
@@ -76,11 +76,3 @@ export function ResultRow({ row, terms }: { row: SearchRow; terms: string[] }) {
   );
 }
 
-/**
- * GitHub's issue-search results carry no draft flag, so this reads the title.
- * A heuristic that is right on this corpus and visibly wrong nowhere else
- * beats a badge that is silently always "not draft".
- */
-function isDraft(row: SearchRow): boolean {
-  return row.kind === "pr" && /^\s*(draft|wip)\b[: ]/i.test(row.title);
-}

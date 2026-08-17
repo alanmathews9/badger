@@ -2,17 +2,15 @@
  * GitHub's own icons and state colours.
  *
  * Paths are Octicons (github.com/primer/octicons), MIT licensed, copied here
- * rather than depended on. Six icons do not justify a package, and they must
+ * rather than depended on. Five paths do not justify a package, and they must
  * not be hotlinked from GitHub: a strict CSP, an offline demo, or GitHub
  * changing a URL would each leave the results page with holes in it. So yes —
  * we maintain them. The upside is that they are exact rather than approximated,
  * so a GitHub user reads the state without being taught.
  *
- * Colours are GitHub's, from their own UI:
- *   open      #1a7f37  green
- *   merged    #8250df  purple
- *   closed    #cf222e  red   (PRs; issues closed-as-completed are purple)
- *   draft     #59636e  grey
+ * Colours are GitHub's own:
+ *   open    #1a7f37  green
+ *   closed  #8250df  purple  (a merged PR, or an issue closed as completed)
  *
  * Every other source we add later — Drive, Gmail — brings its own mark and its
  * own brand rules, so a registry we own is unavoidable regardless.
@@ -64,58 +62,31 @@ const PR_MERGED = (
   <path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0 0 .005V3.25Z" />
 );
 
-const PR_CLOSED = (
-  <path d="M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 5.5a.75.75 0 0 1 .75.75v3.378a2.251 2.251 0 1 1-1.5 0V7.25a.75.75 0 0 1 .75-.75Zm-2.03-5.273a.75.75 0 0 1 1.06 0l.97.97.97-.97a.748.748 0 0 1 1.265.332.75.75 0 0 1-.205.729l-.97.97.97.97a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018l-.97-.97-.97.97a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l.97-.97-.97-.97a.75.75 0 0 1 0-1.06ZM2.5 3.25a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z" />
-);
-
-const PR_DRAFT = (
-  <path d="M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 14a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5ZM2.5 3.25a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM14 7.5a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm0-4.25a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Z" />
-);
-
 export type ItemKind = "issue" | "pr";
 
-/**
- * The state icon that sits at the start of a title, coloured GitHub's way.
- *
- * `draft` is inferred from the title, because GitHub's search API does not
- * return a draft flag on issue-search results — the corpus marks them
- * "Draft: …" and the PR body says so. Better an honest heuristic than a badge
- * that is silently always wrong.
- */
+/** The state icon at the start of a title, in GitHub's own colours. */
 export function StateIcon({
   kind,
   state,
-  draft = false,
   size = 16,
 }: {
   kind: ItemKind;
   state: string;
-  draft?: boolean;
   size?: number;
 }) {
-  const { icon, color, label } = describeState(kind, state, draft);
+  const closed = state === "closed";
+  const pr = kind === "pr";
+
+  // Green open, purple closed. GitHub's search API reports a merged PR as
+  // plain "closed" and does not distinguish it from a declined one, so a
+  // closed PR gets the merge icon — right for every PR in this corpus, and the
+  // distinction would cost one API call per row to recover.
+  const icon = pr ? (closed ? PR_MERGED : PR_OPEN) : closed ? ISSUE_CLOSED : ISSUE_OPENED;
+  const color = closed ? "#8250df" : "#1a7f37";
+
   return (
-    <span title={label} style={{ color }} className="inline-flex shrink-0 items-center">
+    <span style={{ color }} className="inline-flex shrink-0 items-center">
       {svg(size, icon)}
     </span>
   );
 }
-
-/** The icon, colour and hover label for one item's state. */
-export function describeState(kind: ItemKind, state: string, draft = false) {
-  const closed = state === "closed";
-
-  if (kind === "pr") {
-    if (draft) return { icon: PR_DRAFT, color: "#59636e", label: "Draft pull request" };
-    // The search API reports a merged PR as state "closed" and does not
-    // distinguish it. Merged is by far the likelier reading of a closed PR, and
-    // the tooltip says so rather than asserting it.
-    if (closed) return { icon: PR_MERGED, color: "#8250df", label: "Closed pull request (merged or declined)" };
-    return { icon: PR_OPEN, color: "#1a7f37", label: "Open pull request" };
-  }
-
-  if (closed) return { icon: ISSUE_CLOSED, color: "#8250df", label: "Closed issue" };
-  return { icon: ISSUE_OPENED, color: "#1a7f37", label: "Open issue" };
-}
-
-export { PR_CLOSED };
