@@ -7,19 +7,23 @@
 // comments are anchored to a file and line and are where the actionable
 // feedback lives ("this needs the null case"). github_issue only sees the
 // first stream, so triage needs this tool.
-import { exec, run, clip, asList, OWNER, REPO } from "./_github.mjs";
+import { exec, run, clip, asList, contextFrom } from "./_github.mjs";
 
-run(async ({ number, max_comments }) => {
+run(async (args) => {
+  const { number, max_comments } = args;
+  // Whose GitHub, and which repo — injected per request by the server.
+  const { userId, owner: OWNER, repo: REPO } = contextFrom(args);
+
   const n = Number(number);
   if (!Number.isInteger(n) || n < 1) return "ERROR: `number` must be a pull request number.";
 
   const cap = Math.min(Math.max(Number(max_comments) || 30, 1), 60);
   const base = { owner: OWNER, repo: REPO, pull_number: n };
 
-  const pr = await exec("GITHUB_GET_A_PULL_REQUEST", base);
-  const review = asList(await exec("GITHUB_LIST_REVIEW_COMMENTS_ON_A_PULL_REQUEST", { ...base, per_page: cap }));
-  const convo = asList(await exec("GITHUB_LIST_ISSUE_COMMENTS", { owner: OWNER, repo: REPO, issue_number: n, per_page: cap }));
-  const files = asList(await exec("GITHUB_LIST_PULL_REQUESTS_FILES", { ...base, per_page: 50 }));
+  const pr = await exec("GITHUB_GET_A_PULL_REQUEST", base, userId);
+  const review = asList(await exec("GITHUB_LIST_REVIEW_COMMENTS_ON_A_PULL_REQUEST", { ...base, per_page: cap }, userId));
+  const convo = asList(await exec("GITHUB_LIST_ISSUE_COMMENTS", { owner: OWNER, repo: REPO, issue_number: n, per_page: cap }, userId));
+  const files = asList(await exec("GITHUB_LIST_PULL_REQUESTS_FILES", { ...base, per_page: 50 }, userId));
 
   const merged = pr.merged_at ? ` MERGED ${pr.merged_at.slice(0, 10)}` : "";
   const status = pr.state === "open"

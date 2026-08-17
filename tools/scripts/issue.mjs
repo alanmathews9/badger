@@ -5,9 +5,13 @@
 // where the real answer is: the file or the issue body carries the official
 // version, and the thread carries what the team actually concluded. Making the
 // model remember a second call would mean it often stops at the official answer.
-import { exec, run, clip, asList, OWNER, REPO } from "./_github.mjs";
+import { exec, run, clip, asList, contextFrom } from "./_github.mjs";
 
-run(async ({ number, max_comments }) => {
+run(async (args) => {
+  const { number, max_comments } = args;
+  // Whose GitHub, and which repo — injected per request by the server.
+  const { userId, owner: OWNER, repo: REPO } = contextFrom(args);
+
   const n = Number(number);
   if (!Number.isInteger(n) || n < 1) return "ERROR: `number` must be an issue/PR number.";
 
@@ -15,7 +19,7 @@ run(async ({ number, max_comments }) => {
     owner: OWNER,
     repo: REPO,
     issue_number: n,
-  });
+  }, userId);
 
   const cap = Math.min(Math.max(Number(max_comments) || 20, 1), 50);
   const comments = await exec("GITHUB_LIST_ISSUE_COMMENTS", {
@@ -23,7 +27,7 @@ run(async ({ number, max_comments }) => {
     repo: REPO,
     issue_number: n,
     per_page: cap,
-  });
+  }, userId);
 
   const list = asList(comments);
   const type = issue.pull_request ? "PR" : "issue";

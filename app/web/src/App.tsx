@@ -10,7 +10,7 @@ import {
   search,
   type Budget,
   type SearchResponse,
-  type Source,
+  type SourcesResponse,
 } from "@/lib/api";
 import { ask, describeTool } from "@/lib/ask";
 import type { AnswerState } from "@/components/AnswerCard";
@@ -38,16 +38,27 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [answer, setAnswer] = useState<AnswerState>(IDLE);
-  const [sources, setSources] = useState<Source[]>([]);
+  const [sources, setSources] = useState<SourcesResponse>({ mode: "none", repo: null, sources: [] });
   const [budget, setBudget] = useState<Budget | null>(null);
   const { digs, record } = useRecentDigs();
 
   const cancelAsk = useRef<(() => void) | null>(null);
 
-  useEffect(() => {
+  const refreshSources = useCallback(() => {
     fetchSources().then(setSources).catch(() => {});
-    fetchBudget().then(setBudget).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    refreshSources();
+    fetchBudget().then(setBudget).catch(() => {});
+    // Returning from the Composio handshake lands here with ?connected=github.
+    // The parameter is not trusted — it only tells us to go and re-read the
+    // real state — and it is stripped so a reload does not repeat the dance.
+    if (new URLSearchParams(window.location.search).has("connected")) {
+      setMode("tools");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [refreshSources]);
 
   const startAsk = useCallback((question: string, context?: string) => {
     cancelAsk.current?.();
@@ -121,7 +132,7 @@ export default function App() {
       />
       <SidebarInset>
         {mode === "tools" ? (
-          <ToolsScreen sources={sources} />
+          <ToolsScreen sources={sources} onRefresh={refreshSources} />
         ) : mode === "search" ? (
           <SearchScreen
             query={query}

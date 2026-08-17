@@ -52,15 +52,23 @@ export function passphraseMatches(candidate) {
   return sameSecret(candidate ?? "", PASSPHRASE);
 }
 
-/** `<expiry>.<hmac>` — stateless, tamper-evident, and it expires. */
-function sign(expiresAt) {
-  const mac = createHmac("sha256", SECRET).update(String(expiresAt)).digest("hex");
-  return `${expiresAt}.${mac}`;
+/**
+ * `<uid>.<expiry>.<hmac>` — stateless, tamper-evident, and it expires.
+ *
+ * The uid is an opaque random per-browser identifier, minted at sign-in. It is
+ * what makes per-user connections possible without accounts: it becomes the
+ * Composio end-user id, so each visitor's connected sources are their own. No
+ * email, no signup, nothing the visitor has to provide — and because it is
+ * inside the signed cookie, it cannot be forged or swapped for someone else's.
+ */
+function sign(uid, expiresAt) {
+  const mac = createHmac("sha256", SECRET).update(`${uid}.${expiresAt}`).digest("hex");
+  return `${uid}.${expiresAt}.${mac}`;
 }
 
-export function issueSessionCookie() {
+export function issueSessionCookie(uid = randomBytes(9).toString("hex")) {
   const expiresAt = Date.now() + TTL_MS;
-  const value = sign(expiresAt);
+  const value = sign(uid, expiresAt);
   return [
     `${COOKIE}=${value}`,
     "Path=/",
@@ -79,25 +87,47 @@ export function clearSessionCookie() {
   return `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
 }
 
-/** Does this request carry a valid, unexpired session? */
-export function hasValidSession(req) {
-  if (!authEnabled) return true;
-
+/**
+ * Read the session, or null.
+ *
+ * Returns the uid so callers can scope work to this browser. Verifying before
+ * returning it is the whole point: an unsigned uid would let anyone address
+ * another visitor's connected accounts by editing a cookie.
+ */
+export function readSession(req) {
   const raw = parseCookies(req.headers.cookie).get(COOKIE);
-  if (!raw) return false;
+  if (!raw) return null;
 
-  const [expiresAt, mac] = raw.split(".");
-  if (!expiresAt || !mac) return false;
+  const [uid, expiresAt, mac] = raw.split(".");
+  if (!uid || !expiresAt || !mac) return null;
 
-  const expected = createHmac("sha256", SECRET).update(String(expiresAt)).digest("hex");
-  // Compare the MACs in constant time, and only then trust the expiry.
+  const expected = createHmac("sha256", SECRET).update(`${uid}.${expiresAt}`).digest("hex");
   let ok = false;
   try {
     ok = timingSafeEqual(Buffer.from(mac, "hex"), Buffer.from(expected, "hex"));
   } catch {
-    return false; // malformed hex
+    return null; // malformed hex
   }
-  return ok && Number(expiresAt) > Date.now();
+  if (!ok || Number(expiresAt) <= Date.now()) return null;
+  return { uid };
+}
+
+/** Does this request carry a valid, unexpired session? */
+export function hasValidSession(req) {
+  if (!authEnabled) return true;
+  return readSession(req) !== null;
+}
+
+/**
+ * The Composio end-user id for this request.
+ *
+ * With the gate off (local development) there is no cookie, so everything
+ * shares one id — which is correct for one developer on one laptop and wrong
+ * for anything else, hence the gate being required before the server will bind
+ * to a public interface.
+ */
+export function userIdFor(req) {
+  return readSession(req)?.uid ?? "badger-local-dev";
 }
 
 function parseCookies(header) {

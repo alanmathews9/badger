@@ -5,14 +5,18 @@
 // zero hits with incomplete_results: true for every token class (NOTES.md §4e).
 // So files are reached by known path, never by searching their contents. Listing
 // a directory is how you discover the path.
-import { exec, run, clip, OWNER, REPO } from "./_github.mjs";
+import { exec, run, clip, contextFrom } from "./_github.mjs";
 
-run(async ({ path, ref }) => {
+run(async (args) => {
+  const { path, ref } = args;
+  // Whose GitHub, and which repo — injected per request by the server.
+  const { userId, owner: OWNER, repo: REPO } = contextFrom(args);
+
   if (path == null) return "ERROR: `path` is required. Use \"\" for the repository root.";
 
-  const args = { owner: OWNER, repo: REPO, path: String(path) };
-  if (ref) args.ref = String(ref);
-  const data = await exec("GITHUB_GET_REPOSITORY_CONTENT", args);
+  const params = { owner: OWNER, repo: REPO, path: String(path) };
+  if (ref) params.ref = String(ref);
+  const data = await exec("GITHUB_GET_REPOSITORY_CONTENT", params, userId);
 
   // Composio wraps the GitHub payload in `content`: an array of entries for a
   // directory, a single object (with base64 `content`) for a file.

@@ -35,8 +35,17 @@ export type Source = {
   id: string;
   label: string;
   connected: boolean;
+  /** True when this is the visitor's own connection, not the shared demo. */
+  own: boolean;
   detail: string;
 };
+
+/** Whose data a search will read: their own, the shared demo, or nothing yet. */
+export type SourceMode = "own" | "demo" | "none";
+
+export type SourcesResponse = { mode: SourceMode; repo: string | null; sources: Source[] };
+
+export type Repo = { slug: string; private: boolean; updatedAt: string };
 
 export async function search(query: string, limit = 20): Promise<SearchResponse> {
   const res = await fetch("/api/search", {
@@ -52,10 +61,39 @@ export async function search(query: string, limit = 20): Promise<SearchResponse>
   return body;
 }
 
-export async function fetchSources(): Promise<Source[]> {
+export async function fetchSources(): Promise<SourcesResponse> {
   const res = await fetch("/api/sources");
-  if (!res.ok) return [];
-  return (await res.json()).sources ?? [];
+  if (!res.ok) return { mode: "none", repo: null, sources: [] };
+  return await res.json();
+}
+
+/** Start the OAuth handshake. Composio issues the link; we only redirect. */
+export async function connectGithub(): Promise<string> {
+  const res = await fetch("/api/connect/github", { method: "POST" });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body?.error ?? "could not start the connection");
+  return body.redirectUrl;
+}
+
+export async function disconnectGithub(): Promise<void> {
+  const res = await fetch("/api/disconnect/github", { method: "POST" });
+  if (!res.ok) throw new Error("could not disconnect");
+}
+
+export async function fetchRepos(): Promise<Repo[]> {
+  const res = await fetch("/api/repos");
+  const body = await res.json();
+  if (!res.ok) throw new Error(body?.error ?? "could not list repositories");
+  return body.repos ?? [];
+}
+
+export async function chooseRepo(repo: string): Promise<void> {
+  const res = await fetch("/api/repos", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ repo }),
+  });
+  if (!res.ok) throw new Error("could not select that repository");
 }
 
 export type Budget = { answersToday: number; answersRemaining: number; running: number };

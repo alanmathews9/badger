@@ -22,7 +22,14 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "@open-gitagent/gitagent";
 import { search, SearchError } from "./search.mjs";
-import { authEnabled, clearSessionCookie, hasValidSession, issueSessionCookie, passphraseMatches } from "./auth.mjs";
+import { authEnabled, clearSessionCookie, hasValidSession, issueSessionCookie, passphraseMatches, userIdFor } from "./auth.mjs";
+import {
+  beginGithubConnect,
+  chooseRepo,
+  disconnectGithub,
+  listRepositories,
+  resolveContext,
+} from "./connections.mjs";
 import { budgetStatus, claimAskSlot, clientIp, rateLimit } from "./limits.mjs";
 import { splashPage } from "./splash.mjs";
 import { annotateUnverified, extractCitations, verifyCitations } from "./verify-citations.mjs";
@@ -67,7 +74,12 @@ const server = createServer(async (req, res) => {
     }
 
     if (url.pathname === "/api/search" && req.method === "POST") return await handleSearch(req, res);
-    if (url.pathname === "/api/sources" && req.method === "GET") return json(res, 200, sources());
+    if (url.pathname === "/api/sources" && req.method === "GET") return await handleSources(req, res);
+    if (url.pathname === "/api/connect/github" && req.method === "POST") return await handleConnect(req, res, url);
+    if (url.pathname === "/api/connect/callback") return await handleConnectCallback(res);
+    if (url.pathname === "/api/disconnect/github" && req.method === "POST") return await handleDisconnect(req, res);
+    if (url.pathname === "/api/repos" && req.method === "GET") return await handleRepos(req, res);
+    if (url.pathname === "/api/repos" && req.method === "POST") return await handleChooseRepo(req, res);
     if (url.pathname === "/api/ask" && req.method === "GET") return await handleAsk(url, req, res);
     if (url.pathname.startsWith("/api/")) return json(res, 404, { error: "no such endpoint" });
     return await serveStatic(url.pathname, res);
@@ -149,20 +161,86 @@ function html(res, status, body) {
 // the sort of thing a reviewer checks.
 let githubReachable = false;
 
-/** GET /api/sources -> what Badger can actually search right now. */
-function sources() {
-  return {
+/**
+ * GET /api/sources -> what THIS visitor can search right now.
+ *
+ * `mode` is the honest part: "own" when they have connected their own GitHub,
+ * "demo" when they are looking at the shared Arkind corpus, "none" when they
+ * must connect before anything works. The UI says which, because a search
+ * result page that does not tell you whose data it is is a trap.
+ */
+async function handleSources(req, res) {
+  const ctx = await resolveContext(userIdFor(req));
+  return json(res, 200, {
+    mode: ctx.mode,
+    repo: ctx.repo,
     sources: [
       {
         id: "github",
         label: "GitHub",
-        connected: githubReachable,
-        detail: process.env.BADGER_GITHUB_REPO ?? "alanmathews9/arkind-internal",
+        connected: ctx.mode !== "none" && githubReachable,
+        own: ctx.mode === "own",
+        detail: ctx.mode === "own" ? (ctx.repo ?? "no repository chosen") : ctx.repo ?? "not connected",
       },
-      { id: "drive", label: "Drive", connected: false, detail: "not connected" },
-      { id: "gmail", label: "Gmail", connected: false, detail: "not connected" },
+      { id: "drive", label: "Drive", connected: false, own: false, detail: "not connected" },
+      { id: "gmail", label: "Gmail", connected: false, own: false, detail: "not connected" },
     ],
-  };
+  });
+}
+
+/** POST /api/connect/github -> the Composio Connect Link to send the browser to. */
+async function handleConnect(req, res, url) {
+  const limited = rateLimit(req, "search");
+  if (limited) return json(res, 429, { error: limited });
+  try {
+    const callbackUrl = `${url.origin}/api/connect/callback`;
+    const { redirectUrl } = await beginGithubConnect(userIdFor(req), callbackUrl);
+    return json(res, 200, { redirectUrl });
+  } catch (err) {
+    console.error("[connect]", err);
+    return json(res, 502, { error: "could not start the GitHub connection" });
+  }
+}
+
+/**
+ * Where Composio sends the browser back after authorising.
+ *
+ * Composio has already stored the credential by this point; there is nothing
+ * to receive. Bounce back into the app, which polls /api/sources for the new
+ * state rather than trusting a query parameter it did not sign.
+ */
+async function handleConnectCallback(res) {
+  res.writeHead(303, { location: "/?connected=github" });
+  res.end();
+}
+
+async function handleDisconnect(req, res) {
+  try {
+    const removed = await disconnectGithub(userIdFor(req));
+    return json(res, 200, { disconnected: removed });
+  } catch (err) {
+    console.error("[disconnect]", err);
+    return json(res, 502, { error: "could not disconnect" });
+  }
+}
+
+async function handleRepos(req, res) {
+  try {
+    return json(res, 200, { repos: await listRepositories(userIdFor(req)) });
+  } catch (err) {
+    console.error("[repos]", err);
+    return json(res, 502, { error: "could not list repositories — is GitHub connected?" });
+  }
+}
+
+async function handleChooseRepo(req, res) {
+  try {
+    const { repo } = JSON.parse(await readBody(req));
+    chooseRepo(userIdFor(req), repo);
+    return json(res, 200, { repo });
+  } catch (err) {
+    return json(res, 400, { error: err?.message ?? "bad request" });
+  }
 }
 
 /** POST /api/search  {query, limit} -> the results page. No LLM on this path. */
@@ -176,8 +254,16 @@ async function handleSearch(req, res) {
   } catch {
     return json(res, 400, { error: "body must be JSON" });
   }
+  const ctx = await resolveContext(userIdFor(req));
+  if (ctx.mode === "none") {
+    return json(res, 409, { error: "Connect GitHub from the Tools page before searching." });
+  }
+  if (ctx.mode === "own" && !ctx.repo) {
+    return json(res, 409, { error: "Choose a repository on the Tools page before searching." });
+  }
+
   try {
-    return json(res, 200, await search(body.query, { limit: body.limit }));
+    return json(res, 200, await search(body.query, { limit: body.limit, ...ctx }));
   } catch (err) {
     if (err instanceof SearchError) return json(res, err.status, { error: err.message });
     throw err;
@@ -248,9 +334,32 @@ async function handleAsk(url, req, res) {
   const opened = [];
   let answer = "";
 
+  const ctx = await resolveContext(userIdFor(req));
+  if (ctx.mode === "none" || (ctx.mode === "own" && !ctx.repo)) {
+    send("error", { message: "Connect GitHub and choose a repository on the Tools page first." });
+    slot.release();
+    return res.end();
+  }
+
   // maxTurns bounds a runaway loop, which is the failure mode that costs money
   // rather than time.
-  const run = query({ prompt, dir: ROOT, allowedTools: ALLOWED_TOOLS, maxTurns: 12 });
+  const run = query({
+    prompt,
+    dir: ROOT,
+    allowedTools: ALLOWED_TOOLS,
+    maxTurns: 12,
+    // Whose GitHub this run reads. Declarative tools are spawned as
+    // subprocesses with a snapshot of process.env, so an environment variable
+    // would race between concurrent visitors. A preToolUse closure carries the
+    // identity in the call's own arguments instead — per request, in process,
+    // and invisible to the model.
+    hooks: {
+      preToolUse: (hookCtx) => ({
+        action: "modify",
+        args: { ...hookCtx.args, _badger_user: ctx.userId, _badger_repo: ctx.repo },
+      }),
+    },
+  });
 
   // A browser that navigates away should stop the agent, not leave it burning
   // tokens into a closed socket.

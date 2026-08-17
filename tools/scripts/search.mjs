@@ -9,11 +9,15 @@
 // `in:title,body,comments` — which this tool used to advise — did not help,
 // because the failure is AND semantics rather than search mode. See
 // _search-query.mjs for the measurements and for why Onyx never hits this.
-import { exec, run, clip, asList, OWNER, REPO, REPO_SLUG } from "./_github.mjs";
+import { exec, run, clip, asList, contextFrom } from "./_github.mjs";
 import { buildQuery, planQuery } from "./_search-query.mjs";
 
-run(async ({ query, kind, limit, since_days, date_field }) => {
+run(async (args) => {
+  const { query, kind, limit, since_days, date_field } = args;
   if (!query || !String(query).trim()) return "ERROR: `query` is required.";
+
+  // Whose GitHub, and which repo. Injected per request by the server.
+  const { userId, slug: REPO_SLUG, owner: OWNER, repo: REPO } = contextFrom(args);
 
   const extra = [];
   if (kind === "issue") extra.push("is:issue");
@@ -36,7 +40,7 @@ run(async ({ query, kind, limit, since_days, date_field }) => {
   const q = buildQuery(query, plan, { repoSlug: REPO_SLUG, extra });
 
   const per_page = Math.min(Math.max(Number(limit) || 10, 1), 30);
-  const data = await exec("GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS", { q, per_page });
+  const data = await exec("GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS", { q, per_page }, userId);
 
   const items = asList(data);
   const total = data.total_count ?? items.length;

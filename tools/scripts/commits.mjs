@@ -4,15 +4,19 @@
 // Answers "when did this change and who touched it" and, with a path, "who owns
 // this" — which is otherwise unanswerable here, since code search does not serve
 // private repositories.
-import { exec, run, clip, asList, OWNER, REPO } from "./_github.mjs";
+import { exec, run, clip, asList, contextFrom } from "./_github.mjs";
 
-run(async ({ path, author, since, limit }) => {
-  const args = { owner: OWNER, repo: REPO, per_page: Math.min(Math.max(Number(limit) || 15, 1), 50) };
-  if (path) args.path = String(path);
-  if (author) args.author = String(author);
-  if (since) args.since = String(since);
+run(async (args) => {
+  const { path, author, since, limit } = args;
+  // Whose GitHub, and which repo — injected per request by the server.
+  const { userId, owner: OWNER, repo: REPO } = contextFrom(args);
 
-  const data = await exec("GITHUB_LIST_COMMITS", args);
+  const params = { owner: OWNER, repo: REPO, per_page: Math.min(Math.max(Number(limit) || 15, 1), 50) };
+  if (path) params.path = String(path);
+  if (author) params.author = String(author);
+  if (since) params.since = String(since);
+
+  const data = await exec("GITHUB_LIST_COMMITS", params, userId);
   const list = asList(data);
 
   if (!list.length) {

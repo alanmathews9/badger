@@ -18,15 +18,35 @@ import { loadEnvFile } from "./_env.mjs";
 // arrive as real environment variables.
 loadEnvFile(new URL("../../.env", import.meta.url));
 
-// One end user for now. In the hosted product this is the logged-in user's id,
-// which is the whole reason the session model was chosen over a static token.
-export const USER_ID = process.env.BADGER_USER_ID ?? "badger-demo-alan";
+// The shared demo connection: the Arkind corpus, which anyone can search
+// without connecting anything of their own. A visitor who has connected their
+// own GitHub uses theirs instead.
+export const DEMO_USER_ID = process.env.BADGER_USER_ID ?? "badger-demo-alan";
+export const DEMO_REPO = process.env.BADGER_GITHUB_REPO ?? "alanmathews9/arkind-internal";
 
-// The repository Badger is scoped to. Single-repo by design — least privilege,
-// and it keeps search qualifiers honest.
-const SLUG = process.env.BADGER_GITHUB_REPO ?? "alanmathews9/arkind-internal";
-export const [OWNER, REPO] = SLUG.split("/");
-export const REPO_SLUG = SLUG;
+/**
+ * Per-request context.
+ *
+ * The user id and repository used to be module constants read from the
+ * environment. That is wrong the moment two people use the server at once:
+ * declarative tools are spawned as subprocesses with a snapshot of
+ * process.env (dist/tool-loader.js), so a request mutating it would leak into
+ * whichever tool call happened to spawn next.
+ *
+ * They now arrive as arguments instead. The server injects them into every
+ * tool call through a preToolUse closure, so they travel on stdin with the
+ * rest of the args and nothing is shared between requests.
+ */
+export function contextFrom(args = {}) {
+  const userId = args._badger_user || DEMO_USER_ID;
+  const slug = args._badger_repo || DEMO_REPO;
+  const [owner, repo] = String(slug).split("/");
+  return { userId, slug, owner, repo };
+}
+
+// Kept for the CLI path, where there is one user by definition.
+export const [OWNER, REPO] = DEMO_REPO.split("/");
+export const REPO_SLUG = DEMO_REPO;
 
 // Exported so scripts/composio-session.mjs reports the agent's real surface
 // rather than a second, drifted copy of it. `npm run composio:status` printed
@@ -46,24 +66,32 @@ export const ALLOW = [
   "GITHUB_LIST_PULL_REQUESTS_FILES",
 ];
 
-let sessionPromise = null;
+// One session per end user, cached. Creating a session costs about four
+// seconds, so it must not happen per call — but it must not be shared across
+// users either, since the session is what binds tool calls to a connection.
+const sessions = new Map();
 
-function session() {
-  sessionPromise ??= new Composio().create(USER_ID, {
-    toolkits: ["github"],
-    tools: { github: { enable: ALLOW } },
-    sessionPreset: SessionPreset.DIRECT_TOOLS,
-  });
-  return sessionPromise;
+function session(userId) {
+  if (!sessions.has(userId)) {
+    sessions.set(
+      userId,
+      new Composio().create(userId, {
+        toolkits: ["github"],
+        tools: { github: { enable: ALLOW } },
+        sessionPreset: SessionPreset.DIRECT_TOOLS,
+      }),
+    );
+  }
+  return sessions.get(userId);
 }
 
 /**
- * Execute one allowlisted Composio tool.
+ * Execute one allowlisted Composio tool as a given end user.
  * Response shape is { data, error, logId } — there is no `successful` field.
  */
-export async function exec(slug, args) {
+export async function exec(slug, args, userId = DEMO_USER_ID) {
   if (!ALLOW.includes(slug)) throw new Error(`tool not allowlisted: ${slug}`);
-  const s = await session();
+  const s = await session(userId);
   const res = await s.execute(slug, args);
   if (res?.error != null) {
     throw new Error(`${slug} failed: ${JSON.stringify(res.error).slice(0, 300)}`);

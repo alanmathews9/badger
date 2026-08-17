@@ -59,17 +59,18 @@ import { buildQuery, planQuery } from "../../tools/scripts/_search-query.mjs";
  * @param {string} query
  * @param {{limit?: number}} [opts]
  */
-export async function search(query, { limit = 20 } = {}) {
+export async function search(query, { limit = 20, userId, repo } = {}) {
   const raw = String(query ?? "").trim();
   if (!raw) throw new SearchError("empty query", 400);
 
   const plan = planQuery(raw);
   const { terms, droppedTerms } = plan;
-  const resolved = buildQuery(raw, plan, { repoSlug: REPO_SLUG });
+  const slug = repo || REPO_SLUG;
+  const resolved = buildQuery(raw, plan, { repoSlug: slug });
   const perPage = Math.min(Math.max(Number(limit) || 20, 1), 30);
 
   const startedAt = Date.now();
-  const data = await runSearch(resolved, perPage);
+  const data = await runSearch(resolved, perPage, userId);
   const tookMs = Date.now() - startedAt;
 
   const items = asList(data);
@@ -82,12 +83,12 @@ export async function search(query, { limit = 20 } = {}) {
     rows.sort((a, b) => b.score - a.score || b.updatedAt.localeCompare(a.updatedAt));
   }
 
-  const commentCalls = await attachDiscussionMatches(rows, terms);
+  const commentCalls = await attachDiscussionMatches(rows, terms, { slug, userId });
 
   return {
     query: raw,
     resolvedQuery: resolved,
-    repo: `${OWNER}/${REPO}`,
+    repo: slug,
     terms,
     droppedTerms,
     total: data.total_count ?? items.length,
@@ -112,14 +113,18 @@ export async function search(query, { limit = 20 } = {}) {
  * hidden. Rows past the cap keep their honest "matched in the discussion"
  * label with no quote.
  */
-async function attachDiscussionMatches(rows, terms, { max = 4 } = {}) {
+async function attachDiscussionMatches(rows, terms, { max = 4, slug, userId } = {}) {
   if (!terms.length) return 0;
   const targets = rows.filter((r) => r.matchedInDiscussionOnly).slice(0, max);
   if (!targets.length) return 0;
 
   const results = await Promise.allSettled(
     targets.map((row) =>
-      exec("GITHUB_LIST_ISSUE_COMMENTS", { owner: OWNER, repo: REPO, issue_number: row.number }),
+      exec(
+        "GITHUB_LIST_ISSUE_COMMENTS",
+        { owner: (slug ?? REPO_SLUG).split("/")[0], repo: (slug ?? REPO_SLUG).split("/")[1], issue_number: row.number },
+        userId,
+      ),
     ),
   );
 
@@ -147,9 +152,9 @@ async function attachDiscussionMatches(rows, terms, { max = 4 } = {}) {
   return targets.length;
 }
 
-async function runSearch(q, perPage) {
+async function runSearch(q, perPage, userId) {
   try {
-    return await exec("GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS", { q, per_page: perPage });
+    return await exec("GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS", { q, per_page: perPage }, userId);
   } catch (err) {
     const msg = err?.message ?? String(err);
     // A rate limit must never reach the UI looking like "no results" — that is
