@@ -41,6 +41,7 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
   try {
     if (url.pathname === "/api/search" && req.method === "POST") return await handleSearch(req, res);
+    if (url.pathname === "/api/sources" && req.method === "GET") return json(res, 200, sources());
     if (url.pathname.startsWith("/api/")) return json(res, 404, { error: `no such endpoint: ${url.pathname}` });
     return await serveStatic(url.pathname, res);
   } catch (err) {
@@ -49,6 +50,28 @@ const server = createServer(async (req, res) => {
     else res.end();
   }
 });
+
+// Whether the boot-time warmup actually reached GitHub. The footer reports
+// this rather than a hardcoded "connected", so the UI cannot claim a source it
+// does not have — the mockup's "GitHub, Drive and Gmail connected" is exactly
+// the sort of thing a reviewer checks.
+let githubReachable = false;
+
+/** GET /api/sources -> what Badger can actually search right now. */
+function sources() {
+  return {
+    sources: [
+      {
+        id: "github",
+        label: "GitHub",
+        connected: githubReachable,
+        detail: process.env.BADGER_GITHUB_REPO ?? "alanmathews9/arkind-internal",
+      },
+      { id: "drive", label: "Drive", connected: false, detail: "not connected" },
+      { id: "gmail", label: "Gmail", connected: false, detail: "not connected" },
+    ],
+  };
+}
 
 /** POST /api/search  {query, limit} -> the results page. No LLM on this path. */
 async function handleSearch(req, res) {
@@ -132,8 +155,9 @@ server.listen(PORT, async () => {
   // Pay it at boot rather than making the first person to search wait for it.
   try {
     await search("badger-warmup", { limit: 1 });
+    githubReachable = true;
     console.log("github session warm");
   } catch (err) {
-    console.error(`github session cold — first search will be slow: ${err.message}`);
+    console.error(`github unreachable — search will fail until this is fixed: ${err.message}`);
   }
 });

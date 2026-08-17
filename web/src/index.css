@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+/* Badger's palette is Tailwind's stone ramp with amber reserved for one job:
+   marking what matched, and what a claim is sourced from. Nothing else in the
+   app is coloured. Everything below maps shadcn's variable names onto that, so
+   any component added with `npx shadcn add` lands looking like the rest. */
+:root {
+  --radius: 0.625rem;
+
+  --background: #ffffff;
+  --foreground: #1c1917; /* stone-900 */
+
+  --card: #ffffff;
+  --card-foreground: #1c1917;
+  --popover: #ffffff;
+  --popover-foreground: #1c1917;
+
+  --primary: #1c1917;
+  --primary-foreground: #fafaf9; /* stone-50 */
+
+  --secondary: #f5f5f4; /* stone-100 */
+  --secondary-foreground: #1c1917;
+
+  --muted: #f5f5f4;
+  --muted-foreground: #78716c; /* stone-500 */
+
+  --accent: #f5f5f4;
+  --accent-foreground: #1c1917;
+
+  --destructive: #b91c1c; /* red-700 */
+
+  --border: #e7e5e4; /* stone-200 */
+  --input: #d6d3d1; /* stone-300 */
+  --ring: #1c1917;
+}
+
+@theme inline {
+  --font-sans: Geist, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+}
