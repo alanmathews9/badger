@@ -20,7 +20,9 @@ import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
+import { query } from "@open-gitagent/gitagent";
 import { search, SearchError } from "./search.mjs";
+import { annotateUnverified, extractCitations, verifyCitations } from "./verify-citations.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const WEB_DIST = join(ROOT, "web", "dist");
@@ -42,6 +44,7 @@ const server = createServer(async (req, res) => {
   try {
     if (url.pathname === "/api/search" && req.method === "POST") return await handleSearch(req, res);
     if (url.pathname === "/api/sources" && req.method === "GET") return json(res, 200, sources());
+    if (url.pathname === "/api/ask" && req.method === "GET") return await handleAsk(url, req, res);
     if (url.pathname.startsWith("/api/")) return json(res, 404, { error: `no such endpoint: ${url.pathname}` });
     return await serveStatic(url.pathname, res);
   } catch (err) {
@@ -87,6 +90,128 @@ async function handleSearch(req, res) {
     if (err instanceof SearchError) return json(res, err.status, { error: err.message });
     throw err;
   }
+}
+
+// The same allowlist hooks/allowed-tools.txt enforces, applied in-process.
+// Unlike the shell hook this cannot fail open: allowedTools removes everything
+// else from the model's schema, so a crashed script cannot leave a tool
+// callable. No cli, write, edit, task_tracker or skill_learner.
+const ALLOWED_TOOLS = [
+  "github_search",
+  "github_issue",
+  "github_pr",
+  "github_file",
+  "github_commits",
+  "read",
+  "memory",
+];
+
+/**
+ * GET /api/ask?q=… — the second pass, streamed.
+ *
+ * This is scripts/badger-sdk.mjs with an HTTP wrapper, deliberately: same
+ * allowlist, same verification, same refusal to trust a citation nobody
+ * retrieved. Watching Badger search is the demo, so tool calls and text
+ * deltas are forwarded the moment they arrive rather than buffered into one
+ * response at the end.
+ *
+ * Safe to run from a long-lived server: ensureRepo and its auto-commit live in
+ * the CLI entry point (dist/index.js), and dist/sdk.js contains no git calls
+ * at all. query() will not commit to the repo on each request.
+ */
+async function handleAsk(url, req, res) {
+  const prompt = (url.searchParams.get("q") ?? "").trim();
+  if (!prompt) return json(res, 400, { error: "q is required" });
+
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache, no-transform",
+    connection: "keep-alive",
+  });
+  const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
+  const startedAt = Date.now();
+  const toolOutputs = [];
+  const toolCalls = [];
+  const opened = [];
+  let answer = "";
+
+  const run = query({ prompt, dir: ROOT, allowedTools: ALLOWED_TOOLS });
+  // A browser that navigates away should stop the agent, not leave it burning
+  // tokens into a closed socket.
+  req.on("close", () => run.abort?.());
+
+  try {
+    for await (const msg of run) {
+      switch (msg.type) {
+        case "tool_use":
+          toolCalls.push(msg.toolName);
+          recordOpened(opened, msg);
+          send("tool", { name: msg.toolName, args: msg.args ?? {} });
+          break;
+        case "tool_result":
+          // Everything Badger actually retrieved. This is the corpus a
+          // citation has to appear in to count as verified.
+          toolOutputs.push(
+            typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content),
+          );
+          break;
+        case "delta":
+          if (msg.deltaType === "text" && msg.content) send("delta", { text: msg.content });
+          break;
+        case "assistant":
+          if (msg.content) answer = msg.content;
+          break;
+        case "system":
+          if (msg.subtype === "error") send("warning", { message: msg.content });
+          break;
+      }
+    }
+  } catch (err) {
+    send("error", { message: err?.message ?? "the agent failed" });
+    return res.end();
+  }
+
+  const verification = verifyCitations(answer, toolOutputs);
+  const cited = extractCitations(answer);
+  const costs = typeof run.costs === "function" ? run.costs() : null;
+
+  send("done", {
+    // Bad citations are marked inline rather than withholding the answer: the
+    // reader needs to know which claim to distrust, not that something
+    // somewhere is wrong.
+    answer: annotateUnverified(answer, verification),
+    verification,
+    toolCalls,
+    // What Badger opened, and which of those it went on to cite. The gap
+    // between the two is the honesty signal the design asks for: "N items
+    // were opened but not cited".
+    opened,
+    cited: opened.filter((item) => isCited(item, cited)),
+    tookMs: Date.now() - startedAt,
+    costUsd: costs?.totalCostUsd ?? null,
+    inputTokens: costs?.totalInputTokens ?? null,
+    outputTokens: costs?.totalOutputTokens ?? null,
+  });
+  res.end();
+}
+
+/** Note what a tool call opened, so the answer can be compared against it. */
+function recordOpened(opened, msg) {
+  const args = msg.args ?? {};
+  const add = (kind, ref, label) => {
+    if (ref == null || opened.some((o) => o.kind === kind && o.ref === String(ref))) return;
+    opened.push({ kind, ref: String(ref), label: label ?? String(ref) });
+  };
+  if (msg.toolName === "github_issue") add("issue", args.number, `issue #${args.number}`);
+  if (msg.toolName === "github_pr") add("pr", args.number, `PR #${args.number}`);
+  if (msg.toolName === "github_file") add("file", args.path, args.path);
+}
+
+/** Did the answer actually cite this opened item? */
+function isCited(item, cited) {
+  if (item.kind === "file") return cited.paths.includes(item.ref);
+  return cited.numbers.includes(item.ref);
 }
 
 /**

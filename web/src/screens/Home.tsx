@@ -19,7 +19,10 @@ export function Home({
 }: {
   query: string;
   onQueryChange: (next: string) => void;
-  onSubmit: () => void;
+  /** Takes the query explicitly: a recent dig submits a value that has not
+      been through a render yet, so reading it back from state would be one
+      keystroke stale. */
+  onSubmit: (query?: string) => void;
   busy: boolean;
   digs: Dig[];
 }) {
@@ -62,7 +65,7 @@ export function Home({
                     <button
                       onClick={() => {
                         onQueryChange(dig.query);
-                        onSubmit();
+                        onSubmit(dig.query);
                       }}
                       className="flex w-full items-center gap-3 border-b border-stone-100 px-0.5 py-2.5 text-left hover:bg-stone-50"
                     >

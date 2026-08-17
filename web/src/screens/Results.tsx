@@ -1,4 +1,5 @@
 import { ArrowLeft, Loader2 } from "lucide-react";
+import { AnswerCard, type AnswerState } from "@/components/AnswerCard";
 import { DigInput } from "@/components/DigInput";
 import { ResultRow } from "@/components/ResultRow";
 import { TopBar } from "@/components/TopBar";
@@ -20,6 +21,7 @@ export function Results({
   busy,
   error,
   data,
+  answer,
 }: {
   query: string;
   onQueryChange: (next: string) => void;
@@ -28,6 +30,7 @@ export function Results({
   busy: boolean;
   error: string | null;
   data: SearchResponse | null;
+  answer: AnswerState;
 }) {
   return (
     <div className="flex h-dvh flex-col bg-white text-stone-900">
@@ -56,6 +59,10 @@ export function Results({
 
       <main className="min-h-0 flex-1 overflow-y-auto px-6 pt-5 pb-16">
         <div className="max-w-[820px]">
+          {/* The answer sits above the results and streams into place; the
+              list below it never waits for the agent to finish. */}
+          <AnswerCard state={answer} onOpen={() => {}} />
+
           {error && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">
               {error}
