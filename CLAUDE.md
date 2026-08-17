@@ -72,7 +72,78 @@ The four things that change what we build:
   rather than cross-referenced. A fourth file, `DUTIES.md`, holds the per-task
   order of operations.
 
-### 2. Turn the GitHub source on
+### 2. Composio is the integration layer — decided 2026-08-17
+
+**This supersedes the per-source MCP plan below.** Badger becomes a hosted
+product: users log in, connect their tools through an OAuth flow, land on a
+search results page, and chat on top of it. Glean's actual shape.
+
+**The decisive reason is multi-user, not convenience.** Today Badger reads
+`GITHUB_TOKEN` from `.env` on one laptop — one token, one user, one machine.
+Nothing about that serves a stranger connecting their own Gmail. Composio
+assigns each end user an ID, stores and isolates their tokens per user, refreshes
+OAuth automatically, and hosts the connect page you redirect to. It is the only
+one of the two options that can do what the product needs.
+
+Free tier is real and ample: 100k tool calls/month, 50k trigger events, no credit
+card, hard-capped so it cannot produce a bill. Our measured usage is a few calls
+per query.
+
+**What this does to the architecture.** Badger splits in two, which the framework
+sanctions — the GitAgent SDK is pitched as "the production entry point", imported
+into a Node app and driven by `query()`:
+
+- **the agent repo** — `agent.yaml`, `SOUL.md`, `RULES.md`, `skills/`. The brain.
+  Unchanged, still git-native, still the thesis.
+- **a web app around it** — login, connect buttons, results page, chat.
+
+**Read-only stops being free, and this is the part that needs care.** Ten sources
+means hundreds of tools, many of which write. The current guarantee rests on a
+hand-audited list of 15 exact GitHub tool names; nobody hand-audits 200 apps.
+The mechanism survives — Composio supports per-action allowlists and read-only
+OAuth scope configs, and `hooks/allow-read-only.sh` still gates by exact name at
+call time — but it becomes real work per source. Ship five sources genuinely
+locked down over ten waved at. "It never writes" is the claim everything rests on.
+
+**Order of work — decided, do not invert.** One source end-to-end before breadth.
+Get GitHub answering a real question with citations through Composio, confirm the
+read-only gate still holds, then add sources in a batch. Once one source works,
+the next eight are mostly configuration; if retrieval is bad, ten sources make it
+bad ten times. We currently have **zero** working sources, so breadth-first risks
+impressive plumbing attached to answers that don't cite.
+
+**Settled: Composio exposes a hosted MCP endpoint, so it drops straight into
+`mcp_servers:`.** No SDK detour needed for the agent itself.
+
+    https://backend.composio.dev/v3/mcp/<SERVER_ID>?user_id=<USER_ID>
+
+authenticated by an `x-api-key` header, which is exactly the `type: http` + `url`
++ `headers` shape already verified against `dist/mcp/manager.js` (NOTES.md) and
+already drafted in the commented-out block at the foot of `agent.yaml`.
+
+Three properties that matter:
+
+- **`allowed_tools` is set server-side on the MCP server config**, by exact tool
+  name (`GMAIL_FETCH_EMAILS`). That is a second, independent read-only layer
+  above `hooks/allow-read-only.sh` — and it is the same server-side narrowing
+  the framework's authors used with Exa's `?tools=` parameter, so it is idiomatic
+  as well as safer. Defence in depth survives the move to Composio.
+- **`user_id` is a query parameter on the URL**, so the per-user URL is minted
+  per session — `composio.mcp.generate(user_id, mcp_config_id)`. Multi-user
+  works without the agent repo knowing anything about users.
+- One server config per toolkit is supported, so sources stay separately scoped
+  rather than collapsing into one blanket grant.
+
+Caveat recorded: the MCP endpoint exposes only Composio's hosted tools. Anything
+custom has to go through the SDK instead.
+
+Probe it with `scripts/mcp-tools.mjs` before wiring — same discipline as every
+other source, and it is how we find the real tool names for the allowlist.
+
+**Alan needs to create the Composio account** — account creation is not something
+I do. Free tier, no card.
+
+### 2b. Turn the GitHub source on (superseded in part — see above)
 
 `agent.yaml` (the `github:` block) and `hooks/required-env.txt` (the
 `github=GITHUB_TOKEN` line) are both still commented out from when the token
