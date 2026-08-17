@@ -24,9 +24,14 @@ tools:
   - github_issue
   - github_file
   - github_commits
+  - github_pr
 
 skills:
-  - answer-question
+  - trace-decision
+  - find-expert
+  - onboard-to-project
+  - triage-pr-feedback
+  - activity-digest
 
 runtime:
   max_turns: 40

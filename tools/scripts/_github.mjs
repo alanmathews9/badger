@@ -36,6 +36,12 @@ const ALLOW = [
   "GITHUB_LIST_ISSUE_COMMENTS",
   "GITHUB_GET_REPOSITORY_CONTENT",
   "GITHUB_LIST_COMMITS",
+  // A pull request's inline review comments are a different endpoint from its
+  // conversation comments, and triage needs the inline ones — that is where
+  // "you need to handle the null case" lives.
+  "GITHUB_GET_A_PULL_REQUEST",
+  "GITHUB_LIST_REVIEW_COMMENTS_ON_A_PULL_REQUEST",
+  "GITHUB_LIST_PULL_REQUESTS_FILES",
 ];
 
 let sessionPromise = null;

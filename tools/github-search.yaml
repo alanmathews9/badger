@@ -20,6 +20,16 @@ input_schema:
     limit:
       type: integer
       description: Maximum results, 1-30. Default 10.
+    since_days:
+      type: integer
+      description: >
+        Restrict to the last N days. The date is computed for you — always use
+        this instead of writing a created:/merged:/closed: qualifier yourself,
+        because you do not reliably know today's date.
+    date_field:
+      type: string
+      enum: [created, merged, closed, updated]
+      description: Which date since_days applies to. Default created.
   required: [query]
 implementation:
   script: scripts/search.mjs

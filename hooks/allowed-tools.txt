@@ -30,6 +30,7 @@ memory
 
 github_search
 github_issue
+github_pr
 github_file
 github_commits
 
