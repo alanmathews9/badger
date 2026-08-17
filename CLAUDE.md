@@ -15,7 +15,121 @@ four fifths of the grade.
 
 ---
 
-# START HERE — state as of 2026-08-17
+# START HERE — state as of 2026-08-18
+
+**All three sources work. The next job is replacing the corpus.**
+
+Badger searches GitHub, Gmail and Drive, merges the results on one locally
+computed score, and answers with citations it verifies. The README exists. What
+is wrong is the *content*: the Arkind-the-consultancy corpus is too abstract to
+demo with, and replacing it is the current task.
+
+## The task in front of you — read this first
+
+**Build the new corpus.** Full inventory, approved by Alan on 2026-08-18:
+<https://claude.ai/code/artifact/68231172-f636-4e69-a593-aa7ec4a98408>
+
+**Arkind is now a SaaS company: appointment booking for small clinics.** Dentists,
+physios and vets use it so patients can book online, get a reminder and leave a
+deposit. 40 people, 6 departments, Bengaluru and Lisbon.
+
+Why it changed: a consultancy's work is abstract — scope, weeks, billing — so
+every answer needed a glossary and an evaluator could not tell a good answer
+from a bad one. "Why did Halden slip?" was answered with reconciliation modules
+and compressed discovery. Nobody can judge that. A reminder text arriving at
+3am is wrong in a way anyone can judge instantly. **Legibility is the point of
+the rewrite**; better retrieval precision is a secondary benefit, because when
+every document is about the same abstraction, term coverage has nothing to
+discriminate on.
+
+The central story keeps Halden's *shape* and changes its subject: **the Android
+app shipped five weeks late.** Drive's release notes blame App Store review;
+GitHub issue #8 says the sync layer was rewritten twice and review took 4 of
+the 35 days; the Gmail thread shows the team choosing that wording. PR #30 sits
+closed and unmerged as hard evidence of the first rewrite.
+
+### Decisions already made — do not relitigate
+
+- **Reserved domains only.** Staff `@arkind.example`, customers
+  `@brightsmile.example`. RFC 2606 reserves these permanently. This is not
+  fussiness: `brightsmile.com` is a **real registered domain**, checked, and the
+  old corpus would have shown a real company being misled about a delivery date.
+  Nothing is ever sent — `GMAIL_IMPORT_MESSAGE` writes to the mailbox without
+  SMTP — but the addresses are still visible to anyone reading the demo.
+- **Write the repository files, do not clone one.** GitHub code search does not
+  serve private repos at all (§4e), so a large third-party codebase would be
+  bulk Badger cannot search, and it would contradict every issue we write. ~25
+  small files, sized so that every issue naming a file has a file to name.
+- **A new GitHub account, `alan-arkind`, holding one repository.** The old
+  `alanmathews9` connection carries account-wide OAuth scopes and can reach
+  every private repo Alan owns. One account with one repo makes the credential
+  restricted *by fact* rather than by our tool layer declining to look — the
+  strongest read-only story available, since GitHub has no read-only scope for
+  private repositories.
+- **Customer support mail is part of the corpus**, at Alan's request: five
+  threads where a clinic reports a problem and support answers. It connects a
+  customer's words to an engineering issue, shows what support promises versus
+  what policy says, and supplies the ordinary traffic retrieval must
+  discriminate against.
+
+### Order of work
+
+1. `scripts/seed/company.mjs` — cast, customers, departments, shared facts.
+2. `scripts/seed-github.mjs` + `scripts/seed/corpus-github.mjs`. **This does not
+   exist yet** — the old repo was built by hand, which is why it cannot be
+   reproduced. All the write tools needed are confirmed present:
+   `GITHUB_CREATE_A_REPOSITORY_FOR_THE_AUTHENTICATED_USER`,
+   `CREATE_OR_UPDATE_FILE_CONTENTS` (has `author__date`, so commits can be
+   backdated), `CREATE_AN_ISSUE`, `CREATE_AN_ISSUE_COMMENT`,
+   `CREATE_A_REFERENCE`, `CREATE_A_PULL_REQUEST`, `MERGE_A_PULL_REQUEST`,
+   `UPDATE_AN_ISSUE`, `CREATE_A_REVIEW_COMMENT_FOR_A_PULL_REQUEST`. The seeder
+   creates the repo itself, private, named `arkind`.
+3. Rewrite `scripts/seed/corpus-drive.mjs` and `corpus-gmail.mjs`.
+4. Seed and verify all three.
+5. **Only then** remove the old corpus, and disconnect `alanmathews9` from the
+   demo user so one GitHub account remains.
+6. Update README, this file, and the skills — all reference Halden and
+   Arkind-the-consultancy by name.
+7. Then the eval set (below).
+
+**Nothing is deleted until the replacement is verified.** Both GitHub accounts
+are attached to `badger-demo-alan` in the meantime, which Composio only allowed
+with `allowMultiple: true` — so pass an explicit `connectedAccountId` when
+seeding, because otherwise Composio picks one for you.
+
+### After the corpus: accuracy, then UI
+
+Alan's three remaining goals, in the order agreed: **accuracy**, then **UI**,
+then possibly indexing. Indexing is deliberately last — today's evidence says
+retrieval is not what fails. Every test returned the right material; what went
+wrong was the model choosing and characterising it. Two real defects observed:
+a September capacity thread cited for a "why did it slip" question, and "three
+weeks" reported as "two weeks".
+
+**The first accuracy task is an eval set, not a fix.** Ten to fifteen questions
+with known-correct answers and known-correct sources, run as a script. Without
+it every change is guesswork. The cross-source questions in the artifact are the
+starting list. Build it against the *new* corpus.
+
+**Worth starting early, because it has a waiting period:** request Vertex
+preview access for Gemini 2.5 Pro. Flash is in use because Pro is locked out,
+not by choice, and some of the sharpness problem may simply be the model tier.
+
+### Also outstanding
+
+- **Production is stale.** The deployed service predates Gmail, Drive,
+  cross-source search and the README. One `gcloud run deploy` picks all of it up.
+- **The passphrase rotation** is agreed but not done. Alan sets it himself:
+  `read -rs -p "New: " P && printf '%s' "$P" | gcloud secrets versions add
+  badger-passphrase --data-file=- && unset P`. **`printf '%s'` matters** —
+  `auth.mjs` compares exactly with no trimming, so a trailing newline from
+  `echo` silently refuses every login. Needs a redeploy to take effect, since
+  the secret is mounted as `:latest` and resolved at instance start.
+- Billing budget alert still unset (console job). Chat history not persisted.
+
+---
+
+## The state before all that — still true
 
 **Badger is built, gated and hosted.**
 **https://badger-1033557908241.us-central1.run.app** — the passphrase is held
@@ -34,13 +148,13 @@ cost. Read-only holds at four independent layers.
     npm run serve                                                     # web UI on :4000
     npm run check:agent                                               # the agent still stands alone
 
-**The one job left: seed Gmail and Drive, then search all three.** Alan is
-creating the Google account; nothing starts until it exists and is connected
-through Tools → Manage. Everything needed is audited and recorded below.
+**Done 2026-08-17/18 and no longer open:** Gmail and Drive are connected and
+seeded, the agent has five Google tools, `/api/search` merges all three sources
+on one locally computed score, citation verification covers mail and documents,
+and the README exists. The demo fallback is now **on** by default, so a visitor
+who connects nothing searches the seeded corpus.
 
-**Not yet done, and worth knowing:** there is no README, and it is the
-highest-value writing left — it carries research, design and the honest limits.
-The billing alert is still unset (console job). Chat history is not persisted.
+What remains is in the task section above.
 
 ## Repository shape — the agent, and the product built on it
 
