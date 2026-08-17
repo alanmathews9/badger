@@ -123,21 +123,26 @@ upgrade, and it comes with a bonus: paid tier should also unlock
 `gemini-3.1-pro-preview` (see §7), so the rate limit and the model-quality
 question resolve together.
 
-## 4b. Badger's fixed overhead is ~35k tokens per turn
+## 4b. Badger's per-turn overhead is ~2.2k tokens (measured)
 
-Groq rejected a one-line prompt with `Requested 34722` tokens. That number is
-the floor for any Badger turn: system prompt (SOUL.md + RULES.md + memory +
-runtime scaffolding) plus the JSON schemas for all eight always-loaded builtin
-tools.
+Measured on Vertex via Cloud Monitoring
+(`aiplatform.googleapis.com/publisher/online_serving/token_count`): three
+`gemini-2.5-flash` turns consumed **6,675 input + 92 output tokens**, so roughly
+**2,200 input tokens per turn** with eight builtin tools registered and no MCP
+sources. Cost: about $0.002 for all three.
 
-The allowlist hook blocks tools at **call** time, not registration time, so we
-pay for the schemas of tools Badger is forbidden to use. Every MCP server adds
-its own on top — `@modelcontextprotocol/server-filesystem` alone contributed 14
-tools. Three real sources will push the floor higher still.
+**Correction.** This file previously claimed a ~35k floor, taken from Groq's
+rejection message (`Requested 34722`). The metered figure is ~15x lower. A
+provider's estimate attached to a refusal is not the same measurement as a
+meter on work performed; trust the meter. The gap is unexplained — do not build
+arguments on the 35k number.
 
-Implications: pick MCP servers with narrow tool surfaces where there's a
-choice, and treat "tokens per minute" limits as the binding constraint rather
-than "requests per minute".
+What still holds: the allowlist blocks tools at **call** time, not registration
+time, so schemas are sent for tools Badger may not use, and every MCP server
+adds more (`server-filesystem` contributed 14; GitHub adds 26). Keeping the
+registered surface narrow is worth doing for the model's sake — a smaller,
+sharper tool list means better tool choice — but at 2.2k/turn it is not a
+meaningful cost lever, which is how it was wrongly framed here before.
 
 ## 4c. Free tiers, tested: neither provider can run Badger
 

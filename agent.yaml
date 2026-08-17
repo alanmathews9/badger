@@ -106,9 +106,10 @@ mcp_servers:
   #                     Verified: 42 tools without it, 26 with. It removes
   #                     merge_pull_request, delete_file, create_or_update_file,
   #                     issue_write and 12 others.
-  #   2. GITHUB_TOOLSETS  limits which toolsets register at all. This is also
-  #                     the only lever on the ~35k token floor, since schemas
-  #                     are sent for every registered tool (NOTES.md §4b).
+  #   2. GITHUB_TOOLSETS  limits which toolsets register at all. Worth keeping
+  #                     narrow so the model chooses tools well; measured spend
+  #                     is only ~2.2k tokens/turn, so this is not a cost lever
+  #                     (NOTES.md §4b).
   #   3. the allowlist  hooks/allowed-tools.txt gates by exact name at call time.
   #   4. PAT scopes     grant read-only scopes only: repo:status, public_repo,
   #                     read:org. Nothing here can exceed what the token allows.
