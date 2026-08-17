@@ -151,6 +151,20 @@ session signing key, the passphrase. The service runs as a dedicated
 `secretAccessor` on those three secrets — rather than the default compute
 account, which carries far more.
 
+**Image storage grows ~59MB per deploy, measured not assumed.** A redeploy
+with zero code changes took the Artifact Registry repo from 140.4MB to
+199.4MB, because `--source .` builds on a fresh Cloud Build worker with no
+layer cache: `npm ci` re-runs and produces a new layer digest every time, since
+npm installs are not byte-reproducible. Only the node:24-slim base is shared.
+At that rate the 500MB free tier arrives in about five deploys, so a cleanup
+policy is applied and enforcing (not dry-run): keep the three most recent
+versions, delete anything older than seven days.
+
+The image is almost entirely node_modules — 272MB on disk for two production
+dependencies. The agent and the whole frontend together are under half a
+megabyte. Adding Gmail and Drive will not change this: they are Composio
+toolkits, so they add tool YAML and config rather than npm packages.
+
 **Still to do:** a billing budget alert. `gcloud billing budgets create` needs
 the billingbudgets API enabled against the billing account's own quota project;
 easiest in the console. The app-level cap is the real protection and is already
