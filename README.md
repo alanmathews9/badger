@@ -7,7 +7,8 @@ your Google Drive **at the moment you ask**, opens the threads that look
 relevant, and answers with citations it then verifies against what it actually
 retrieved.
 
-**Live:** https://badger-1033557908241.us-central1.run.app — passphrase `glean-me`
+**Live:** https://badger-1033557908241.us-central1.run.app — the passphrase is
+sent with the submission, not committed here.
 
 ```
 ./scripts/badger.sh -p "Who knows about payments integrations?"   # CLI

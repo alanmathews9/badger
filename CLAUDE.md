@@ -18,8 +18,12 @@ four fifths of the grade.
 # START HERE — state as of 2026-08-17
 
 **Badger is built, gated and hosted.**
-**https://badger-1033557908241.us-central1.run.app** — passphrase `glean-me`
-(change it before sending the link; it is in this file and in git history).
+**https://badger-1033557908241.us-central1.run.app** — the passphrase is held
+only in Secret Manager (`badger-passphrase`) and is not written down here or
+anywhere else in the repo. Alan set it directly; nobody else has seen it. Ask
+him rather than looking for it. The old `glean-me` is in git history and is
+now worthless, which is the point of having rotated it rather than trying to
+rewrite the history it appears in.
 
 Ask it a question and it searches, opens the threads, answers with citations,
 verifies those citations against what it actually retrieved, and reports the
@@ -154,7 +158,7 @@ section — it is structurally unavailable while federated).
 
 ## Hosted — https://badger-1033557908241.us-central1.run.app
 
-Passphrase `glean-me`. Live on Cloud Run, verified end to end in production:
+Live on Cloud Run, verified end to end in production:
 the gate holds, search returns 20 hits in 2.4s, and the agent answers with
 verified citations at about half a cent a question.
 
