@@ -16,16 +16,13 @@
 // then render the answer plus its verification badge.
 //
 //   node scripts/badger-sdk.mjs "what did we decide about Halden phase 2?"
-import { readFileSync } from "node:fs";
 import { query } from "@open-gitagent/gitagent";
+import { loadEnvFile } from "../tools/scripts/_env.mjs";
 import { verifyCitations, formatVerification, annotateUnverified } from "../app/server/verify-citations.mjs";
 
 const AGENT_DIR = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
-for (const line of readFileSync(`${AGENT_DIR}/.env`, "utf8").split("\n")) {
-  const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
-  if (m) process.env[m[1]] ??= m[2].trim().replace(/^["']|["']$/g, "");
-}
+loadEnvFile(`${AGENT_DIR}/.env`);
 
 const prompt = process.argv.slice(2).join(" ");
 if (!prompt) {

@@ -11,14 +11,12 @@
 //   2. ALLOW — an explicit per-tool enable list. Allow-by-name, never
 //      deny-by-verb: GITHUB_LIST_REPOSITORY_SECRETS is a "read" tool that
 //      reads credentials.
-import { readFileSync } from "node:fs";
 import { Composio, SessionPreset } from "@composio/core";
+import { loadEnvFile } from "./_env.mjs";
 
-const ENV = new URL("../../.env", import.meta.url).pathname;
-for (const line of readFileSync(ENV, "utf8").split("\n")) {
-  const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
-  if (m) process.env[m[1]] ??= m[2].trim().replace(/^["']|["']$/g, "");
-}
+// Optional: present on a laptop, absent in a container where the same values
+// arrive as real environment variables.
+loadEnvFile(new URL("../../.env", import.meta.url));
 
 // One end user for now. In the hosted product this is the logged-in user's id,
 // which is the whole reason the session model was chosen over a static token.

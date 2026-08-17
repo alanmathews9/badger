@@ -32,7 +32,9 @@ import { annotateUnverified, extractCitations, verifyCitations } from "./verify-
 // one-way reach *upward* into the agent — never the reverse.
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const WEB_DIST = join(ROOT, "app", "web", "dist");
-const PORT = Number(process.env.BADGER_PORT) || 4000;
+// Cloud Run injects PORT and expects the server to listen on it. BADGER_PORT
+// is the local convention; PORT wins so the same image runs in both places.
+const PORT = Number(process.env.PORT || process.env.BADGER_PORT) || 4000;
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -420,6 +422,17 @@ function json(res, status, payload) {
   const body = JSON.stringify(payload);
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", "content-length": Buffer.byteLength(body) });
   res.end(body);
+}
+
+// Cloud Run sends SIGTERM before stopping an instance. Close the listener so
+// in-flight answers finish streaming instead of being cut off mid-sentence.
+for (const signal of ["SIGTERM", "SIGINT"]) {
+  process.on(signal, () => {
+    console.log(`${signal} — shutting down`);
+    server.close(() => process.exit(0));
+    // Do not wait forever on a client holding an SSE stream open.
+    setTimeout(() => process.exit(0), 10_000).unref();
+  });
 }
 
 server.on("error", (err) => {

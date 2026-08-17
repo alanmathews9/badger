@@ -1,0 +1,20 @@
+# Keep credentials and local state out of the image. .env especially: the
+# container gets its configuration from Secret Manager, and baking a file with
+# a Composio key into a layer would put it anywhere the image goes.
+.env
+.git
+.gitagent
+.claude
+.agents
+
+node_modules
+app/web/node_modules
+app/web/dist
+
+# Documentation and research. Useful in the repo, dead weight in the image.
+*.md
+!SOUL.md
+!RULES.md
+docs
+
+.DS_Store

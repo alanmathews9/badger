@@ -9,15 +9,11 @@
 //   node badger-session.mjs status    -> session + connection state, tool list
 //   node badger-session.mjs connect   -> print the Connect Link, wait for auth
 //   node badger-session.mjs call      -> one real read-only call + log id
-import { readFileSync } from "node:fs";
 import { Composio, SessionPreset } from "@composio/core";
+import { loadEnvFile } from "../tools/scripts/_env.mjs";
 
-// The SDK reads COMPOSIO_API_KEY from env; load it from the repo's .env.
-const ENV = new URL("../.env", import.meta.url).pathname;
-for (const line of readFileSync(ENV, "utf8").split("\n")) {
-  const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
-  if (m) process.env[m[1]] ??= m[2].trim().replace(/^["']|["']$/g, "");
-}
+// The SDK reads COMPOSIO_API_KEY from env; fill it in from .env when there is one.
+loadEnvFile(new URL("../.env", import.meta.url));
 
 // Stable per-end-user id. In the product this is the logged-in user's id.
 const USER_ID = process.env.BADGER_USER_ID ?? "badger-demo-alan";
