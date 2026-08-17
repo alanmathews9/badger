@@ -82,6 +82,8 @@ export async function search(query, { limit = 20 } = {}) {
     rows.sort((a, b) => b.score - a.score || b.updatedAt.localeCompare(a.updatedAt));
   }
 
+  const commentCalls = await attachDiscussionMatches(rows, terms);
+
   return {
     query: raw,
     resolvedQuery: resolved,
@@ -90,9 +92,59 @@ export async function search(query, { limit = 20 } = {}) {
     droppedTerms,
     total: data.total_count ?? items.length,
     tookMs,
-    apiCalls: 1,
+    apiCalls: 1 + commentCalls,
     results: rows,
   };
+}
+
+/**
+ * For rows whose only match is in the thread, go and fetch the comment.
+ *
+ * GitHub's search API says an issue matched but never says where, so a
+ * discussion-only row otherwise shows an excerpt with nothing highlighted in
+ * it — the row looks like a false positive when it is the opposite: on this
+ * corpus the argument lives in the comments and the tidy summary lives in the
+ * files.
+ *
+ * This costs one request per row, which is why it is capped hard. Only the
+ * highest-ranked few are worth the spend, the search endpoint allows 30
+ * requests a minute, and the count is reported in `apiCalls` rather than
+ * hidden. Rows past the cap keep their honest "matched in the discussion"
+ * label with no quote.
+ */
+async function attachDiscussionMatches(rows, terms, { max = 4 } = {}) {
+  if (!terms.length) return 0;
+  const targets = rows.filter((r) => r.matchedInDiscussionOnly).slice(0, max);
+  if (!targets.length) return 0;
+
+  const results = await Promise.allSettled(
+    targets.map((row) =>
+      exec("GITHUB_LIST_ISSUE_COMMENTS", { owner: OWNER, repo: REPO, issue_number: row.number }),
+    ),
+  );
+
+  results.forEach((result, i) => {
+    // A failed fetch is not a failed row. It keeps its label and loses the
+    // quote, which is exactly the state it was in before this ran.
+    if (result.status !== "fulfilled") return;
+    const row = targets[i];
+
+    for (const comment of asList(result.value)) {
+      const body = String(comment.body ?? "").replace(/\s+/g, " ").trim();
+      const hit = terms.filter((t) => matcher(t).test(body));
+      if (!hit.length) continue;
+
+      row.discussion = {
+        author: comment.user?.login ?? "unknown",
+        at: (comment.created_at ?? "").slice(0, 10),
+        excerpt: highlight(body, hit, { max: 1 })[0] ?? clip(body, 200),
+      };
+      row.matchedTerms = [...new Set([...row.matchedTerms, ...hit])];
+      break;
+    }
+  });
+
+  return targets.length;
 }
 
 async function runSearch(q, perPage) {
@@ -144,6 +196,8 @@ function toRow(item, terms) {
     matchHighlights: highlight(body, terms),
     matchedTerms,
     matchedInDiscussionOnly,
+    // Filled in later by attachDiscussionMatches, for the top few such rows.
+    discussion: null,
     score: score({ terms, matchedInTitle, matchedInBody, matchedInDiscussionOnly, comments: item.comments ?? 0 }),
   };
 }

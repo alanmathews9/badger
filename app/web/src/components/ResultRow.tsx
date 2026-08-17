@@ -1,84 +1,86 @@
-import { CircleDot, GitPullRequest, MessagesSquare } from "lucide-react";
 import { Highlight, HighlightTerms } from "./Highlight";
+import { GitHubMark, StateIcon } from "./octicons";
 import type { SearchRow } from "@/lib/api";
 
 /**
- * One hit. Tile, title, what matched, one mono meta line — nothing else.
+ * One hit.
  *
- * The excerpt comes from the server with its matches already marked, so the
- * highlighting is a fact about the search rather than a guess made here.
+ * Two icons, and they answer two different questions:
+ *
+ *   left edge   — which SYSTEM this came from. GitHub today, Drive and Gmail
+ *                 later. It stays in the same place for every source, so the
+ *                 eye can scan a mixed list by origin.
+ *   title start — WHAT it is and what state it is in, in GitHub's own icons
+ *                 and colours: green open, purple merged/completed, red
+ *                 closed, grey draft. A GitHub user reads it without a legend,
+ *                 which is why this replaced the text badges.
+ *
+ * The title is a plain blue link. Nothing else on the row is blue, so blue
+ * means "this goes somewhere".
  */
 export function ResultRow({ row, terms }: { row: SearchRow; terms: string[] }) {
-  const Icon = row.kind === "pr" ? GitPullRequest : CircleDot;
-
   return (
-    <li className="flex gap-3 border-t border-stone-100 py-2.5 first:border-t-0">
-      <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg border border-stone-200 bg-stone-50">
-        <Icon className="size-[15px] text-stone-900" strokeWidth={1.8} />
+    <li className="flex gap-3 border-t border-stone-100 py-3 first:border-t-0">
+      <span className="mt-0.5 shrink-0 text-stone-900" title="From GitHub">
+        <GitHubMark size={16} />
       </span>
 
       <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
+        <h3 className="flex items-baseline gap-1.5 text-[15px]/[1.4]">
+          <span className="translate-y-[2px]">
+            <StateIcon kind={row.kind} state={row.state} draft={isDraft(row)} />
+          </span>
           <a
             href={row.url}
             target="_blank"
             rel="noreferrer"
-            className="text-sm font-semibold hover:underline"
+            className="font-medium text-blue-700 visited:text-blue-700 hover:underline"
           >
             <HighlightTerms text={row.title} terms={terms} />
           </a>
-          <Badge tone={row.state === "closed" ? "solid" : "outline"}>
-            {row.kind === "pr" ? "PR" : "issue"} #{row.number} · {row.state}
-          </Badge>
-          {/* GitHub's search reaches comment text but never says which comment
-              matched, so this row's terms are somewhere in the thread. Saying
-              so beats showing an excerpt with nothing highlighted in it. */}
-          {row.matchedInDiscussionOnly && (
-            <Badge tone="clay">
-              <MessagesSquare className="size-3" strokeWidth={2} />
-              matched in the discussion
-            </Badge>
-          )}
-        </div>
+        </h3>
 
-        <div className="mt-1 text-[12.5px]/[1.6] text-stone-600">
-          {row.matchHighlights.length > 0 ? (
-            row.matchHighlights.map((excerpt, i) => (
-              <p key={i} className={i > 0 ? "mt-1" : undefined}>
-                <Highlight text={excerpt} />
+        {row.discussion ? (
+          /* The match was in the thread, and we went and got it. Quoted so the
+             row can be judged without opening it. */
+          <blockquote className="mt-1.5 border-l-2 border-stone-200 pl-2.5 text-[12.5px]/[1.6] text-stone-600">
+            <Highlight text={row.discussion.excerpt} />
+            <span className="mt-0.5 block font-mono text-[10.5px] text-stone-500">
+              @{row.discussion.author} in the discussion · {row.discussion.at}
+            </span>
+          </blockquote>
+        ) : (
+          <div className="mt-1 text-[12.5px]/[1.6] text-stone-600">
+            {row.matchHighlights.length > 0 ? (
+              row.matchHighlights.map((excerpt, i) => (
+                <p key={i} className={i > 0 ? "mt-1" : undefined}>
+                  <Highlight text={excerpt} />
+                </p>
+              ))
+            ) : (
+              <p className="line-clamp-2">
+                {row.matchedInDiscussionOnly
+                  ? "Matched somewhere in this thread's comments."
+                  : row.snippet || "No description."}
               </p>
-            ))
-          ) : (
-            <p className="line-clamp-2">{row.snippet || "No description."}</p>
-          )}
-        </div>
+            )}
+          </div>
+        )}
 
         <div className="mt-1.5 font-mono text-[11px] text-stone-500">
-          @{row.author} · updated {row.updatedAt} · {row.comments}{" "}
-          {row.comments === 1 ? "comment" : "comments"}
+          {row.kind === "pr" ? "PR" : "issue"} #{row.number} · @{row.author} · {row.updatedAt} ·{" "}
+          {row.comments} {row.comments === 1 ? "comment" : "comments"}
         </div>
       </div>
     </li>
   );
 }
 
-function Badge({
-  children,
-  tone = "outline",
-}: {
-  children: React.ReactNode;
-  tone?: "outline" | "solid" | "clay";
-}) {
-  const tones = {
-    outline: "border border-stone-200 bg-white text-stone-600",
-    solid: "bg-stone-900 text-stone-50",
-    clay: "border border-amber-200 bg-amber-50 text-amber-800",
-  };
-  return (
-    <span
-      className={`inline-flex h-[19px] shrink-0 items-center gap-1 rounded-full px-2 text-[10px] font-medium ${tones[tone]}`}
-    >
-      {children}
-    </span>
-  );
+/**
+ * GitHub's issue-search results carry no draft flag, so this reads the title.
+ * A heuristic that is right on this corpus and visibly wrong nowhere else
+ * beats a badge that is silently always "not draft".
+ */
+function isDraft(row: SearchRow): boolean {
+  return row.kind === "pr" && /^\s*(draft|wip)\b[: ]/i.test(row.title);
 }

@@ -54,7 +54,7 @@ export function Results({
           {busy
             ? "digging…"
             : data
-              ? `${data.total} found · ${data.apiCalls} API call · ${(data.tookMs / 1000).toFixed(1)}s`
+              ? `${data.total} found · ${data.apiCalls} API ${data.apiCalls === 1 ? "call" : "calls"} · ${(data.tookMs / 1000).toFixed(1)}s`
               : ""}
         </span>
       </div>

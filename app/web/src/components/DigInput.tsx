@@ -86,7 +86,9 @@ export function DigInput({
 
       {large && (
         <Button
-          onClick={onSubmit}
+          // Wrapped, never passed directly: onClick would hand the Button's
+          // MouseEvent to onSubmit, where it arrives as the query and throws.
+          onClick={() => onSubmit()}
           disabled={busy || !value.trim()}
           className="h-10 gap-2 rounded-lg px-[15px] text-[13px]"
         >

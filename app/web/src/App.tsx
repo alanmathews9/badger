@@ -50,7 +50,10 @@ export default function App() {
 
   const dig = useCallback(
     async (raw?: string) => {
-      const q = (raw ?? query).trim();
+      // Guard the argument rather than trusting callers. An event handler that
+      // forwards its MouseEvent here is the bug this already had once, and it
+      // fails silently: the click throws inside React and nothing happens.
+      const q = (typeof raw === "string" ? raw : query).trim();
       if (!q) return;
 
       setView("results");

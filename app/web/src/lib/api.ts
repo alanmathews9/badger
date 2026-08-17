@@ -14,6 +14,8 @@ export type SearchRow = {
   matchHighlights: string[];
   matchedTerms: string[];
   matchedInDiscussionOnly: boolean;
+  /** The matched comment, fetched for the top few discussion-only rows. */
+  discussion: { author: string; at: string; excerpt: string } | null;
   score: number;
 };
 
