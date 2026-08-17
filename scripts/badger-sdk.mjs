@@ -18,7 +18,7 @@
 //   node scripts/badger-sdk.mjs "what did we decide about Halden phase 2?"
 import { readFileSync } from "node:fs";
 import { query } from "@open-gitagent/gitagent";
-import { verifyCitations, formatVerification } from "../src/verify-citations.mjs";
+import { verifyCitations, formatVerification, annotateUnverified } from "../src/verify-citations.mjs";
 
 const AGENT_DIR = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
@@ -72,9 +72,12 @@ for await (const msg of result) {
   }
 }
 
-console.log("\n" + answer.trim() + "\n");
-
 const verification = verifyCitations(answer, toolOutputs);
+
+// Show the answer with bad citations marked, rather than withholding it. An
+// answer is usually mostly right; the reader needs to know which claim to
+// distrust, not that something somewhere is wrong.
+console.log("\n" + annotateUnverified(answer, verification).trim() + "\n");
 console.log("─".repeat(60));
 console.log(`tools called: ${toolCalls.length ? toolCalls.join(", ") : "none"}`);
 console.log(formatVerification(verification));

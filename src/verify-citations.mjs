@@ -80,6 +80,41 @@ export function verifyCitations(answer, toolOutputs) {
   };
 }
 
+/**
+ * Mark unverified citations inline rather than failing the whole answer.
+ *
+ * Borrowed from claude-law-firm's legal-research skill, which flags a citation
+ * it cannot stand behind as "[UNVERIFIED — attorney should confirm]" instead of
+ * dropping the memo. An answer is usually mostly right; blocking all of it over
+ * one bad link hides four good ones. The reader needs to know which claim to
+ * distrust, not that something somewhere is wrong.
+ */
+export function annotateUnverified(answer, result) {
+  if (result.ok) return String(answer ?? "");
+  const bad = new Set(result.findings.map((f) => f.value));
+  const TAG = " `[UNVERIFIED]`";
+  let out = String(answer ?? "");
+
+  // Markdown links first, annotating AFTER the closing paren. A naive
+  // find-and-replace injects the tag inside the URL and inside the link text,
+  // which breaks the link — the one thing a citation must not do.
+  out = out.replace(/\[([^\]]*)\]\(([^)\s]+)([^)]*)\)/g, (whole, text, url) => {
+    const refs = [...String(text).matchAll(/#(\d{1,6})/g)].map((m) => `#${m[1]}`);
+    const hit = bad.has(url) || refs.some((r) => bad.has(r));
+    return hit ? whole + TAG : whole;
+  });
+
+  // Then bare occurrences — paths and #refs outside any link. Skip anything
+  // already inside a link or already tagged.
+  for (const v of [...bad].sort((a, b) => b.length - a.length)) {
+    if (/^https?:/.test(v)) continue; // URLs are only cited inside links
+    const esc = v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(`(?<!\\]\\()${esc}(?![^\\s]*\\)| \`\\[UNVERIFIED)`, "g"), v + TAG);
+  }
+
+  return out;
+}
+
 /** One-line human summary, for a CLI or a UI badge. */
 export function formatVerification(result) {
   if (result.checked === 0) return "citations: none to verify";
