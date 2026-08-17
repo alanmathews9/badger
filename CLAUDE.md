@@ -17,14 +17,26 @@ four fifths of the grade.
 
 # START HERE — state as of 2026-08-17
 
-**Badger works end to end.** Ask it a question about the private demo repo and
-it searches, opens the threads, answers with citations, verifies those citations
-against what it actually retrieved, and reports the cost. Read-only holds at
-four independent layers.
+**Badger is built, gated and hosted.**
+**https://badger-1033557908241.us-central1.run.app** — passphrase `glean-me`
+(change it before sending the link; it is in this file and in git history).
+
+Ask it a question and it searches, opens the threads, answers with citations,
+verifies those citations against what it actually retrieved, and reports the
+cost. Read-only holds at four independent layers.
 
     ./scripts/badger.sh -p "Who knows about payments integrations?"   # CLI
     npm run ask "What shipped in the last week?"                      # SDK + verification
     npm run serve                                                     # web UI on :4000
+    npm run check:agent                                               # the agent still stands alone
+
+**The one job left: seed Gmail and Drive, then search all three.** Alan is
+creating the Google account; nothing starts until it exists and is connected
+through Tools → Manage. Everything needed is audited and recorded below.
+
+**Not yet done, and worth knowing:** there is no README, and it is the
+highest-value writing left — it carries research, design and the honest limits.
+The billing alert is still unset (console job). Chat history is not persisted.
 
 ## Repository shape — the agent, and the product built on it
 
@@ -112,15 +124,33 @@ not a server — so splitting buys no isolation and costs version pinning.
   taking it would mean going around Composio and reopening the multi-user
   problem that chose Composio in the first place.
 
-- **The web product** in `app/` — three screens (Home, Results, Ask) on Vite +
-  React + Tailwind + shadcn/ui. `POST /api/search` retrieves live from GitHub
-  with no model involved; `GET /api/ask` streams the agent over SSE with tool
-  calls forwarded as they happen. Two passes, the split Glean and Onyx both use.
+- **The web product** in `app/` — Vite + React + Tailwind + shadcn, a sidebar
+  shell with three destinations: **Search**, **Chat**, **Tools**.
+  `POST /api/search` retrieves live with no model involved; `GET /api/ask`
+  streams the agent over SSE with tool calls forwarded as they happen. Two
+  passes, the split Glean and Onyx both use. The sidebar's usage meter is real
+  — it reads the answer budget from `/api/health`.
+- **A gate, not an account system** — one shared passphrase, server-side, so an
+  unauthenticated visitor receives a splash page and nothing else: no bundle,
+  no API, no assets. Signed cookie (`uid.expiry.hmac`), constant-time compare,
+  CSP + `Referrer-Policy: no-referrer` + HSTS, generic 500s. With no passphrase
+  set the server binds to 127.0.0.1 only — fail safe, and there is no default
+  passphrase. Rate limits per IP, a daily answer ceiling and a concurrency cap;
+  when the budget runs out search still works and the card says so.
+- **Per-user connections** — the cookie's `uid` is the Composio end-user id, so
+  each visitor connects **their own** GitHub and can hold several accounts at
+  once, switch between them, and disconnect any one. Managed from a side pane
+  on Tools. Badger never receives a GitHub token: Composio issues the Connect
+  Link and holds the credential.
 
 ## What does not exist
 
-**Gmail and Drive are not connected.** One source is the thin part of the
-story. Everything else on the five graded axes now has substance.
+**Gmail and Drive are not connected — that is the next job, and it is now the
+whole job.** Everything else on the five graded axes has substance.
+
+Also absent, deliberately: no database, so chat history is not saved and
+"recent digs" is localStorage; no fuzzy or semantic search (see the retrieval
+section — it is structurally unavailable while federated).
 
 ## Hosted — https://badger-1033557908241.us-central1.run.app
 
@@ -179,25 +209,117 @@ A new GCP project also no longer grants the compute default service account
 Editor, so Cloud Build cannot read its own source upload until it is given
 `cloudbuild.builds.builder`.
 
-## Next: Gmail and Drive
+## Next: seed Gmail and Drive, then search all three
 
-The weakest part of the story. A "Glean equivalent" searching one GitHub repo
-is thin, and the architecture's central claim — that adding a source is
-configuration rather than connector code — is currently untested.
+**The decision, made 2026-08-17: seed everything.** A dedicated Google account
+holds fictional Arkind mail and documents, alongside the existing GitHub repo,
+so the demo shows the thing that actually distinguishes Glean — one question,
+three sources, three versions of the answer.
 
-**Use a throwaway Google account with seeded data, never Alan's real one.** The
-demo is behind one shared passphrase on a public URL; connecting a personal
-inbox would expose it to anyone holding the link. The same reasoning that made
-the GitHub corpus a fictional consultancy applies here.
+The per-user connect flow stays built (it is the production shape and it works),
+but the default is the seeded demo. `BADGER_DEMO_FALLBACK=1` restores the
+fallback for visitors who connect nothing; it is currently off.
 
-**Login is a gate, not the product, and the README should say so:** Badger has
-no per-user anything — one Composio connected account, a user id in an env var.
-Real deployment resolves the signed-in user to their own OAuth grant per
-source, so results are permission-scoped by construction. Federation makes that
-*simpler* than an index: each source enforces its own ACLs at query time,
-whereas Onyx has to replicate permissions into Vespa and keep them fresh
-(`build_access_filters_for_user`, `_post_query_chunk_censoring`). That paragraph
-turns the shortcut into evidence of understanding the hardest part of Glean.
+**Alan is creating the Google account.** Nothing below can start until it exists
+and is connected through the Tools → Manage pane.
+
+### The audit, done before wiring anything — 2026-08-17
+
+Composio exposes `gmail` (63 tools) and `googledrive` (90). Read-only allowlist
+to add, nine names:
+
+| Gmail | Google Drive |
+|---|---|
+| `GMAIL_FETCH_EMAILS` | `GOOGLEDRIVE_FIND_FILE` |
+| `GMAIL_FETCH_MESSAGE_BY_THREAD_ID` | `GOOGLEDRIVE_GET_FILE_METADATA` |
+| `GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID` | `GOOGLEDRIVE_EXPORT_GOOGLE_WORKSPACE_FILE` |
+| | `GOOGLEDRIVE_LIST_COMMENTS` |
+| | `GOOGLEDRIVE_LIST_REPLIES` |
+
+`GOOGLEDRIVE_LIST_COMMENTS` matters more than it looks: **Google Docs comments
+are the same pattern as GitHub issue comments** — the tidy document, and the
+argument in the margin. The corpus thesis transfers to Drive intact.
+
+**Fresh evidence for allow-by-name.** The audit filtered those 90 Drive tools
+with a "does this name sound like a write?" regex — the deny-by-verb approach
+`hooks/allowed-tools.txt` argues against — and it classified
+**`GOOGLEDRIVE_EDIT_FILE` as read-only**, along with `HIDE_DRIVE`,
+`WATCH_CHANGES` and `STOP_WATCH_CHANNEL`. Gmail is worse: `SEND_EMAIL`,
+`TRASH_MESSAGE`, `DELETE_DRAFT` all sit in the same namespace. Put this in the
+README; it is a better argument than the one already written there.
+
+### Seeding is possible entirely through Composio
+
+- **`GMAIL_INSERT_MESSAGE` / `GMAIL_IMPORT_MESSAGE`** put a message in the
+  mailbox **without sending it**, so the inbox can hold mail from Tomas, Priya
+  and Joris without owning those addresses. This is the unlock — sending from
+  the demo account to itself would have looked fake.
+- **`GOOGLEDOCS_CREATE_DOCUMENT_MARKDOWN`** creates Docs from markdown.
+- **`GOOGLEDRIVE_CREATE_COMMENT` / `CREATE_REPLY`** put the arguments in the
+  margins.
+
+Seeding runs from a **separate write-capable session the agent can never
+reach**, exactly as the GitHub corpus was created. None of these names goes
+anywhere near `hooks/allowed-tools.txt`.
+
+### Corpus design — no single source holds the whole answer
+
+Extend Halden across all three:
+
+- **Drive** — the client-facing retro: *"scope changed mid-engagement"*. The
+  official version.
+- **Gmail** — the thread with Joris explaining the delay, plus the internal
+  thread arguing about how much to tell him.
+- **GitHub** — issue #2, where the team concludes four of the six weeks were
+  self-inflicted.
+
+Then *"why did Halden slip?"* returns three sources telling three different
+stories, and questions like *"did we ever actually tell Halden about the
+reconciliation module?"* are answerable **only** by crossing Gmail and GitHub.
+That is the demo that cannot be faked with one repo.
+
+### Cross-source ranking — decide this before merging results
+
+Each source has a different engine and their relevance scores are not
+comparable: GitHub keyword-ANDs, Gmail has its own syntax, Drive is
+`fullText contains`. Merging three ranked lists by their own scores is
+guesswork.
+
+**Re-score every row locally with our own term-coverage function**, ignoring
+each engine's opinion. Cheap, works now, stays federated. The alternative is
+the index, which is phase 2.
+
+## Retrieval: what this is, and what it structurally cannot do
+
+Search today is: strip stopwords → OR the terms → **one** API call → rank
+locally by term coverage (title hits 3x body hits) → highlight locally. There
+is **no IDF**, so "Halden" counts the same as "engagement".
+
+There is no fuzzy matching, no stemming of our own, no semantic search — and
+**not because they were skipped.** Fuzzy matching compares a query against the
+corpus vocabulary, and semantic search compares embeddings of it. Both require
+*holding the text*. Federation means we hold nothing, so both are unavailable
+by construction. State it that way in the README: federation buys no crawler,
+no stale data and permissions enforced at the source, and it costs every
+retrieval technique that needs the text.
+
+**Onyx settles the fuzzy question, in a comment in their own source**
+(`backend/onyx/document_index/opensearch/search.py`, "Options considered and
+rejected"): fuzziness AUTO is *"mostly for typos as the analyzer already does
+some stemming and tokenization. In testing datasets, this makes recall slightly
+worse."* They rejected it on measurements. There is no "did you mean" anywhere
+in Onyx either. Typo tolerance comes from the **vector half of hybrid search** —
+embedding models tokenise into subwords, so a typo lands near the right word.
+
+And Google's "did you mean" is not a corpus technique: it is learned from query
+logs at planetary scale. One demo user produces no such signal, so that route is
+closed regardless.
+
+**Consequence for phase 2:** one index in Postgres (`tsvector` + `pgvector` +
+`pg_trgm`) buys semantic matching, real BM25 with IDF, comparable cross-source
+ranking *and* typo tolerance in a single step. Four separate hacks on the
+federated design would be redundant a week later, and by Onyx's measurements
+the cheapest of them makes things worse.
 
 ## Decisions that are settled — do not relitigate
 
@@ -217,6 +339,25 @@ turns the shortcut into evidence of understanding the hardest part of Glean.
   Reach for a tool-level fix first.
 - **No Pipecat.** It is a voice/realtime framework; we are building text search,
   and gitagent already ships voice.
+- **Cloud Run, not a VM + Cloudflare Tunnel.** There is no domain, and a quick
+  tunnel's URL changes on every restart. Cloud Run gives a free HTTPS URL,
+  Vertex from the service identity so no key exists, and removes two components.
+- **Not Vercel.** Tools are subprocesses and `query()` reads the agent off disk,
+  but the deciding reason is that reaching Vertex from there needs a
+  service-account private key pasted into a third-party dashboard.
+- **Per-request identity travels in tool arguments, never the environment.**
+  Declarative tools are spawned with a snapshot of `process.env`
+  (`dist/tool-loader.js:82`), so an env var races between concurrent visitors.
+  SDK-injected tools are no good either — `options.tools` is appended with **no
+  collision check** (`sdk.js:170`, unlike plugin tools), so a second
+  `github_search` would simply exist. What works is `options.hooks.preToolUse`,
+  an in-process closure whose `{action:"modify", args}` replaces the tool's
+  arguments (`sdk-hooks.js:25`).
+- **No fuzzy matching bolted onto federated search.** See the retrieval section:
+  it needs the text, and Onyx measured it making recall worse.
+- **The gate is a passphrase, not auth.** Google SSO shows an unverified-app
+  warning as the first thing an evaluator sees; magic links need their email;
+  self-signup is auth code we would have to write. Revisit only with a database.
 - **Second-pass validator deferred** — see commit `5e03a5c` for the four
   reasons. Revisit when Pro access lands.
 
@@ -306,13 +447,13 @@ several searches per turn will reach it — the skill must not treat a 403 as
 
 ## Then, in order
 
-1. First real GitHub query end-to-end, with citations.
-2. Write the five skill prompts in `skills/` — they are the actual product.
-3. Gmail and Drive: audit each server with `scripts/mcp-tools.mjs` **before**
-   wiring credentials, then add verified names to the allowlist.
-4. Custom search + chat UI.
-5. Hosting.
-6. One scheduled digest agent.
+1. **Seed Gmail and Drive** on the demo Google account, and connect it.
+2. **Tools + allowlist** for the nine read-only names above.
+3. **Cross-source search** — merge and re-score locally.
+4. **README** — it does not exist yet, and it carries research, design and the
+   honest limits. It is the highest-value writing left.
+5. Phase 2 if there is time: the Postgres index (`tsvector` + `pgvector` +
+   `pg_trgm`), chat history, and per-user accounts on Supabase.
 
 Do not pull later phases forward.
 
@@ -322,9 +463,12 @@ Do not pull later phases forward.
 
 - **Built on GAP.** The agent *is* a git repo: `agent.yaml`, `SOUL.md`,
   `RULES.md`, `skills/`. Identity and behaviour are version-controlled files.
-- **Federated search, no indexing.** Live queries to Gmail, Google Drive and
-  GitHub via their MCP servers at ask-time. No crawler, no index, no copy of
-  user data. This is the product thesis and the main departure from Glean.
+- **Federated search, no indexing — for phase 1.** Live queries to Gmail,
+  Google Drive and GitHub through Composio at ask-time. No crawler, no index,
+  no copy of user data. This is the product thesis and the main departure from
+  Glean. It is also what makes fuzzy and semantic search impossible; see the
+  retrieval section. An index is phase 2 and the README must own the reversal
+  rather than let a reviewer notice the contradiction.
 - **Read-only, everywhere — as phase 1 of a stated roadmap, not as a limit.**
   Never send, write, edit, delete or share. See the capability phases below.
 
@@ -448,6 +592,35 @@ before touching `agent.yaml` or writing a skill. It records the shipped code's
 behaviour where that differs from the published docs, which it does often.
 
 ## Session log
+
+**2026-08-17 — hosted, gated, and rebuilt around a sidebar.** Deployed to Cloud
+Run: free HTTPS URL, no domain, Vertex from the service identity so no key
+exists anywhere. Three bugs only a container finds — unguarded `.env` reads
+that would have crashed on boot, a drifted lockfile `npm ci` refuses, and a base
+image whose npm major rejects the lockfile.
+
+Added the demo gate and attacked it rather than assuming: unauthenticated
+requests to `/`, the APIs and a built asset all 401; four kinds of forged cookie
+rejected; login brute force rate-limited. With no passphrase the server binds to
+localhost only.
+
+Rebuilt the UI on a shadcn sidebar — Search, Chat and Tools as separate
+destinations, real brand marks, GitHub's own state icons, and a usage meter
+reading the live answer budget. Two of my own regressions were caught in the
+browser: the Dig button passed its MouseEvent as the query, and Sources were
+built from opened threads rather than cited ones, so an answer with four
+verified citations displayed "0 sources".
+
+Then per-user connections: an opaque uid in the signed cookie becomes the
+Composio end-user id, several GitHub accounts per visitor, switchable and
+individually disconnectable, with an ownership check verified to refuse another
+user's account id. `toolkits.authorize()` turned out to be deprecated for
+managed OAuth — Composio's own error names `connectedAccounts.link` as the fix.
+
+Audited Gmail and Drive before wiring anything, and the audit produced the best
+argument yet for allow-by-name: a verb filter classified `GOOGLEDRIVE_EDIT_FILE`
+as read-only. Read Onyx's source on typo tolerance and found they rejected
+fuzziness on measurements. Direction set: seed all three sources.
 
 **2026-08-17 — the web product, and one bug it caught.** Built the search UI
 from Alan's design: `POST /api/search` retrieves live from GitHub with no model
