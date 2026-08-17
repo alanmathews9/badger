@@ -119,8 +119,8 @@ not a server — so splitting buys no isolation and costs version pinning.
 
 ## What does not exist
 
-**No hosting, no login.** Hosting is the last graded axis at zero. Gmail and
-Drive are not connected.
+**Gmail and Drive are not connected.** One source is the thin part of the
+story. Everything else on the five graded axes now has substance.
 
 ## Hosted — https://badger-1033557908241.us-central1.run.app
 
