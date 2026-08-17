@@ -212,6 +212,38 @@ declared source has no credential. Verified: the run now aborts with a named
 list of what is missing instead of answering blind. Refusing to start beats
 reporting "nothing found" for a source never contacted.
 
+## 4f. GitHub REST code search does not serve private repos
+
+Probed 2026-08-17 against a purpose-built private repo
+(`alanmathews9/arkind-internal`) plus two older private repos, with a classic
+OAuth token holding full `repo` scope. Full table in CLAUDE.md; the method is
+the part worth keeping.
+
+**Three controls, in order, each one killing a hypothesis:**
+
+1. *New repo, 0 hits.* Hypothesis: the async code indexer hasn't caught up.
+2. *Two older private repos (10 days, 2 months), also 0.* Kills indexing
+   latency — a two-month-old repo is indexed.
+3. *Public `torvalds/linux`, 4,536 hits.* Kills "token or endpoint is broken".
+
+The decisive field is **`incomplete_results`**: `false` on the public query,
+`true` on every private one. Zero hits with `incomplete_results: true` is the
+API saying the query never ran against that index — not that it ran and found
+nothing. Without that flag the private results are indistinguishable from a
+genuine empty search, which is exactly the silent-failure class §4 warns about.
+
+Generalisable lesson: **a zero result is a claim, and claims need a control.**
+The public-repo query cost one request and turned "search is broken" into
+"private repos are not served". `search_issues` on the same private repo
+returned 1 hit first try, so the two search families behave differently and
+must be reasoned about separately.
+
+**Search API rate limit: 30 requests/minute**, hit for real mid-probe. It
+returns HTTP 403 with a rate-limit body, *not* an empty result set. A federated
+turn issuing several searches per source will reach this. Any skill that treats
+a failed search as "nothing found" will fabricate an absence — the same
+correctness bug as §4, one layer up.
+
 ## 5. Timeouts stack badly across a fan-out
 
 Default `timeoutMs` per server is 30 000, covering connect *and* the initial

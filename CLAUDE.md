@@ -64,20 +64,43 @@ Fine-grained token, repository permissions (**read** on all):
 Do **not** use classic scopes (`repo:status`, `public_repo`, `read:org`) — an
 earlier note in this file said to, and it was wrong for a private repo.
 
-### Open risk: code search on a private repo
+### Settled 2026-08-17: code search does NOT work on a private repo
 
-`github__search_code` is the primary entry point for most questions, and
-**whether it works with a fine-grained token against a private repo is
-unverified.** GitHub's REST reference does not state fine-grained support for
-the search endpoints, and the server's policy doc is missing. Code search also
-only indexes the default branch and files under 384 KB.
+This was filed as an open risk about *fine-grained tokens*. It is worse than
+that: **REST code search does not serve private repositories at all here**, and
+no token class fixes it. Measured, same endpoint, same minute:
 
-**Test this first, before writing the `search-github` skill.** If it fails, the
-skill must reach the same answers another way — `get_file_contents` on known
-paths, `list_commits`, and `search_issues` / `search_pull_requests`, which use
-different endpoints. Design that fallback in from the start rather than
-discovering it during a demo. `list_repository_collaborators` may also need
+| Query | `total_count` | `incomplete_results` |
+|---|---|---|
+| `printk` in public `torvalds/linux` | 4,536 | `false` |
+| sentinel in private `arkind-internal` (5 min old) | 0 | **`true`** |
+| `import` in private `finance-tracker` (10 days old) | 0 | `true` |
+| `import` in private `gaming-portfolio` (2 months old) | 0 | `true` |
+
+Run with the **classic OAuth token holding full `repo` scope** — so this is not
+a fine-grained limitation. `incomplete_results: true` alongside zero hits means
+the query never completed against the private index; it is "did not search",
+not "searched and found nothing". The three repos span five minutes to two
+months, which rules out indexing latency.
+
+`search_issues` reaches the same private repo immediately (1 hit, first try).
+
+**Consequence: the fallback is now the primary path.** The `search-github`
+skill must be built on `search_issues` / `search_pull_requests` (different
+endpoint, works on private) plus `get_file_contents` and `list_commits` on
+known paths. Treat `search_code` as a public-repo-only bonus, never a
+dependency. This also shapes the corpus: searchable knowledge has to live
+substantially in issues and PR threads rather than in files.
+
+Still unverified: whether a fine-grained PAT behaves differently. Test when the
+token exists, but expect no improvement — fine-grained is more restrictive than
+classic, not less. `list_repository_collaborators` may also need
 Administration:read; drop it if it 403s, as nothing critical depends on it.
+
+**Search API rate limit is 30 requests/minute** and returns HTTP 403, not an
+empty result. Hit for real during this probe. A federated fan-out issuing
+several searches per turn will reach it — the skill must not treat a 403 as
+"no results".
 
 ## Then, in order
 
@@ -100,7 +123,30 @@ Do not pull later phases forward.
 - **Federated search, no indexing.** Live queries to Gmail, Google Drive and
   GitHub via their MCP servers at ask-time. No crawler, no index, no copy of
   user data. This is the product thesis and the main departure from Glean.
-- **Read-only, everywhere.** Never send, write, edit, delete or share.
+- **Read-only, everywhere — as phase 1 of a stated roadmap, not as a limit.**
+  Never send, write, edit, delete or share. See the capability phases below.
+
+### Capability phases — decided 2026-08-17
+
+Glean is **not** a read-only product. [Glean Actions][ga] ships 85+ enterprise
+actions: create a Jira issue, comment on a ticket, post to Slack, update
+records. A "Glean equivalent" that silently omits writes reads as a missing
+feature, so the boundary has to be stated as a choice.
+
+1. **Read-only (now).** Federated live query across Gmail, Drive, GitHub.
+   Search, retrieve, synthesise, cite. This is Glean's core, and Glean built
+   Actions on top of a working retrieval engine — same order here.
+2. **Propose, don't execute.** Badger drafts the reply or the ticket and hands
+   it over without sending. Nothing mutates, so it stays inside the read-only
+   guarantee. The honest bridge.
+3. **Actions.** Real writes, per-source, each a deliberate allowlist addition
+   with its own credential scope.
+
+Phase 1 is the submission. Do not build 2 or 3 until a source actually returns
+results — Badger has no working source yet, and adding a second capability
+class before the first retrieves anything is the wrong order.
+
+[ga]: https://docs.glean.com/agents/actions/introduction-to-actions
 
 ## Environment already set up on this machine
 
