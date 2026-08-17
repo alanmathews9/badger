@@ -92,8 +92,27 @@ closed and unmerged as hard evidence of the first rewrite.
    Arkind-the-consultancy by name.
 7. Then the eval set (below).
 
-**Nothing is deleted until the replacement is verified** — except that the two
-GitHub connections cannot coexist. See below.
+**Connection state as of 2026-08-18, verified.** One connection per toolkit on
+`badger-demo-alan`:
+
+| toolkit | id | account |
+|---|---|---|
+| github | `ca_fk0Ag9CXHdls` | `alan-arkind` — **0 repositories visible** |
+| gmail | `ca_VoNP76DmcIf9` | the demo Google account |
+| googledrive | `ca_ZC7_ieFDmyMY` | " |
+| googledocs | `ca_HLaG2xlx-pa2` | " |
+
+`alanmathews9` was disconnected on Alan's instruction, because two GitHub
+connections cannot coexist (below). **The old Halden corpus is therefore
+unreachable to Badger** — the repository itself is untouched and still on
+GitHub, so this is reversible by reconnecting.
+
+Worth stating in the README once the new corpus lands: the credential currently
+reaches **zero** repositories and will reach exactly one. That is a read-only
+story enforced by fact rather than by our tool layer declining to look, which
+is the best available given GitHub has no read-only scope for private repos.
+
+Nothing else is deleted until the replacement is verified.
 
 ### Per-account targeting does not work, and the multi-account feature is broken
 
