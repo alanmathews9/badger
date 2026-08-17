@@ -92,10 +92,48 @@ closed and unmerged as hard evidence of the first rewrite.
    Arkind-the-consultancy by name.
 7. Then the eval set (below).
 
-**Nothing is deleted until the replacement is verified.** Both GitHub accounts
-are attached to `badger-demo-alan` in the meantime, which Composio only allowed
-with `allowMultiple: true` — so pass an explicit `connectedAccountId` when
-seeding, because otherwise Composio picks one for you.
+**Nothing is deleted until the replacement is verified** — except that the two
+GitHub connections cannot coexist. See below.
+
+### Per-account targeting does not work, and the multi-account feature is broken
+
+Measured 2026-08-18, after connecting `alan-arkind` alongside `alanmathews9`
+on the same Composio user.
+
+**A session cannot be told which connected account to use.** Passing
+`connectedAccountId` inside the tool arguments — which
+`tools/scripts/_github.mjs` and `app/server/connections.mjs` both do — is
+silently ignored: it is forwarded to GitHub as an unknown field and dropped.
+The real parameter is the third argument to `execute()`,
+`{ account: "<id>" }` (`ToolRouterSessionExecuteOptions.account`), and on this
+project that returns:
+
+    400 The 'account' parameter is not supported for this project.
+        Multi-account selection is not enabled.
+
+So with two connections attached, **Composio picks one and there is no way to
+override it.** It picked the newest: every call resolved to `alan-arkind`,
+`GET_THE_AUTHENTICATED_USER` reported that login for both account ids, and
+`alanmathews9/arkind-internal` became invisible.
+
+Three things follow.
+
+1. **"Manage connections: several GitHub accounts, each disconnectable"
+   (commit `87a2739`) does not do what it says.** The UI lists accounts, labels
+   them and lets you pick one, and the picking has no effect on where tool
+   calls go. `labelAccounts` also mislabels: it calls
+   `GET_THE_AUTHENTICATED_USER` once per account and every call returns the
+   same login, so two accounts appear under one name. This needs either
+   removing or reducing to "one connection per source, disconnect and
+   reconnect to switch" — the honest version of what the platform supports.
+2. **Exactly one GitHub connection may be attached at a time.** Seeding the new
+   repo requires the old connection gone first, or the seeder may create the
+   repository under the wrong account.
+3. `connectedAccountId` should come out of `exec()` in `_github.mjs`. It reads
+   as enforcement and enforces nothing, which is worse than its absence.
+
+The same limit applies to Gmail and Drive; they have one connection each, so
+nothing is broken there today.
 
 ### After the corpus: accuracy, then UI
 
