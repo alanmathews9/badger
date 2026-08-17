@@ -122,41 +122,68 @@ not a server — so splitting buys no isolation and costs version pinning.
 **No hosting, no login.** Hosting is the last graded axis at zero. Gmail and
 Drive are not connected.
 
-## Next: hosting, then login
+## Hosted — https://badger-1033557908241.us-central1.run.app
 
-The UI is built and works against the live repo. Hosting is the last graded
-axis sitting at zero.
+Passphrase `glean-me`. Live on Cloud Run, verified end to end in production:
+the gate holds, search returns 20 hits in 2.4s, and the agent answers with
+verified citations at about half a cent a question.
 
-**Hosting, as settled:** a Compute Engine VM in the existing GCP project gets
-Vertex credentials from its own service account, so there is no model key to
-deploy. Cloudflare Tunnel for HTTPS; never expose the port directly (their
-security docs). Build `app/web` at deploy time and let `app/server` serve
-`app/web/dist` — one process, one port.
+**Cloud Run, not the VM + Cloudflare Tunnel this file used to specify.** The
+reasoning did not change, the constraint did: there is no domain, and a
+quick tunnel hands out a random *.trycloudflare.com URL that changes on every
+restart. Cloud Run gives a free HTTPS URL with no domain, Vertex credentials
+from the service identity so **no key exists anywhere**, and a free tier
+(2M requests, 180k vCPU-s, 360k GiB-s per month) a demo will not approach. It
+removed two components rather than adding any.
 
-**Login is scope, not security.** A single shared password is the honest demo
-answer, with per-user accounts named in the README as the next step. It has to
-land before anything is publicly reachable.
+    gcloud run deploy badger --source . --region us-central1 \
+      --service-account badger-run@$PROJECT.iam.gserviceaccount.com \
+      --allow-unauthenticated --max-instances 1 --concurrency 20 \
+      --set-secrets COMPOSIO_API_KEY=badger-composio-api-key:latest,...
 
-**Two honest limits to carry into that work.** Multi-user is not built — the
-user id is an env var read by tool subprocesses, which races with concurrent
-users; real multi-tenancy means moving from `tools/*.yaml` to SDK-injected
-tools via `buildTool()`, which are in-process closures that can hold per-request
-context. And follow-ups are stateless: `sessionId` is a logging label, not
-conversation resumption (`dist/sdk.js` never loads prior messages), so each
-follow-up resends the previous exchange and re-retrieves.
+`--max-instances 1` does double duty: it caps cost absolutely, and it makes the
+in-memory rate limits *correct* — they are per instance, so a second instance
+would silently double every limit.
 
-**Still to do after hosting:** the Composio connect flow —
-`session.authorize("github")` returns a Connect Link, the browser redirects,
-Composio calls back, and we never handle a GitHub credential. Until then the
-footer reports real connection state and says Drive and Gmail are not connected.
+Three secrets in Secret Manager, never as plain env vars: the Composio key, the
+session signing key, the passphrase. The service runs as a dedicated
+`badger-run` service account holding exactly two roles — `aiplatform.user` and
+`secretAccessor` on those three secrets — rather than the default compute
+account, which carries far more.
 
-Do **not** use gitagent's built-in web UI: its composer is broken and it
-switches the repo onto a `chat/<timestamp>` branch.
+**Still to do:** a billing budget alert. `gcloud billing budgets create` needs
+the billingbudgets API enabled against the billing account's own quota project;
+easiest in the console. The app-level cap is the real protection and is already
+live — 250 answers a day, about $1.25 at worst.
 
-**Nothing to match here.** Not one of the 18 published gitagent agents has a UI,
-a Dockerfile, or GitHub Pages. Every one is delivered as a CLI invocation, an
-SDK embed, or gitagent's own localhost UI. A hosted UI puts Badger ahead of the
-framework author's own flagship on this axis.
+**Traps hit deploying, all now fixed in the repo:** every entry point read .env
+with an unguarded readFileSync, which would have crashed the container before
+its first request; the root lockfile had drifted from package.json, which
+`npm install` tolerates and `npm ci` correctly refuses; and the base image must
+match the local npm major (node:24, npm 11) or `npm ci` rejects the lockfile.
+A new GCP project also no longer grants the compute default service account
+Editor, so Cloud Build cannot read its own source upload until it is given
+`cloudbuild.builds.builder`.
+
+## Next: Gmail and Drive
+
+The weakest part of the story. A "Glean equivalent" searching one GitHub repo
+is thin, and the architecture's central claim — that adding a source is
+configuration rather than connector code — is currently untested.
+
+**Use a throwaway Google account with seeded data, never Alan's real one.** The
+demo is behind one shared passphrase on a public URL; connecting a personal
+inbox would expose it to anyone holding the link. The same reasoning that made
+the GitHub corpus a fictional consultancy applies here.
+
+**Login is a gate, not the product, and the README should say so:** Badger has
+no per-user anything — one Composio connected account, a user id in an env var.
+Real deployment resolves the signed-in user to their own OAuth grant per
+source, so results are permission-scoped by construction. Federation makes that
+*simpler* than an index: each source enforces its own ACLs at query time,
+whereas Onyx has to replicate permissions into Vespa and keep them fresh
+(`build_access_filters_for_user`, `_post_query_chunk_censoring`). That paragraph
+turns the shortcut into evidence of understanding the hardest part of Glean.
 
 ## Decisions that are settled — do not relitigate
 

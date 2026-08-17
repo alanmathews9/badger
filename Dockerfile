@@ -9,7 +9,7 @@
 # not, which is exactly the container case.
 
 # ── build the frontend ─────────────────────────────────────────────────────
-FROM node:22-slim AS web
+FROM node:24-slim AS web
 
 WORKDIR /build
 COPY app/web/package.json app/web/package-lock.json ./
@@ -18,7 +18,7 @@ COPY app/web/ ./
 RUN npm run build
 
 # ── runtime ────────────────────────────────────────────────────────────────
-FROM node:22-slim AS runtime
+FROM node:24-slim AS runtime
 
 ENV NODE_ENV=production
 WORKDIR /app
