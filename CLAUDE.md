@@ -204,10 +204,32 @@ submission, and it is measured, not claimed.
   treat that throw as "not connected" — re-check `session.toolkits()`, which is
   authoritative.
 
-**Still open, and needed before the agent can use any of this:** how gitagent
-reaches the session. `session.mcp` exists on the session object and is the
-likely bridge, but the endpoint is minted per user at runtime, so `agent.yaml`
-cannot hold a static url. Settle this before writing skills.
+**Settled 2026-08-17 — the agent reaches Composio through `tools/`, not MCP.**
+See NOTES.md §9. `tools/*.yaml` is implemented in 2.1.0 (`dist/tool-loader.js`):
+a YAML declaration plus a script that takes JSON on stdin and returns text on
+stdout. Declarative tools are wrapped by `pre_tool_use` exactly like MCP tools,
+so `hooks/allowed-tools.txt` still gates them.
+
+    tools/search-github.yaml  ->  tools/scripts/search-github.mjs
+
+The script owns the per-user Composio session; the agent sees one tool with a
+name we chose. This sidesteps the per-user-url problem entirely, and matches how
+the framework's own authors reach external services — through a script, not a
+wired integration.
+
+Traps, all from the code rather than the docs: the runtime reads
+`implementation.script` while the spec says `implementation.path`; the script
+path resolves under **`tools/`**, so `script: scripts/x.mjs` means
+`tools/scripts/x.mjs`, not repo-root `scripts/`; a malformed file is skipped in
+**silence**; and **`annotations.read_only` is read by nothing** — correcting the
+claim above that it gave us a machine-readable third layer. It does not.
+
+**The SDK has a native tool allowlist, which changes the hosting plan.**
+`query()` accepts `allowedTools`, `disallowedTools`, `replaceBuiltinTools`,
+programmatic `hooks.preToolUse`, `sandbox`, and `costs()` — all verified present
+in 2.1.0. Building the product on `query()` rather than shelling out to the CLI
+gives two in-process enforcement layers that cannot fail open the way the shell
+hook can. Use it.
 
 **Follow-up, not blocking:** this connection uses Composio's managed GitHub
 OAuth, whose scopes are broader than read-only. Enforcement today is the tool

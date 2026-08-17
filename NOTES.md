@@ -544,3 +544,146 @@ put it behind TLS.
 4. Read the voice package's server to decide: extend `/api/chat`, or host our
    own UI against the SDK (`@open-gitagent/gitagent` also ships `./exports.js`
    as a library).
+
+---
+
+# §9. `tools/`, the SDK, and the docs site — read 2026-08-17
+
+Source: the **installed runtime** (`/opt/homebrew/lib/node_modules/@open-gitagent/gitagent@2.1.0/dist/`)
+cross-checked against **gitagent.sh/docs** (29 pages, JS-rendered — `WebFetch`
+returns only the title, a browser is required). Where they disagree the dist
+wins, and they do disagree.
+
+## §9a. `tools/` is real, and it is not what the spec says it is
+
+`dist/tool-loader.js` (186 lines) implements it. Confirmed working in 2.1.0.
+
+    tools/<anything>.yaml
+
+    name: search-github
+    description: ...
+    input_schema:
+      properties:
+        query: { type: string, description: ... }
+      required: [query]
+    implementation:
+      script: scripts/search-github.mjs
+      runtime: node          # default "sh"
+
+Mechanics, from the code rather than the docs:
+
+- Required keys are `name`, `description`, `input_schema`,
+  `implementation.script`. **Anything missing and the file is skipped in
+  silence** (`catch {}`), the same fail-quiet pattern as MCP servers. A typo
+  costs a tool with no error.
+- **The spec says `implementation.path`; the runtime reads
+  `implementation.script`.** Following `spec/SPECIFICATION.md` §8 here produces
+  a tool that never loads.
+- Script path resolves to **`join(agentDir, "tools", script)`** — so
+  `script: scripts/x.sh` means **`tools/scripts/x.sh`**, not the repo-root
+  `scripts/`. Easy to get wrong.
+- Protocol: args as JSON on **stdin**, result on **stdout**. Identical to the
+  hook protocol. Non-zero exit becomes a tool error; stdout is parsed as JSON
+  and unwrapped if it has `.text` or `.result`, otherwise passed through as
+  text. 120s hard timeout.
+- **`annotations` are read by nothing.** `read_only`, `requires_confirmation`,
+  `compliance_sensitive` appear in the spec's tool schema and are absent from
+  the loader. They are documentation, not enforcement — correcting the earlier
+  claim in CLAUDE.md that they gave us a third machine-readable layer.
+
+Load order in `dist/index.js` is builtin → declarative (`tools/`) → plugin →
+MCP, then:
+
+    tools = tools.map((t) => wrapToolWithHooks(t, hooksConfig, agentDir, sessionId));
+
+**Every tool is wrapped, declarative ones included**, so `pre_tool_use` and
+`hooks/allowed-tools.txt` gate custom tools exactly like MCP tools. Nothing in
+`agent.yaml` filters declarative tools — they are appended unconditionally.
+
+**Why this matters for Badger.** It answers the open wiring question. Rather
+than trying to put a per-user, runtime-minted Composio MCP url into a static
+`agent.yaml`, declare one tool we own:
+
+    tools/search-github.yaml  ->  tools/scripts/search-github.mjs
+
+The script holds the Composio session logic. The agent sees a single tool with
+a name we chose, our allowlist gates that name, and the per-user session lives
+in the script where it belongs. This also matches the framework authors' own
+habit of reaching external services through a script rather than a wired
+integration.
+
+## §9b. The SDK has a real tool allowlist — correcting §4
+
+An earlier note here says "there is no tool allowlist in the runtime". That is
+true of the **CLI + `agent.yaml`** path and **false of the SDK path**. Verified
+present in 2.1.0's `dist/sdk.js`:
+
+| `query()` option | Effect |
+|---|---|
+| `allowedTools: string[]` | tool-name allowlist |
+| `disallowedTools: string[]` | tool-name denylist |
+| `replaceBuiltinTools: boolean` | skip cli/read/write/memory entirely |
+| `tools: GCToolDefinition[]` | inject custom tools programmatically |
+| `hooks: { preToolUse, onSessionStart, postResponse, onError, ... }` | in-process hooks, no shell scripts |
+| `sandbox` | run inside an E2B cloud VM |
+| `repo` | clone a remote agent repo and run it |
+| `sessionId` | tag or resume a session |
+| `result.costs()` | tokens + USD per query |
+
+`buildTool` is exported (`dist/exports.js`, `dist/tool-factory.js`).
+
+**Consequence.** Building the product on the SDK gives us *four* independent
+read-only layers, two of them in-process and immune to the "hooks fail open"
+problem: Composio's `DIRECT_TOOLS` preset + per-tool enable list, the SDK's
+`allowedTools`, `replaceBuiltinTools: true` to drop `cli`/`write`/`edit`
+outright, and the shell hook for the CLI path. That is a materially stronger
+story than the CLI path alone, and it is the argument for building the product
+on `query()` rather than shelling out to the `gitagent` binary.
+
+## §9c. Native Composio exists — but not in our version
+
+`docs/integrations` says GitAgent ships Composio support: set
+`COMPOSIO_API_KEY`, run `gitagent --voice`, connect services in the web UI's
+Integrations tab, and *"GitAgent tools map directly to Composio actions"*.
+
+**Our installed 2.1.0 contains zero references to Composio** — `grep -ri
+composio dist/` returns nothing. So that path is unavailable to us, and the
+docs describe a build we do not have. (The site badges the harness **v1.5.0**
+while npm gave us **2.1.0**; the versioning is not coherent between them.)
+
+Two reasons not to chase it even if it lands: it maps toolkits wholesale, and
+Composio's GitHub toolkit is 823 tools — the opposite of the 12-tool allowlist
+we just verified. And it is configured through the web UI, i.e. not in git,
+which contradicts the thesis. **Our own `tools/` wrapper is both available and
+better.**
+
+## §9d. Hosting, from `docs/security`
+
+The hosting axis has a documented path:
+
+- `GITAGENT_PASSWORD` (+ optional `GITAGENT_USERNAME`) puts basic auth on every
+  HTTP route and rejects unauthenticated WebSockets; `/health` stays open for
+  load balancers. Cookie is HttpOnly, SameSite=Strict, 24h, SHA-256 token.
+- **"Never expose port 3333 directly"** — proxy via nginx, Caddy, or a
+  Cloudflare Tunnel. `cloudflared tunnel --url http://localhost:3333` is the
+  zero-config option and is the obvious demo route.
+- `--sandbox` runs the agent in an isolated E2B cloud VM (`E2B_API_KEY`);
+  `--sandbox-repo` clones a repo into it.
+
+## §9e. Other corrections and useful bits
+
+- `docs/architecture` and the landing page both show **`spec_version: "0.4.0"`**,
+  while `spec/SPECIFICATION.md` and its JSON Schema default to `0.1.0` and every
+  published agent uses `0.1.0`. Stay on `0.1.0`; it matches the validator.
+- Built-in tools carry read-only metadata in the docs: **`read` is the only one
+  marked read-only.** `memory` is *not* — worth knowing given we grant it.
+- `task_tracker` and `skill_learner` are builtins that write; both are absent
+  from our allowlist, which is correct.
+- Skill frontmatter gains auto-generated fields when the skill learner
+  crystallises one: `confidence`, `learned_from`, `learned_at`, `usage_count`,
+  `success_count`, `failure_count`, `negative_examples`.
+- Skills are invoked as `/skill:<name> <args>` in the REPL, or by passing that
+  same string as a `query()` prompt.
+- Two SDK cookbooks are directly on-point and worth reading before we build:
+  `sdk/cookbooks/summarize-emails` (Gmail through a custom tool) and
+  `sdk/cookbooks/custom-tool` (`buildTool()` wiring).
