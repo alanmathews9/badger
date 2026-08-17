@@ -294,6 +294,69 @@ to ~200 bytes. Across a fan-out that is the difference between a readable
 context and a bloated one, and it makes the model's job easier. Every skill
 that calls a GitHub search should pass `fields`.
 
+## 4i. `search_issues` runs in semantic mode, and semantic mode cannot see comments
+
+The single most important retrieval finding so far, and it contradicts the
+tool's own description.
+
+`github-mcp-server`'s `search_issues` describes itself as *"natural-language
+semantic matching. Best for conceptual or paraphrased queries."* The harness
+showed the URL it actually builds:
+
+    /search/issues?q=repo:<r>+is:issue+<query>&search_type=semantic
+
+Two things follow, both measured against the Arkind corpus:
+
+**1. Semantic mode does not search issue comments.** The word `reconciliation`
+appears only in comments, never in an issue body:
+
+| Query | Result |
+|---|---|
+| `reconciliation` (semantic, via MCP) | **0** |
+| `reconciliation` (plain REST, no `search_type`) | **3** — #2, #6, #19 |
+| `reconciliation in:comments` | **3** |
+| `reconciliation in:body` | 0 |
+
+**2. Semantic mode degrades as the query gets longer**, behaving like an AND
+over terms despite the "paraphrased queries" claim:
+
+| Query | Hits |
+|---|---|
+| `Halden` | 2 |
+| `Halden slip` | 1 |
+| `Halden engagement slip` | **0** |
+| `why did the Halden engagement slip and run over` | **0** |
+
+So the natural-language question a user actually asks returns nothing, and the
+knowledge we care about most is invisible.
+
+**The fix: put an `in:` qualifier in the query.** Doing so switches GitHub out
+of semantic mode into classic keyword search, which does reach comments.
+`reconciliation in:comments` returns the three hits that bare `reconciliation`
+could not. Nothing else worked — `sort: created` did not disable semantic mode,
+and there is no parameter for it.
+
+**Rules for the `search-github` skill:**
+
+- Always append `in:title,body,comments` (or `in:comments`) to an issue query.
+  Never issue a bare query.
+- Feed it **keywords, not sentences.** Strip the question down before
+  searching, then widen if it returns nothing.
+- Treat a zero result as suspect. Retry with fewer terms before reporting an
+  absence — §4f's lesson applies here too.
+
+**Why this matters beyond GitHub.** The tool's description was confidently
+wrong about its own behaviour, in a way that fails silently and returns a
+plausible empty answer. Every source we add gets probed with `MCP_CALL` against
+known content before a skill trusts it.
+
+**Caveat, unfinished.** Some issues created minutes before testing did not
+appear for terms in their own titles (`Copilot in:title` → 0 for an issue
+titled "Can we use Copilot on the Verity codebase?") while matching on their
+comments. That looks like index lag on fresh issues rather than a further
+mechanism, but it is **not confirmed** — re-run the demo questions once the
+corpus has settled before trusting any of them in a demo.
+
 ## 5. Timeouts stack badly across a fan-out
 
 Default `timeoutMs` per server is 30 000, covering connect *and* the initial
