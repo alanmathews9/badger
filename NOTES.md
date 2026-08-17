@@ -265,6 +265,35 @@ turn issuing several searches per source will reach this. Any skill that treats
 a failed search as "nothing found" will fabricate an absence — the same
 correctness bug as §4, one layer up.
 
+## 4h. Verified at the MCP layer, not just at REST
+
+`scripts/mcp-tools.mjs` now takes `MCP_SCHEMA=<tool>` to print a tool's
+parameters and `MCP_CALL=<tool> MCP_ARGS=<json>` to invoke one — no model, no
+agent, no spend. Listing proves a name exists; only calling proves the path
+works. Results against `github-mcp-server` 1.9.0 with the fine-grained PAT:
+
+- **`search_issues` works.** The §4g `is:issue` requirement is handled by the
+  server itself — its description says "Already scoped to is:issue", and the
+  call returns the hit rather than a 422. So the primary retrieval path is
+  sound, and skills do **not** need to add the qualifier by hand.
+- **`search_code` fails identically at the MCP layer** — 0 hits,
+  `incomplete_results: true`. Consistent with §4f, as expected.
+- **`get_file_contents` works, and the answer arrives as a `resource` block
+  rather than a text block.** Worth a scare, because §6 says binary resource
+  blocks are replaced by a placeholder. Checked `dist/mcp/manager.js:32-38`:
+  `flattenToolResult` pushes `res.text` through when it is a string, and only
+  substitutes a placeholder when it is not. GitHub returns
+  `mimeType: text/plain`, so Badger receives real content. Safe — but it is
+  safe by one branch in the runtime, so re-check this for any source whose
+  files may be binary.
+
+**Use the `fields` parameter.** A single-issue `search_issues` response is
+~2 KB of JSON — URLs, reaction counts, avatar links, node ids — almost none of
+it useful. `fields: ["number","title","html_url","state"]` cuts the same result
+to ~200 bytes. Across a fan-out that is the difference between a readable
+context and a bloated one, and it makes the model's job easier. Every skill
+that calls a GitHub search should pass `fields`.
+
 ## 5. Timeouts stack badly across a fan-out
 
 Default `timeoutMs` per server is 30 000, covering connect *and* the initial
