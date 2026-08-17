@@ -46,20 +46,31 @@ yet search it.** Everything verified so far was tested outside the agent.
 
 ## The two things to do next, in order
 
-### 1. Research how the framework's authors build agents
+### 1. Research how the framework's authors build agents — DONE 2026-08-17
 
-**Decided 2026-08-17, not started.** Before writing Badger's skills, read the
-public gitagent agents published by the framework's own authors — the registry
-at registry.gitagent.sh, the `architect` example, and whatever else is public.
+Seventeen public `shreyas-lyzr` repos read in full by six parallel subagents.
+**Findings are in `RESEARCH-GAP-IDIOM.md`. Read it before writing any skill.**
 
-The goal is convention, not inspiration: how they structure `SOUL.md` and
-`RULES.md`, how skill prompts are written and how long they are, how tools are
-named and referenced, what a well-formed agent repo looks like. This is a
-hiring submission for these people, so matching their idiom is worth real
-marks — and two of the five graded axes are research and framework
-understanding.
+The four things that change what we build:
 
-Run this as a subagent sweep, then write the findings up before writing skills.
+- **Skills are decomposed by user-facing task, never by data source**, and no
+  agent in the corpus has a routing skill. Our planned `search-gmail` /
+  `search-drive` / `search-github` / `federate` / `cite` split is unidiomatic —
+  per-source mechanics belong in `skills/<name>/references/`, and citation is an
+  output-format block repeated per skill, not a skill.
+- **No published agent declares an MCP source, and `exa-lead-gen-agent`
+  deliberately migrated off MCP** for engine portability. Our MCP wiring, our
+  `hooks/`, and our `scripts/` are all departures with no precedent. Each is
+  defensible; each now has to be argued in the README instead of left to look
+  like ignorance of the idiom.
+- **`agent-designer` argues for agent-driven search over RAG in as many words** —
+  "let the agent drive", "add RAG only if the agent consistently fails". That is
+  Badger's federated-no-index thesis, stated by the framework's own author, and
+  citing it is a direct hit on two graded axes.
+- **SOUL/RULES have fixed heading templates** (five and four), and load-bearing
+  constraints are deliberately restated across SOUL, RULES, skill and README
+  rather than cross-referenced. A fourth file, `DUTIES.md`, holds the per-task
+  order of operations.
 
 ### 2. Turn the GitHub source on
 
