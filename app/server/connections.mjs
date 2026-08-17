@@ -146,8 +146,15 @@ async function githubAuthConfig() {
   const configured = process.env.BADGER_GITHUB_AUTH_CONFIG;
   if (configured) return (authConfigId = configured);
 
-  const list = await client().authConfigs.list({ toolkitSlug: "github" });
-  const found = (list?.items ?? [])[0];
+  // The SDK's filter parameter is `toolkit`, not `toolkitSlug` — it maps to
+  // `toolkit_slug` on the wire (node_modules/@composio/core/src/models/
+  // AuthConfigs.ts:100), and the Zod schema silently drops the unknown key.
+  // With one auth config in the project that mistake was invisible. It stops
+  // being invisible the moment Gmail and Drive configs exist: an unfiltered
+  // list plus `[0]` would hand the "Connect GitHub" button a Google consent
+  // screen. Filter server-side, then verify client-side rather than trust it.
+  const list = await client().authConfigs.list({ toolkit: "github" });
+  const found = (list?.items ?? []).find((i) => i.toolkit?.slug === "github");
   if (!found?.id) throw new Error("no GitHub auth config exists in this Composio project");
   return (authConfigId = found.id);
 }
