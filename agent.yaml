@@ -16,40 +16,26 @@ tags:
   - google-drive
   - github
 
-# NOTE: model ids must be "provider:model" AND must exist in the runtime's
-# model registry. Unknown ids crash with "Cannot read properties of undefined
-# (reading 'baseUrl')". Verified working as of gitagent 2.1.0 — see NOTES.md.
+# Model ids are "provider:model" and must exist BOTH in the runtime's registry
+# and on the account. Unknown-to-registry ids crash with "Cannot read properties
+# of undefined (reading 'baseUrl')"; unavailable-to-account ids fail at call
+# time. The two checks are independent — see NOTES.md §7.
 #
-# The "google:" prefix is load-bearing: these same ids also exist under the
-# github-copilot provider. "google:" selects the AI Studio path
-# (generativelanguage.googleapis.com) and reads GEMINI_API_KEY.
-#
-# Being in the runtime's registry is NOT enough — the model must also be
-# available to this API key's project and tier. Run ./scripts/probe-models.sh
-# after any key or billing change. Results on 2026-08-16:
-#   gemini-3-flash-preview   OK
-#   gemini-2.5-flash         OK
-#   gemini-flash-latest      OK
-#   gemini-2.5-pro           404 — retired for this project, permanent
-#   gemini-3-pro-preview     404 — retired for this project, permanent
-#   gemini-2.0-flash         404 — retired for this project, permanent
-#   gemini-3.1-pro-preview   429 quota 0 — live but tier-gated; needs billing
-# All three survivors keep the 1M context window, which is what matters when
-# one federated query drags back whole threads and documents at once.
-# Vertex AI, authenticated by Application Default Credentials — no key file.
+# Auth is Application Default Credentials, no API key and no key file:
 #   gcloud auth application-default login
 #   GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION in .env
 # All three are required together; pi-ai returns no credential if any is
 # missing, and gitagent has no pre-flight check for google-vertex, so a partial
-# setup fails late and unclearly rather than at startup.
+# setup fails late and unclearly rather than at startup. This is the same auth
+# path a Compute Engine VM gets from its attached service account, so hosting
+# on this project needs no credential at all.
 #
-# Vertex carries the Pro models AI Studio walled off, and billing runs against
-# the GCP project rather than a free tier. Same auth path a Compute Engine VM
-# would use via its attached service account, so hosting inherits this setup.
+# Billing runs against the GCP project, which is what clears the free-tier walls
+# that blocked us earlier (AI Studio 5 req/min, Groq 8k tokens/min).
+#
 # Tested live in us-central1 on 2026-08-17. Listed-in-region does NOT mean
-# callable: the 3.x models all appear in the publisher catalogue and all 404 on
-# generate ("your project does not have access"), i.e. gated behind preview
-# enrolment rather than missing.
+# callable — the 3.x models all appear in the publisher catalogue and 404 on
+# generate, gated behind preview enrolment rather than missing:
 #   gemini-2.5-flash         OK          <- in use
 #   gemini-3.1-pro-preview   404 no access
 #   gemini-3-pro-preview     404 no access
@@ -57,8 +43,10 @@ tags:
 #   gemini-2.5-pro           400 "does not support setting thinking_budget to 0"
 #                            pi-ai sends 0 and gitagent exposes no knob for it,
 #                            so 2.5-pro is unusable here without patching pi-ai.
-# Note fallback: is NOT automatic in gitagent 2.1.0 — the loader reads
-# model.preferred only. These are documentation for a human, not failover.
+# Requesting preview access on the project is the route to Pro-tier reasoning.
+#
+# fallback: is NOT automatic in gitagent 2.1.0 — the loader reads
+# model.preferred only. The list below is documentation, not failover.
 model:
   preferred: "google-vertex:gemini-2.5-flash"
   fallback:
