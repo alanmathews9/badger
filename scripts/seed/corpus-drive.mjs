@@ -23,6 +23,103 @@
 
 export const ROOT = "Arkind";
 
+// Google Sheets, created through the Drive connection and nothing else.
+//
+// Passing `application/vnd.google-apps.spreadsheet` as the mime type to
+// GOOGLEDRIVE_CREATE_FILE_FROM_TEXT makes Drive convert the CSV on the way in,
+// so these are real spreadsheets rather than CSV attachments: Drive's
+// full-text index reaches the cells, and
+// GOOGLEDRIVE_EXPORT_GOOGLE_WORKSPACE_FILE reads them back as CSV. Measured
+// 2026-08-17 — passing `text/csv` instead stores a plain file that export
+// refuses, which is the trap worth avoiding.
+//
+// There is therefore no `googlesheets` toolkit, no fourth auth config and no
+// fourth connection. The agent's existing read allowlist already covers them.
+//
+// Sheets earn their place by answering a question prose cannot: numbers that
+// have to be compared across rows. "Who is over-allocated in September" is a
+// spreadsheet question, and its answer contradicts nothing in the documents —
+// it quantifies what the roadmap and the capacity mail thread only assert.
+export const SHEETS = [
+  {
+    folder: "People and HR",
+    title: "Utilisation Tracker 2026",
+    csv: `Person,Practice,Band,Q1,Q2,Jul,Aug,Sep,Sep commitment,Note
+Tomas Lindqvist,Data & Platform,4,71%,78%,60%,60%,70%,Halden phase 2 discovery,Lead time is not billable
+Dev Bhattacharya,Data & Platform,2,94%,101%,90%,95%,140%,Halden phase 2 + Verity foundations,OVER — both engagements want him
+Ana Ferreira,Data & Platform,1,58%,60%,60%,60%,60%,Verity,Contracted at 60%
+Rahul Desai,Data & Platform,2,88%,85%,80%,85%,90%,Verity foundations,
+Marta Nowak,Data & Platform,1,76%,90%,75%,80%,135%,Halden cutover + Verity,OVER — same conflict as Dev
+Luca Bianchi,Product Engineering,4,65%,70%,65%,65%,65%,Verity extraction,
+Karan Shah,Product Engineering,2,92%,95%,90%,90%,95%,Verity extraction,
+Sofia Almeida,Product Engineering,2,70%,68%,70%,70%,70%,Internal tooling 8% + Verity,
+Wei Zhang,Product Engineering,1,85%,88%,85%,90%,90%,Verity extraction,
+Nadia Okonkwo,Product Engineering,1,0%,0%,40%,75%,80%,Verity phase 0,Started June 2026
+Priya Raghunathan,Delivery,4,45%,48%,45%,45%,45%,All engagements,Delivery is not billed per engagement
+Target,,,85%,85%,85%,85%,85%,,Company target utilisation`,
+  },
+  {
+    folder: "People and HR",
+    title: "Expense Claims — Q2 2026",
+    csv: `Claim ID,Person,Date submitted,Trip date,Client,Category,Amount EUR,Status,Note
+EX-2026-081,Ana Ferreira,2026-04-08,2026-04-02,Verity,Rail,142.50,Paid,
+EX-2026-082,Tomas Lindqvist,2026-04-09,2026-03-28,Halden,Flight,388.00,Paid,Rotterdam
+EX-2026-083,Tomas Lindqvist,2026-04-09,2026-03-28,Halden,Hotel,264.00,Paid,Two nights
+EX-2026-084,Dev Bhattacharya,2026-04-14,2026-04-10,Verity,Flight,612.00,Paid,
+EX-2026-091,Marta Nowak,2026-05-02,2026-04-21,Halden,Rail,96.20,Paid,
+EX-2026-092,Ana Ferreira,2026-05-06,2026-02-11,Verity,Hotel,310.00,Disputed,Submitted 12 weeks late — see issue #11
+EX-2026-097,Karan Shah,2026-05-19,2026-05-14,Verity,Flight,540.00,Paid,
+EX-2026-101,Tomas Lindqvist,2026-06-02,2026-05-27,Halden,Flight,401.00,Paid,Close-out visit
+EX-2026-102,Tomas Lindqvist,2026-06-02,2026-05-27,Halden,Taxi,48.00,Rejected,No receipt
+EX-2026-108,Nadia Okonkwo,2026-06-22,2026-06-18,Internal,Equipment,89.00,Paid,Monitor stand
+Policy,,,,,,,,Claims due within 30 days of the trip; travel billed to client at 50%`,
+  },
+  {
+    folder: "People and HR",
+    title: "Engagement Margin Tracker 2026",
+    csv: `Engagement,Client,Structure,Contract value EUR,Contingency EUR,Planned weeks,Actual weeks,Overrun EUR,Margin planned,Margin actual,Status
+Halden migration,Halden Logistics,Fixed price,412000,82400,14,20,118000,32%,4%,Closed 5 Jun 2026
+Verity extraction,Verity,T&M with cap,285000,0,18,,0,28%,29%,In flight
+Verity discovery,Verity,Fixed price,42000,8400,3,3,0,30%,31%,Closed
+Nomura Park platform,Nomura Park,T&M,196000,0,12,13,0,26%,25%,Closed Feb 2026
+Halden phase 2,Halden Logistics,UNDECIDED,,,,,,,,Proposal draft — see issue #18
+Note,,,,,,,,,,Halden overrun exceeded contingency by 35600 and consumed the 2025 profit share`,
+  },
+  {
+    folder: "Access and Security",
+    title: "Access Grants Log 2026",
+    csv: `Request date,Person,System,Arkind approver,Client approver,Granted date,Days waited,Engagement,Note
+2026-01-19,Tomas Lindqvist,Halden — Oracle read replica,Tomas Lindqvist,Elke Sanders,2026-01-28,9,Halden migration,Agreed date was 19 Jan — critical path
+2026-01-19,Dev Bhattacharya,Halden — Oracle read replica,Tomas Lindqvist,Elke Sanders,2026-01-28,9,Halden migration,Same delay
+2026-01-20,Dev Bhattacharya,Halden — AWS eu-west-1,Tomas Lindqvist,Joris van Dijk,2026-01-23,3,Halden migration,
+2026-02-02,Ana Ferreira,Halden — AWS eu-west-1,Tomas Lindqvist,Joris van Dijk,2026-02-04,2,Halden migration,
+2026-06-02,Nadia Okonkwo,GitHub org (arkind),Ravi Menon,,2026-06-02,0,Onboarding,Should have been day one — was missed
+2026-06-02,Nadia Okonkwo,AWS sandbox,Ravi Menon,,2026-06-02,0,Onboarding,
+2026-06-04,Ana Ferreira,Verity — production,Luca Bianchi,Verity IT,2026-06-15,11,Verity extraction,Named individuals only
+2026-06-10,Nadia Okonkwo,Verity — staging,Luca Bianchi,Verity IT,2026-06-12,2,Verity extraction,
+2026-06-10,Nadia Okonkwo,Verity — production,Luca Bianchi,Verity IT,,PENDING,Verity extraction,Raised 10 Jun — still open
+2026-06-18,ALL,Nomura Park — all systems,Ravi Menon,,REVOKED,,Nomura Park,Closed Feb 2026 — access live 4 months. See issue #7`,
+  },
+  {
+    folder: "Clients/Verity",
+    title: "Verity — Notification Call Site Inventory",
+    csv: `ID,File,Type,Notification type,Has tests,Owner at Verity,Phase,Risk
+CS-01,app/models/order.rb,Mailer,order_confirmation,Yes,Platform,1,Low
+CS-02,app/models/order.rb,Mailer,order_shipped,Yes,Platform,1,Low
+CS-03,app/services/billing/invoice.rb,Mailer,invoice_ready,Yes,Billing,1,Low
+CS-04,app/services/billing/dunning.rb,Direct write,payment_failed,No,UNOWNED,2,HIGH
+CS-05,lib/tasks/nightly.rake,Direct write,digest_daily,No,UNOWNED,2,HIGH — nobody owns the nightly job
+CS-06,app/models/user.rb,Mailer,welcome,Yes,Platform,1,Low
+CS-07,app/models/user.rb,Mailer,password_reset,Yes,Platform,1,Low
+CS-08,app/services/prefs/sync.rb,Direct write,preference_changed,No,Platform,2,HIGH — Verity are rebuilding this concurrently
+CS-09,app/jobs/reminder_job.rb,Mailer,reminder,Partial,Platform,1,Medium
+CS-10,app/services/legacy/notify.rb,Direct write,legacy_alert,No,UNOWNED,2,HIGH — uses the 2017 forked gem
+CS-11,app/services/legacy/notify.rb,Direct write,legacy_digest,No,UNOWNED,2,HIGH
+CS-12,app/models/shipment.rb,Direct write,shipment_delayed,No,Logistics,2,HIGH
+Summary,,,,,,,34 call sites total — 28 clean (phase 1) and 6 direct writers (phase 2). 12 catalogued here; the remaining 22 are all phase 1 mailers.`,
+  },
+];
+
 /** Folder tree, parents first — the runner relies on this order. */
 export const FOLDERS = [
   "Onboarding",

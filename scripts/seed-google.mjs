@@ -28,7 +28,7 @@
 // when the Message-ID matches an existing one.
 import { Composio, SessionPreset } from "@composio/core";
 import { loadEnvFile } from "../tools/scripts/_env.mjs";
-import { ROOT, FOLDERS, DOCS } from "./seed/corpus-drive.mjs";
+import { ROOT, FOLDERS, DOCS, SHEETS } from "./seed/corpus-drive.mjs";
 import { THREADS } from "./seed/corpus-gmail.mjs";
 import { P, addr } from "./seed/people.mjs";
 
@@ -42,7 +42,13 @@ const DO_DRIVE = !args.has("--gmail");
 const DO_GMAIL = !args.has("--drive");
 
 const RESET_GMAIL = args.has("--reset-gmail");
+// Sheets were added after the documents were already seeded, so they need to
+// be runnable on their own against an existing folder tree.
+const SHEETS_ONLY = args.has("--sheets");
 
+// There is deliberately no `googlesheets` entry here. Spreadsheets are created
+// through Drive by asking it to convert a CSV on upload, so Sheets add no
+// toolkit, no auth config and no connection — see seedSheets().
 const WRITE_TOOLS = {
   gmail: [
     "GMAIL_IMPORT_MESSAGE",
@@ -56,6 +62,7 @@ const WRITE_TOOLS = {
     "GOOGLEDRIVE_CREATE_COMMENT",
     "GOOGLEDRIVE_CREATE_REPLY",
     "GOOGLEDRIVE_FIND_FILE",
+    "GOOGLEDRIVE_CREATE_FILE_FROM_TEXT",
   ],
   googledocs: ["GOOGLEDOCS_CREATE_DOCUMENT_MARKDOWN"],
 };
@@ -164,6 +171,58 @@ async function seedDrive() {
   }
 }
 
+// --------------------------------------------------------------- sheets
+
+/** Escape a value for a Drive query string, where the delimiter is a quote. */
+const q = (s) => String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+
+/** Resolve "Clients/Verity" to a folder id by walking the tree from ROOT. */
+async function resolveFolder(path) {
+  let parentId = null;
+  for (const name of [ROOT, ...path.split("/")]) {
+    const clause = parentId ? ` and '${parentId}' in parents` : "";
+    const res = await call("GOOGLEDRIVE_FIND_FILE", {
+      query:
+        `name = '${q(name)}' and mimeType = 'application/vnd.google-apps.folder'` +
+        ` and trashed = false${clause}`,
+    });
+    const hit = (res.files ?? [])[0];
+    if (!hit) throw new Error(`folder not found: ${ROOT}/${path} (missing "${name}")`);
+    parentId = hit.id;
+  }
+  return parentId;
+}
+
+/**
+ * Spreadsheets, without a Google Sheets integration.
+ *
+ * Drive converts an upload when the declared mime type is a Google Workspace
+ * type, so handing CREATE_FILE_FROM_TEXT a CSV body with the spreadsheet mime
+ * type produces a real Sheet. Declaring `text/csv` instead stores an ordinary
+ * file that GOOGLEDRIVE_EXPORT_GOOGLE_WORKSPACE_FILE then refuses to read —
+ * measured, and the reason this function is explicit about the mime type.
+ */
+async function seedSheets() {
+  console.log(`\n=== Sheets ===`);
+  for (const sheet of SHEETS) {
+    const existing = await call("GOOGLEDRIVE_FIND_FILE", {
+      query: `name = '${q(sheet.title)}' and trashed = false`,
+    });
+    if ((existing.files ?? []).length && !FORCE) {
+      console.log(`sheet   ${sheet.title} — already present, skipping`);
+      continue;
+    }
+    const data = await call("GOOGLEDRIVE_CREATE_FILE_FROM_TEXT", {
+      file_name: sheet.title,
+      text_content: sheet.csv,
+      mime_type: "application/vnd.google-apps.spreadsheet",
+      parent_id: await resolveFolder(sheet.folder),
+    });
+    console.log(`sheet   ${sheet.folder}/${sheet.title}  ${idOf(data)}`);
+    await sleep(250);
+  }
+}
+
 // ---------------------------------------------------------------- gmail
 
 /** One RFC 2822 message, base64url encoded as GMAIL_IMPORT_MESSAGE wants. */
@@ -268,8 +327,13 @@ async function resetGmail() {
 
 if (RESET_GMAIL) {
   await resetGmail();
+} else if (SHEETS_ONLY) {
+  await seedSheets();
 } else {
-  if (DO_DRIVE) await seedDrive();
+  if (DO_DRIVE) {
+    await seedDrive();
+    await seedSheets();
+  }
   if (DO_GMAIL) await seedGmail();
 }
 console.log("\ndone.");
