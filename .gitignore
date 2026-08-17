@@ -11,3 +11,11 @@ dist/
 workspace/
 
 .DS_Store
+
+# Local dev tooling, not part of the deliverable: the Composio skill installed
+# for Claude Code (npx skills add ComposioHQ/composio). It helps build the
+# integration; it is not one of Badger's own skills and must not be confused
+# with skills/. Reinstall with the command above.
+.agents/
+.claude/
+skills-lock.json

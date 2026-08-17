@@ -140,6 +140,45 @@ custom has to go through the SDK instead.
 Probe it with `scripts/mcp-tools.mjs` before wiring — same discipline as every
 other source, and it is how we find the real tool names for the allowlist.
 
+**Corrected 2026-08-17, from Composio's own skill (`npx skills add
+ComposioHQ/composio`, installed to `.agents/`, gitignored as dev tooling).**
+Two things above are out of date, and the second is a live threat to the
+read-only guarantee.
+
+1. **Sessions, not MCP servers.** "Tool Router" is the former name for sessions,
+   and standalone MCP servers are now a *migration* path: *"Treat direct
+   execution as a migration path, not the default for new agent integrations."*
+   The current shape is `composio.create(userId)` → a per-user session that can
+   expose an MCP endpoint (`session.mcp` carries url + headers). So the URL is
+   **minted per user at runtime, not static in `agent.yaml`** — the web app
+   creates the session and hands the agent its endpoint. Design this before
+   wiring; a hardcoded `mcp_servers:` url cannot be right for a multi-user
+   product.
+
+2. **Default sessions hand the agent generic meta-tools, which defeats
+   name-based gating.** A session ships with `COMPOSIO_SEARCH_TOOLS`,
+   `COMPOSIO_GET_TOOL_SCHEMAS`, `COMPOSIO_MULTI_EXECUTE_TOOL`,
+   `COMPOSIO_MANAGE_CONNECTIONS`, `COMPOSIO_REMOTE_BASH_TOOL` and friends.
+   `COMPOSIO_MULTI_EXECUTE_TOOL` can invoke **any** tool behind one generic
+   name — so `hooks/allow-read-only.sh`, which gates by exact tool name, would
+   wave every write through while appearing to work. A remote bash tool is
+   worse. **This is the single biggest risk in the Composio move.**
+
+   The fix is stated in their own guidance: *"Use the direct-tools preset only
+   for a narrow, deterministic agent with a fixed allowlist. It removes meta
+   tools by default."* Badger is precisely that agent. **Use the direct-tools
+   preset, keep the meta-tools off, and re-check the registered tool list with
+   `scripts/mcp-tools.mjs` after every config change** — if a generic execute
+   tool ever appears in Badger's tool list, the read-only guarantee is void
+   until it is gone.
+
+Two smaller notes. Composio returns a **Connect Link** for authorization, so we
+do not build a provider OAuth flow — that removes most of the auth work from the
+product build. And their bar for "it works" is worth adopting verbatim: a real
+read-only call through the actual execution path returning a genuine provider
+result *and* a non-empty Composio log id. Playground runs, tool searches and
+Connect Links do not count.
+
 **Alan needs to create the Composio account** — account creation is not something
 I do. Free tier, no card.
 
