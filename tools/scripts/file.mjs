@@ -10,13 +10,13 @@ import { exec, run, clip, contextFrom } from "./_github.mjs";
 run(async (args) => {
   const { path, ref } = args;
   // Whose GitHub, and which repo — injected per request by the server.
-  const { userId, accountId, owner: OWNER, repo: REPO } = contextFrom(args);
+  const { userId, owner: OWNER, repo: REPO } = contextFrom(args);
 
   if (path == null) return "ERROR: `path` is required. Use \"\" for the repository root.";
 
   const params = { owner: OWNER, repo: REPO, path: String(path) };
   if (ref) params.ref = String(ref);
-  const data = await exec("GITHUB_GET_REPOSITORY_CONTENT", params, userId, accountId);
+  const data = await exec("GITHUB_GET_REPOSITORY_CONTENT", params, userId);
 
   // Composio wraps the GitHub payload in `content`: an array of entries for a
   // directory, a single object (with base64 `content`) for a file.

@@ -10,7 +10,7 @@ import { exec, run, clip, asList, contextFrom } from "./_github.mjs";
 run(async (args) => {
   const { number, max_comments } = args;
   // Whose GitHub, and which repo — injected per request by the server.
-  const { userId, accountId, owner: OWNER, repo: REPO } = contextFrom(args);
+  const { userId, owner: OWNER, repo: REPO } = contextFrom(args);
 
   const n = Number(number);
   if (!Number.isInteger(n) || n < 1) return "ERROR: `number` must be an issue/PR number.";
@@ -19,7 +19,7 @@ run(async (args) => {
     owner: OWNER,
     repo: REPO,
     issue_number: n,
-  }, userId, accountId);
+  }, userId);
 
   const cap = Math.min(Math.max(Number(max_comments) || 20, 1), 50);
   const comments = await exec("GITHUB_LIST_ISSUE_COMMENTS", {
@@ -27,7 +27,7 @@ run(async (args) => {
     repo: REPO,
     issue_number: n,
     per_page: cap,
-  }, userId, accountId);
+  }, userId);
 
   const list = asList(comments);
   const type = issue.pull_request ? "PR" : "issue";

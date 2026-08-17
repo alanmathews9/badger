@@ -22,7 +22,11 @@ loadEnvFile(new URL("../../.env", import.meta.url));
 // without connecting anything of their own. A visitor who has connected their
 // own GitHub uses theirs instead.
 export const DEMO_USER_ID = process.env.BADGER_USER_ID ?? "badger-demo-alan";
-export const DEMO_REPO = process.env.BADGER_GITHUB_REPO ?? "alanmathews9/arkind-internal";
+// The repository scripts/seed-github.mjs creates. Pointed at the new account
+// ahead of the corpus existing: the old alanmathews9/arkind-internal is
+// unreachable either way, since that connection was removed, so naming the
+// destination is strictly better than naming somewhere we can no longer read.
+export const DEMO_REPO = process.env.BADGER_GITHUB_REPO ?? "alan-arkind/arkind";
 
 /**
  * Per-request context.
@@ -41,10 +45,12 @@ export function contextFrom(args = {}) {
   const userId = args._badger_user || DEMO_USER_ID;
   const slug = args._badger_repo || DEMO_REPO;
   const [owner, repo] = String(slug).split("/");
-  // Which connected account to run as. A user may hold several GitHub
-  // accounts; without this Composio picks one of them for us.
-  const accountId = args._badger_account || null;
-  return { userId, slug, owner, repo, accountId };
+  // There is deliberately no account id. Composio's per-call account
+  // selection ("Multi-account selection is not enabled" on this project) does
+  // not work, so a user holds exactly one GitHub connection and Composio
+  // resolves it without being told. An argument that reads as targeting and
+  // targets nothing is worse than its absence.
+  return { userId, slug, owner, repo };
 }
 
 // Kept for the CLI path, where there is one user by definition.
@@ -92,10 +98,10 @@ function session(userId) {
  * Execute one allowlisted Composio tool as a given end user.
  * Response shape is { data, error, logId } — there is no `successful` field.
  */
-export async function exec(slug, args, userId = DEMO_USER_ID, accountId = null) {
+export async function exec(slug, args, userId = DEMO_USER_ID) {
   if (!ALLOW.includes(slug)) throw new Error(`tool not allowlisted: ${slug}`);
   const s = await session(userId);
-  const res = await s.execute(slug, accountId ? { ...args, connectedAccountId: accountId } : args);
+  const res = await s.execute(slug, args);
   if (res?.error != null) {
     throw new Error(`${slug} failed: ${JSON.stringify(res.error).slice(0, 300)}`);
   }

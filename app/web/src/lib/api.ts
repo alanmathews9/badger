@@ -92,44 +92,49 @@ export async function fetchSources(): Promise<SourcesResponse> {
   return await res.json();
 }
 
-/** Start the OAuth handshake. Composio issues the link; we only redirect. */
-export async function connectGithub(): Promise<string> {
-  const res = await fetch("/api/connect/github", { method: "POST" });
+/** Which sources this visitor has connected. One connection per source. */
+export type ConnectionSource = {
+  id: "github" | "gmail" | "googledrive";
+  label: string;
+  connected: boolean;
+  connectedAt: string | null;
+};
+
+export type ConnectionsResponse = {
+  mode: SourceMode;
+  repo: string | null;
+  /** The GitHub login, once one is connected. */
+  login: string | null;
+  sources: ConnectionSource[];
+};
+
+export async function fetchConnections(): Promise<ConnectionsResponse> {
+  const res = await fetch("/api/connections");
+  if (!res.ok) return { mode: "none", repo: null, login: null, sources: [] };
+  return await res.json();
+}
+
+/**
+ * Start the OAuth handshake for one source. Composio issues the link; we only
+ * redirect. Fails with 409 if that source is already connected — disconnect
+ * first, because a second connection cannot be targeted.
+ */
+export async function connectSource(toolkit: ConnectionSource["id"]): Promise<string> {
+  const res = await fetch("/api/connect", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ toolkit }),
+  });
   const body = await res.json();
   if (!res.ok) throw new Error(body?.error ?? "could not start the connection");
   return body.redirectUrl;
 }
 
-export type Account = {
-  id: string;
-  status: string;
-  label: string;
-  login: string | null;
-  createdAt: string;
-};
-
-export type AccountsResponse = { accounts: Account[]; activeId: string | null; repo: string | null };
-
-export async function fetchAccounts(): Promise<AccountsResponse> {
-  const res = await fetch("/api/accounts");
-  if (!res.ok) return { accounts: [], activeId: null, repo: null };
-  return await res.json();
-}
-
-export async function selectAccount(accountId: string): Promise<void> {
-  const res = await fetch("/api/accounts/select", {
+export async function disconnectSource(toolkit: ConnectionSource["id"]): Promise<void> {
+  const res = await fetch("/api/connections/disconnect", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ accountId }),
-  });
-  if (!res.ok) throw new Error("could not switch account");
-}
-
-export async function disconnectAccount(accountId: string): Promise<void> {
-  const res = await fetch("/api/accounts/disconnect", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ accountId }),
+    body: JSON.stringify({ toolkit }),
   });
   if (!res.ok) throw new Error("could not disconnect");
 }

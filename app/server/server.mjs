@@ -25,14 +25,15 @@ import { searchAll, SearchError } from "./search.mjs";
 import { readAllowedTools } from "./allowed-tools.mjs";
 import { authEnabled, clearSessionCookie, hasValidSession, issueSessionCookie, passphraseMatches, userIdFor } from "./auth.mjs";
 import {
-  beginGithubConnect,
+  TOOLKITS,
+  TOOLKIT_LABELS,
+  beginConnect,
   chooseRepo,
-  disconnectAccount,
-  labelAccounts,
-  listGithubAccounts,
+  disconnectSource,
+  githubLogin,
+  listConnections,
   listRepositories,
   resolveContext,
-  selectAccount,
 } from "./connections.mjs";
 import { budgetStatus, claimAskSlot, clientIp, rateLimit } from "./limits.mjs";
 import { splashPage } from "./splash.mjs";
@@ -79,11 +80,10 @@ const server = createServer(async (req, res) => {
 
     if (url.pathname === "/api/search" && req.method === "POST") return await handleSearch(req, res);
     if (url.pathname === "/api/sources" && req.method === "GET") return await handleSources(req, res);
-    if (url.pathname === "/api/connect/github" && req.method === "POST") return await handleConnect(req, res, url);
-    if (url.pathname === "/api/connect/callback") return await handleConnectCallback(res);
-    if (url.pathname === "/api/accounts" && req.method === "GET") return await handleAccounts(req, res);
-    if (url.pathname === "/api/accounts/select" && req.method === "POST") return await handleSelectAccount(req, res);
-    if (url.pathname === "/api/accounts/disconnect" && req.method === "POST") return await handleDisconnect(req, res);
+    if (url.pathname === "/api/connect" && req.method === "POST") return await handleConnect(req, res, url);
+    if (url.pathname === "/api/connect/callback") return await handleConnectCallback(url, res);
+    if (url.pathname === "/api/connections" && req.method === "GET") return await handleConnections(req, res);
+    if (url.pathname === "/api/connections/disconnect" && req.method === "POST") return await handleDisconnect(req, res);
     if (url.pathname === "/api/repos" && req.method === "GET") return await handleRepos(req, res);
     if (url.pathname === "/api/repos" && req.method === "POST") return await handleChooseRepo(req, res);
     if (url.pathname === "/api/ask" && req.method === "GET") return await handleAsk(url, req, res);
@@ -176,35 +176,57 @@ let githubReachable = false;
  * result page that does not tell you whose data it is is a trap.
  */
 async function handleSources(req, res) {
-  const ctx = await resolveContext(userIdFor(req));
+  const userId = userIdFor(req);
+  const ctx = await resolveContext(userId);
+  // Drive and Gmail used to be hardcoded as "not connected" here, which stayed
+  // in place after they were wired up — so the Tools page claimed two of the
+  // three sources were missing while the agent was searching them.
+  const own = ctx.mode === "own" ? await listConnections(userId) : null;
+  const demo = ctx.mode === "demo" ? await listConnections(ctx.userId) : null;
+  const state = own ?? demo ?? {};
+
   return json(res, 200, {
     mode: ctx.mode,
     repo: ctx.repo,
-    sources: [
-      {
-        id: "github",
-        label: "GitHub",
-        connected: ctx.mode !== "none" && githubReachable,
+    sources: TOOLKITS.map((id) => {
+      const connected = Boolean(state[id]) && (id !== "github" || githubReachable);
+      return {
+        id: id === "googledrive" ? "drive" : id,
+        label: TOOLKIT_LABELS[id],
+        connected,
         own: ctx.mode === "own",
-        detail: ctx.mode === "own" ? (ctx.repo ?? "no repository chosen") : ctx.repo ?? "not connected",
-      },
-      { id: "drive", label: "Drive", connected: false, own: false, detail: "not connected" },
-      { id: "gmail", label: "Gmail", connected: false, own: false, detail: "not connected" },
-    ],
+        detail:
+          id === "github"
+            ? connected
+              ? (ctx.repo ?? "no repository chosen")
+              : "not connected"
+            : connected
+              ? ctx.mode === "demo"
+                ? "the demo account"
+                : "connected"
+              : "not connected",
+      };
+    }),
   });
 }
 
-/** POST /api/connect/github -> the Composio Connect Link to send the browser to. */
+/** POST /api/connect {toolkit} -> the Composio Connect Link to send the browser to. */
 async function handleConnect(req, res, url) {
   const limited = rateLimit(req, "search");
   if (limited) return json(res, 429, { error: limited });
   try {
-    const callbackUrl = `${url.origin}/api/connect/callback`;
-    const { redirectUrl } = await beginGithubConnect(userIdFor(req), callbackUrl);
+    const { toolkit } = JSON.parse(await readBody(req));
+    const callbackUrl = `${url.origin}/api/connect/callback?source=${encodeURIComponent(toolkit)}`;
+    const { redirectUrl } = await beginConnect(userIdFor(req), toolkit, callbackUrl);
     return json(res, 200, { redirectUrl });
   } catch (err) {
+    // "already connected" is the caller's mistake and safe to repeat back;
+    // anything else could carry internals, so it stays in the log.
+    if (/already connected|unknown source/.test(err?.message ?? "")) {
+      return json(res, 409, { error: err.message });
+    }
     console.error("[connect]", err);
-    return json(res, 502, { error: "could not start the GitHub connection" });
+    return json(res, 502, { error: "could not start the connection" });
   }
 }
 
@@ -212,49 +234,51 @@ async function handleConnect(req, res, url) {
  * Where Composio sends the browser back after authorising.
  *
  * Composio has already stored the credential by this point; there is nothing
- * to receive. Bounce back into the app, which polls /api/sources for the new
- * state rather than trusting a query parameter it did not sign.
+ * to receive. Bounce back into the app, which re-reads /api/connections rather
+ * than trusting a query parameter it did not sign.
  */
-async function handleConnectCallback(res) {
-  res.writeHead(303, { location: "/?connected=github" });
+async function handleConnectCallback(url, res) {
+  const source = url.searchParams.get("source") ?? "";
+  const safe = TOOLKITS.includes(source) ? source : "";
+  res.writeHead(303, { location: safe ? `/?connected=${safe}` : "/" });
   res.end();
 }
 
-/** GET /api/accounts -> every GitHub account this visitor has connected. */
-async function handleAccounts(req, res) {
+/** GET /api/connections — one connection per source, or none. */
+async function handleConnections(req, res) {
   const userId = userIdFor(req);
   try {
-    const accounts = await labelAccounts(userId, await listGithubAccounts(userId));
+    const connections = await listConnections(userId);
     const ctx = await resolveContext(userId);
-    return json(res, 200, { accounts, activeId: ctx.account, repo: ctx.repo });
+    return json(res, 200, {
+      mode: ctx.mode,
+      repo: ctx.repo,
+      login: connections.github ? await githubLogin(userId) : null,
+      sources: TOOLKITS.map((id) => ({
+        id,
+        label: TOOLKIT_LABELS[id],
+        connected: Boolean(connections[id]),
+        connectedAt: connections[id]?.createdAt ?? null,
+      })),
+    });
   } catch (err) {
-    console.error("[accounts]", err);
+    console.error("[connections]", err);
     return json(res, 502, { error: "could not read your connections" });
   }
 }
 
-async function handleSelectAccount(req, res) {
-  try {
-    const { accountId } = JSON.parse(await readBody(req));
-    await selectAccount(userIdFor(req), accountId);
-    return json(res, 200, { ok: true });
-  } catch (err) {
-    return json(res, 400, { error: err?.message ?? "could not switch account" });
-  }
-}
-
 /**
- * POST /api/accounts/disconnect — remove one of *your* accounts.
+ * POST /api/connections/disconnect {toolkit} — remove one of *your* sources.
  *
- * connections.mjs checks the account belongs to the asking session before
- * deleting anything. Without that check an id posted by anyone would delete
- * someone else's connection.
+ * The caller names a source, never an account id. There is therefore no id a
+ * visitor could post to reach someone else's connection: connections.mjs looks
+ * up the asking session's own and deletes only that.
  */
 async function handleDisconnect(req, res) {
   try {
-    const { accountId } = JSON.parse(await readBody(req));
-    const removed = await disconnectAccount(userIdFor(req), accountId);
-    return json(res, removed ? 200 : 404, removed ? { disconnected: true } : { error: "no such connection" });
+    const { toolkit } = JSON.parse(await readBody(req));
+    const removed = await disconnectSource(userIdFor(req), toolkit);
+    return json(res, removed ? 200 : 404, removed ? { disconnected: true } : { error: "not connected" });
   } catch (err) {
     console.error("[disconnect]", err);
     return json(res, 502, { error: "could not disconnect" });
@@ -394,7 +418,6 @@ async function handleAsk(url, req, res) {
           ...hookCtx.args,
           _badger_user: ctx.userId,
           _badger_repo: ctx.repo,
-          _badger_account: ctx.account,
         },
       }),
     },

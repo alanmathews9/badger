@@ -9,14 +9,14 @@ import { exec, run, clip, asList, contextFrom } from "./_github.mjs";
 run(async (args) => {
   const { path, author, since, limit } = args;
   // Whose GitHub, and which repo — injected per request by the server.
-  const { userId, accountId, owner: OWNER, repo: REPO } = contextFrom(args);
+  const { userId, owner: OWNER, repo: REPO } = contextFrom(args);
 
   const params = { owner: OWNER, repo: REPO, per_page: Math.min(Math.max(Number(limit) || 15, 1), 50) };
   if (path) params.path = String(path);
   if (author) params.author = String(author);
   if (since) params.since = String(since);
 
-  const data = await exec("GITHUB_LIST_COMMITS", params, userId, accountId);
+  const data = await exec("GITHUB_LIST_COMMITS", params, userId);
   const list = asList(data);
 
   if (!list.length) {

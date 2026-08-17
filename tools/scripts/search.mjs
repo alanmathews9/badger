@@ -17,7 +17,7 @@ run(async (args) => {
   if (!query || !String(query).trim()) return "ERROR: `query` is required.";
 
   // Whose GitHub, and which repo. Injected per request by the server.
-  const { userId, accountId, slug: REPO_SLUG, owner: OWNER, repo: REPO } = contextFrom(args);
+  const { userId, slug: REPO_SLUG, owner: OWNER, repo: REPO } = contextFrom(args);
 
   const extra = [];
   if (kind === "issue") extra.push("is:issue");
@@ -40,7 +40,7 @@ run(async (args) => {
   const q = buildQuery(query, plan, { repoSlug: REPO_SLUG, extra });
 
   const per_page = Math.min(Math.max(Number(limit) || 10, 1), 30);
-  const data = await exec("GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS", { q, per_page }, userId, accountId);
+  const data = await exec("GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS", { q, per_page }, userId);
 
   const items = asList(data);
   const total = data.total_count ?? items.length;

@@ -51,7 +51,7 @@ export default function App() {
   useEffect(() => {
     refreshSources();
     fetchBudget().then(setBudget).catch(() => {});
-    // Returning from the Composio handshake lands here with ?connected=github.
+    // Returning from the Composio handshake lands here with ?connected=<source>.
     // The parameter is not trusted — it only tells us to go and re-read the
     // real state — and it is stripped so a reload does not repeat the dance.
     if (new URLSearchParams(window.location.search).has("connected")) {

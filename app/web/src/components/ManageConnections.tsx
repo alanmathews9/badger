@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { Check, ExternalLink, Loader2, Lock, Plus, Trash2 } from "lucide-react";
-import { GitHubLogo } from "./BrandLogos";
+import { Check, ExternalLink, Loader2, Trash2 } from "lucide-react";
+import { DriveLogo, GitHubLogo, GmailLogo } from "./BrandLogos";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -11,28 +11,36 @@ import {
 } from "@/components/ui/sheet";
 import {
   chooseRepo,
-  connectGithub,
-  disconnectAccount,
-  fetchAccounts,
+  connectSource,
+  disconnectSource,
+  fetchConnections,
   fetchRepos,
-  selectAccount,
-  type Account,
+  type ConnectionSource,
   type Repo,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 /**
- * Manage connected GitHub accounts.
+ * Connect and disconnect Badger's three sources.
  *
  * A side pane rather than a page: connecting is something you do once and then
  * forget, and it should not cost you the search you were in the middle of.
  *
- * Several accounts are supported because people have several — a work GitHub
- * and a personal one. Composio holds each as its own connected account and
- * tool calls target one by id, so switching is a choice rather than a
- * disconnect-and-reconnect. The repository is remembered per account, since
- * each account sees a different set.
+ * **One connection per source.** This pane used to offer several accounts per
+ * source with a picker, and the picker did nothing — Composio's per-call
+ * account selection is disabled on this project, so every tool call went to
+ * whichever connection it resolved, regardless of what was selected. Worse,
+ * each account was labelled by asking "who are you?" through that same
+ * resolution, so two accounts appeared under one name. Connecting a second
+ * account is now refused rather than silently taking over; disconnect to
+ * switch.
  */
+const LOGOS: Record<ConnectionSource["id"], typeof GitHubLogo> = {
+  github: GitHubLogo,
+  gmail: GmailLogo,
+  googledrive: DriveLogo,
+};
+
 export function ManageConnections({
   open,
   onOpenChange,
@@ -42,8 +50,8 @@ export function ManageConnections({
   onOpenChange: (open: boolean) => void;
   onChanged: () => void;
 }) {
-  const [accounts, setAccounts] = useState<Account[] | null>(null);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [sources, setSources] = useState<ConnectionSource[] | null>(null);
+  const [login, setLogin] = useState<string | null>(null);
   const [repo, setRepo] = useState<string | null>(null);
   const [repos, setRepos] = useState<Repo[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -51,11 +59,11 @@ export function ManageConnections({
 
   const load = useCallback(async () => {
     try {
-      const data = await fetchAccounts();
-      setAccounts(data.accounts);
-      setActiveId(data.activeId);
+      const data = await fetchConnections();
+      setSources(data.sources);
+      setLogin(data.login);
       setRepo(data.repo);
-      if (data.activeId) {
+      if (data.sources.find((s) => s.id === "github")?.connected) {
         fetchRepos()
           .then(setRepos)
           .catch(() => setRepos([]));
@@ -63,191 +71,165 @@ export function ManageConnections({
         setRepos(null);
       }
     } catch {
-      setError("could not read your connections");
+      setError("Could not read your connections.");
     }
   }, []);
 
   useEffect(() => {
-    if (open) load();
+    if (open) void load();
   }, [open, load]);
 
-  const act = async (key: string, fn: () => Promise<unknown>) => {
-    setBusy(key);
+  async function onConnect(id: ConnectionSource["id"]) {
+    setBusy(id);
     setError(null);
     try {
-      await fn();
+      window.location.href = await connectSource(id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not start the connection.");
+      setBusy(null);
+    }
+  }
+
+  async function onDisconnect(id: ConnectionSource["id"]) {
+    setBusy(id);
+    setError(null);
+    try {
+      await disconnectSource(id);
       await load();
       onChanged();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "that did not work");
+    } catch {
+      setError("Could not disconnect.");
     } finally {
       setBusy(null);
     }
-  };
+  }
 
-  const connect = async () => {
-    setBusy("connect");
-    setError(null);
+  async function onChooseRepo(slug: string) {
+    setBusy(slug);
     try {
-      // A full navigation: GitHub's consent screen refuses to be framed, and a
-      // blocked popup is indistinguishable from a broken button.
-      window.location.href = await connectGithub();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "could not start the connection");
+      await chooseRepo(slug);
+      setRepo(slug);
+      onChanged();
+    } catch {
+      setError("Could not select that repository.");
+    } finally {
       setBusy(null);
     }
-  };
+  }
 
-  const active = accounts?.find((a) => a.id === activeId) ?? null;
+  const githubConnected = sources?.find((s) => s.id === "github")?.connected ?? false;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full gap-0 overflow-y-auto sm:max-w-md">
+      <SheetContent className="w-full overflow-y-auto sm:max-w-md">
         <SheetHeader>
-          <SheetTitle className="flex items-center gap-2">
-            <GitHubLogo size={18} />
-            GitHub connections
-          </SheetTitle>
+          <SheetTitle>Your connections</SheetTitle>
           <SheetDescription>
-            Badger never receives your token. Composio holds it, and the connection belongs to this
-            browser session.
+            Badger reads these as you, and never more than you can see. One account per
+            source — disconnect to switch.
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex flex-col gap-6 px-4 pb-6">
+        <div className="flex flex-col gap-6 px-4 pb-8">
           {error && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-900">
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-900">
               {error}
-            </div>
+            </p>
           )}
 
-          <section>
-            <h3 className="font-mono text-[10px] tracking-[0.1em] text-stone-500 uppercase">
-              Accounts
-            </h3>
-
-            {accounts === null ? (
-              <p className="mt-3 flex items-center gap-2 text-[12.5px] text-stone-500">
-                <Loader2 className="size-3.5 animate-spin" /> Loading…
-              </p>
-            ) : accounts.length === 0 ? (
-              <p className="mt-3 text-[12.5px]/[1.7] text-stone-600">
-                No GitHub account connected yet. Connect one to search your own repositories.
-              </p>
-            ) : (
-              <ul className="mt-3 flex flex-col gap-1.5">
-                {accounts.map((account) => {
-                  const isActive = account.id === activeId;
-                  const pending = account.status !== "ACTIVE";
-                  return (
-                    <li
-                      key={account.id}
-                      className={cn(
-                        "flex items-center gap-2.5 rounded-lg border px-3 py-2.5",
-                        isActive ? "border-stone-900 bg-stone-50" : "border-stone-200",
-                      )}
+          <ul className="flex flex-col gap-2">
+            {(sources ?? []).map((source) => {
+              const Logo = LOGOS[source.id];
+              const working = busy === source.id;
+              return (
+                <li
+                  key={source.id}
+                  className="flex items-center gap-3 rounded-lg border border-stone-200 px-3 py-2.5"
+                >
+                  <Logo size={18} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13.5px] font-medium">{source.label}</p>
+                    <p className="truncate font-mono text-[11px] text-stone-500">
+                      {source.connected
+                        ? source.id === "github" && login
+                          ? `@${login}`
+                          : `connected ${source.connectedAt ?? ""}`.trim()
+                        : "not connected"}
+                    </p>
+                  </div>
+                  {source.connected ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={working}
+                      onClick={() => onDisconnect(source.id)}
+                      aria-label={`Disconnect ${source.label}`}
                     >
-                      <span className="inline-flex size-2 shrink-0 items-center justify-center">
-                        <span
-                          className={cn(
-                            "size-2 rounded-full",
-                            pending ? "bg-amber-400" : "bg-emerald-500",
-                          )}
-                        />
-                      </span>
-
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[13px] font-medium">
-                          {account.login ? `@${account.login}` : account.label}
-                        </div>
-                        <div className="truncate font-mono text-[10px] text-stone-500">
-                          {pending ? "awaiting authorisation" : `connected ${account.createdAt}`}
-                        </div>
-                      </div>
-
-                      {!isActive && !pending && (
-                        <button
-                          onClick={() => act(account.id, () => selectAccount(account.id))}
-                          disabled={busy === account.id}
-                          className="shrink-0 text-[11.5px] font-medium text-stone-500 hover:text-stone-900"
-                        >
-                          Use
-                        </button>
+                      {working ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="size-3.5" />
                       )}
-                      {isActive && (
-                        <span className="inline-flex shrink-0 items-center gap-1 text-[10.5px] font-medium text-emerald-700">
-                          <Check className="size-3" strokeWidth={2.5} />
-                          in use
-                        </span>
+                    </Button>
+                  ) : (
+                    <Button size="sm" disabled={working} onClick={() => onConnect(source.id)}>
+                      {working ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <>
+                          Connect <ExternalLink className="size-3" />
+                        </>
                       )}
-
-                      <button
-                        onClick={() => act(`x-${account.id}`, () => disconnectAccount(account.id))}
-                        disabled={busy === `x-${account.id}`}
-                        title="Disconnect"
-                        aria-label={`Disconnect ${account.login ?? account.label}`}
-                        className="shrink-0 text-stone-400 hover:text-red-600 disabled:opacity-50"
-                      >
-                        {busy === `x-${account.id}` ? (
-                          <Loader2 className="size-3.5 animate-spin" />
-                        ) : (
-                          <Trash2 className="size-3.5" />
-                        )}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+                    </Button>
+                  )}
+                </li>
+              );
+            })}
+            {sources === null && (
+              <li className="flex items-center gap-2 px-1 py-3 text-[13px] text-stone-500">
+                <Loader2 className="size-3.5 animate-spin" /> Reading your connections…
+              </li>
             )}
+          </ul>
 
-            <Button
-              variant="outline"
-              onClick={connect}
-              disabled={busy === "connect"}
-              className="mt-3 h-8 w-full gap-1.5 text-[12.5px]"
-            >
-              {busy === "connect" ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : accounts?.length ? (
-                <Plus className="size-3.5" />
-              ) : (
-                <ExternalLink className="size-3.5" />
-              )}
-              {accounts?.length ? "Add another account" : "Connect GitHub"}
-            </Button>
-          </section>
-
-          {active && (
-            <section>
+          {/* A GitHub connection is not enough to search: we have to know which
+              repository. Gmail and Drive need no equivalent — a mailbox and a
+              Drive are already one thing each. */}
+          {githubConnected && (
+            <section className="flex flex-col gap-2">
               <h3 className="font-mono text-[10px] tracking-[0.1em] text-stone-500 uppercase">
-                Repository for {active.login ? `@${active.login}` : active.label}
+                Repository to search
               </h3>
               {repos === null ? (
-                <p className="mt-3 flex items-center gap-2 text-[12.5px] text-stone-500">
-                  <Loader2 className="size-3.5 animate-spin" /> Reading repositories…
+                <p className="flex items-center gap-2 text-[13px] text-stone-500">
+                  <Loader2 className="size-3.5 animate-spin" /> Loading…
                 </p>
               ) : repos.length === 0 ? (
-                <p className="mt-3 text-[12.5px] text-stone-500">
-                  No repositories visible to this account.
+                <p className="text-[13px] text-stone-600">
+                  This account can see no repositories yet.
                 </p>
               ) : (
-                <ul className="mt-3 flex max-h-[45vh] flex-col gap-1 overflow-y-auto pr-1">
+                <ul className="flex max-h-72 flex-col gap-1 overflow-y-auto">
                   {repos.map((r) => (
                     <li key={r.slug}>
                       <button
-                        onClick={() => act(r.slug, () => chooseRepo(r.slug))}
+                        onClick={() => onChooseRepo(r.slug)}
                         disabled={busy === r.slug}
                         className={cn(
-                          "flex w-full items-center gap-2 rounded-md border px-2.5 py-1.5 text-left",
-                          repo === r.slug
-                            ? "border-stone-900 bg-stone-50"
-                            : "border-transparent hover:border-stone-200 hover:bg-stone-50",
+                          "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors",
+                          r.slug === repo ? "bg-stone-100 font-medium" : "hover:bg-stone-50",
                         )}
                       >
-                        {r.private && <Lock className="size-3 shrink-0 text-stone-400" />}
-                        <span className="truncate text-[12.5px] text-stone-800">{r.slug}</span>
-                        {repo === r.slug && (
-                          <Check className="ml-auto size-3.5 shrink-0 text-stone-900" />
+                        {r.slug === repo ? (
+                          <Check className="size-3.5 shrink-0 text-emerald-600" />
+                        ) : (
+                          <span className="size-3.5 shrink-0" />
+                        )}
+                        <span className="truncate font-mono text-[12px]">{r.slug}</span>
+                        {r.private && (
+                          <span className="ml-auto font-mono text-[10px] text-stone-400">
+                            private
+                          </span>
                         )}
                       </button>
                     </li>
@@ -256,6 +238,11 @@ export function ManageConnections({
               )}
             </section>
           )}
+
+          <p className="text-[12px] leading-relaxed text-stone-500">
+            Badger never receives your tokens. Composio holds them and issues the sign-in
+            link; we only ever learn whether a connection exists.
+          </p>
         </div>
       </SheetContent>
     </Sheet>

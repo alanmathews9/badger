@@ -1,36 +1,50 @@
 // Per-user source connections, through Composio.
 //
-// This is the piece that makes Badger multi-tenant rather than a demo with one
-// hardcoded account. Each browser gets an opaque id in its signed session
-// cookie (auth.mjs); that id is the Composio end-user id, so "connect GitHub"
-// means *your* GitHub, and one visitor can never see another's.
+// This is what makes Badger multi-tenant rather than a demo with one hardcoded
+// account. Each browser gets an opaque id in its signed session cookie
+// (auth.mjs); that id is the Composio end-user id, so "connect GitHub" means
+// *your* GitHub, and one visitor can never see another's.
 //
-// Badger never touches a GitHub credential in this flow. Composio issues the
-// Connect Link, GitHub redirects back to Composio, and Composio holds the
-// token. We only ever learn whether a connection exists.
+// Badger never touches a source credential. Composio issues the Connect Link,
+// the provider redirects back to Composio, and Composio holds the token. We
+// only ever learn whether a connection exists.
 //
-// The demo connection remains as a fallback: a visitor who has connected
-// nothing searches the seeded Arkind corpus instead of an empty app. Asking a
-// stranger to grant `repo` scope before they can see anything would mean most
-// of them see nothing. BADGER_REQUIRE_OWN_CONNECTION=1 turns that off.
+// ── One connection per source, and why ────────────────────────────────────
+//
+// This module used to model several accounts per source, with a picker in the
+// UI. That was wrong, and wrong in the worst way — it looked like it worked.
+// Measured 2026-08-18:
+//
+//   * `connectedAccountId` passed inside a tool's arguments is silently
+//     dropped. Composio forwards it to the provider as an unknown field.
+//   * The real parameter is execute()'s third argument, `{ account }`, and on
+//     this project it answers 400: "Multi-account selection is not enabled."
+//
+// So with two connections attached, Composio picks one and nothing can
+// override it. It picked the newest: every call resolved to the wrong account,
+// and `GET_THE_AUTHENTICATED_USER` returned that account's login for *both*
+// ids, so the UI cheerfully labelled two rows with one name.
+//
+// What is left is what the platform actually supports: one connection per
+// source, disconnect to switch. Less of a feature, and true.
 import { Composio } from "@composio/core";
 import { DEMO_REPO, DEMO_USER_ID } from "../../tools/scripts/_github.mjs";
 
 /**
- * Whether a visitor who has connected nothing sees the seeded Arkind corpus.
+ * Whether a visitor who has connected nothing sees the seeded demo corpus.
  *
- * On by default, and that is a reversal. It was off while the demo account
- * held only a GitHub repository and connecting your own account was the more
- * interesting thing to show. Now that Gmail, Drive and GitHub are all seeded
- * with one story told three different ways, the corpus *is* the demo: an
- * evaluator who opens the link should be able to ask "why did Halden slip?"
- * immediately, not be asked to authorise three Google scopes first.
- *
- * The per-user connect flow is untouched and still takes precedence — anyone
- * who connects their own account searches theirs. BADGER_DEMO_FALLBACK=0
- * restores the old behaviour of showing an empty app instead.
+ * On by default. The corpus *is* the demo: an evaluator opening the link
+ * should be able to ask a question immediately rather than authorise four
+ * OAuth flows first. Anyone who connects their own account uses theirs instead.
+ * BADGER_DEMO_FALLBACK=0 shows an empty app instead.
  */
 const DEMO_FALLBACK = process.env.BADGER_DEMO_FALLBACK !== "0";
+
+/** The sources Badger can search, as Composio names them. */
+export const TOOLKITS = /** @type {const} */ (["github", "gmail", "googledrive"]);
+
+/** Display names, so the server does not spell these out in three places. */
+export const TOOLKIT_LABELS = { github: "GitHub", gmail: "Gmail", googledrive: "Drive" };
 
 let composio = null;
 function client() {
@@ -38,85 +52,75 @@ function client() {
   return composio;
 }
 
-/** Which repository a given user's searches are scoped to, in memory. */
+/** Which repository a given user's GitHub searches are scoped to, in memory. */
 const repoChoice = new Map();
 
-/** Which connected account each user has selected, and their repo choice. */
-const accountChoice = new Map();
-/** GitHub login per connected account, so the UI can label them usefully. */
+/** GitHub login per user, so the UI can say whose account is connected. */
 const loginCache = new Map();
 
 /**
- * Every GitHub account this user has connected.
+ * Every active connection this user holds, keyed by toolkit.
  *
- * Composio allows several per toolkit, and tool calls can target one by id, so
- * a person with a work account and a personal account can hold both and switch
- * between them rather than disconnecting and reconnecting.
+ * At most one per toolkit. If Composio somehow reports two — which it will
+ * accept via `allowMultiple` — the newest wins here, because that is what
+ * Composio itself does when resolving a tool call. Reporting anything else
+ * would put the UI out of step with where the calls actually go.
+ *
+ * @returns {Promise<Record<string, {id: string, status: string, createdAt: string} | null>>}
  */
-export async function listGithubAccounts(userId) {
+export async function listConnections(userId) {
+  const empty = Object.fromEntries(TOOLKITS.map((t) => [t, null]));
   try {
     const res = await client().connectedAccounts.list({ userIds: [userId] });
-    return (res?.items ?? [])
-      .filter((a) => (a.toolkit?.slug ?? a.toolkitSlug)?.toLowerCase() === "github")
-      .filter((a) => !a.isDisabled)
-      .map((a) => ({
-        id: a.id,
-        status: String(a.status ?? "").toUpperCase(),
-        // `alias` is user-set and usually null; `wordId` is Composio's own
-        // readable handle. The GitHub login replaces both once we know it.
-        label: loginCache.get(a.id) ?? a.alias ?? a.wordId ?? a.id,
-        login: loginCache.get(a.id) ?? null,
-        createdAt: (a.createdAt ?? a.created_at ?? "").slice(0, 10),
-      }))
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const found = { ...empty };
+
+    for (const a of res?.items ?? []) {
+      const slug = (a.toolkit?.slug ?? a.toolkitSlug ?? "").toLowerCase();
+      if (!TOOLKITS.includes(slug) || a.isDisabled) continue;
+      if (String(a.status ?? "").toUpperCase() !== "ACTIVE") continue;
+
+      const createdAt = (a.createdAt ?? a.created_at ?? "").slice(0, 10);
+      const current = found[slug];
+      if (!current || createdAt >= current.createdAt) {
+        found[slug] = { id: a.id, status: "ACTIVE", createdAt };
+      }
+    }
+    return found;
   } catch (err) {
     console.error("[connections] list failed", err?.message);
-    return [];
+    return empty;
   }
 }
 
+/** The user's connection for one toolkit, or null. */
+export async function connectionFor(userId, toolkit) {
+  return (await listConnections(userId))[toolkit] ?? null;
+}
+
 /**
- * Ask GitHub who each account belongs to, so accounts are labelled by login
- * rather than by an opaque id. One call per account, cached for the process,
- * and only ever made for accounts belonging to the asking user.
+ * Which GitHub account this user is connected as.
+ *
+ * One call, cached for the process. This used to run once per account and was
+ * therefore meaningless with more than one: every call returns whichever
+ * connection Composio resolved, so two accounts got the same label.
  */
-export async function labelAccounts(userId, accounts) {
-  const unknown = accounts.filter((a) => !loginCache.has(a.id) && a.status === "ACTIVE");
-  if (!unknown.length) return accounts;
+export async function githubLogin(userId) {
+  if (loginCache.has(userId)) return loginCache.get(userId);
+  if (!(await connectionFor(userId, "github"))) return null;
 
-  const session = await client().create(userId, {
-    toolkits: ["github"],
-    tools: { github: { enable: ["GITHUB_GET_THE_AUTHENTICATED_USER"] } },
-  });
-
-  await Promise.allSettled(
-    unknown.map(async (account) => {
-      const res = await session.execute("GITHUB_GET_THE_AUTHENTICATED_USER", {
-        connectedAccountId: account.id,
-      });
-      const login = res?.data?.login ?? res?.data?.details?.login;
-      if (login) loginCache.set(account.id, login);
-    }),
-  );
-
-  return accounts.map((a) => ({
-    ...a,
-    login: loginCache.get(a.id) ?? a.login,
-    label: loginCache.get(a.id) ?? a.label,
-  }));
-}
-
-/** The account this user is currently searching as, or the first active one. */
-export async function activeAccount(userId) {
-  const accounts = (await listGithubAccounts(userId)).filter((a) => a.status === "ACTIVE");
-  if (!accounts.length) return null;
-  const chosen = accountChoice.get(userId);
-  return accounts.find((a) => a.id === chosen) ?? accounts[0];
-}
-
-/** Is this user connected in their own right? */
-export async function githubConnection(userId) {
-  return await activeAccount(userId);
+  try {
+    const session = await client().create(userId, {
+      toolkits: ["github"],
+      tools: { github: { enable: ["GITHUB_GET_THE_AUTHENTICATED_USER"] } },
+    });
+    const res = await session.execute("GITHUB_GET_THE_AUTHENTICATED_USER", {});
+    const login = res?.data?.login ?? res?.data?.details?.login ?? null;
+    if (login) loginCache.set(userId, login);
+    return login;
+  } catch (err) {
+    console.error("[connections] login lookup failed", err?.message);
+    return null;
+  }
 }
 
 /**
@@ -127,104 +131,105 @@ export async function githubConnection(userId) {
  * data is on screen.
  */
 export async function resolveContext(userId) {
-  const own = await activeAccount(userId);
+  const own = await connectionFor(userId, "github");
   if (own) {
     return {
       userId,
-      repo: repoChoice.get(`${userId}:${own.id}`) ?? null,
+      repo: repoChoice.get(userId) ?? null,
       mode: "own",
-      account: own.id,
-      label: own.label,
+      label: (await githubLogin(userId)) ?? "your account",
     };
   }
-  // The shared demo corpus, when one is configured. Off by default now that
-  // visitors connect their own accounts: BADGER_DEMO_FALLBACK=1 restores it.
   if (DEMO_FALLBACK) {
-    return { userId: DEMO_USER_ID, repo: DEMO_REPO, mode: "demo", account: null, label: "demo" };
+    return { userId: DEMO_USER_ID, repo: DEMO_REPO, mode: "demo", label: "demo" };
   }
-  return { userId, repo: null, mode: "none", account: null, label: null };
+  return { userId, repo: null, mode: "none", label: null };
 }
 
 /**
- * The GitHub auth config, looked up once and cached.
+ * The auth config for a toolkit, looked up once and cached.
  *
- * `toolkits.authorize()` is the obvious call and it is now wrong: for
- * Composio-managed OAuth it hits a deprecated endpoint that answers
- * "Creating connections on this endpoint ... is no longer supported. Use
- * POST /api/v3/connected_accounts/link instead." — which is what `link()`
- * calls. Taking their advice rather than pinning an old endpoint.
+ * The SDK's filter key is `toolkit`, not `toolkitSlug` — the unknown key is
+ * dropped and the call returns every config in the project, so the slug is
+ * checked again here. With four auth configs in this project, trusting the
+ * filter would hand the GitHub button a Google consent screen.
+ *
+ * `toolkits.authorize()` is the obvious call and it is wrong: for
+ * Composio-managed OAuth it hits a deprecated endpoint whose own error names
+ * `connected_accounts/link` as the replacement, which is what `link()` calls.
  */
-let authConfigId = null;
-async function githubAuthConfig() {
-  if (authConfigId) return authConfigId;
-  const configured = process.env.BADGER_GITHUB_AUTH_CONFIG;
-  if (configured) return (authConfigId = configured);
+const authConfigIds = new Map();
+async function authConfigFor(toolkit) {
+  if (authConfigIds.has(toolkit)) return authConfigIds.get(toolkit);
 
-  // The SDK's filter parameter is `toolkit`, not `toolkitSlug` — it maps to
-  // `toolkit_slug` on the wire (node_modules/@composio/core/src/models/
-  // AuthConfigs.ts:100), and the Zod schema silently drops the unknown key.
-  // With one auth config in the project that mistake was invisible. It stops
-  // being invisible the moment Gmail and Drive configs exist: an unfiltered
-  // list plus `[0]` would hand the "Connect GitHub" button a Google consent
-  // screen. Filter server-side, then verify client-side rather than trust it.
-  const list = await client().authConfigs.list({ toolkit: "github" });
-  const found = (list?.items ?? []).find((i) => i.toolkit?.slug === "github");
-  if (!found?.id) throw new Error("no GitHub auth config exists in this Composio project");
-  return (authConfigId = found.id);
+  const configured = process.env[`BADGER_${toolkit.toUpperCase()}_AUTH_CONFIG`];
+  if (configured) {
+    authConfigIds.set(toolkit, configured);
+    return configured;
+  }
+
+  const list = await client().authConfigs.list({ toolkit });
+  const found = (list?.items ?? []).find((i) => i.toolkit?.slug === toolkit);
+  if (!found?.id) throw new Error(`no ${toolkit} auth config exists in this Composio project`);
+  authConfigIds.set(toolkit, found.id);
+  return found.id;
 }
 
 /**
- * Begin an OAuth connection. Returns the Connect Link to send the browser to.
+ * Begin an OAuth connection for one source. Returns the Connect Link.
  *
- * `callbackUrl` is where Composio returns the visitor once GitHub has been
- * authorised. Nothing is read from that redirect — the app re-reads the real
- * connection state instead of trusting a query parameter.
+ * Refuses when a connection already exists, rather than passing
+ * `allowMultiple`. A second connection cannot be targeted and would silently
+ * take over every tool call — the exact failure this module was rewritten to
+ * remove. Disconnect first.
+ *
+ * `callbackUrl` is where Composio returns the visitor. Nothing is read from
+ * that redirect: the app re-reads real connection state instead of trusting a
+ * query parameter it did not sign.
  */
-export async function beginGithubConnect(userId, callbackUrl) {
-  const request = await client().connectedAccounts.link(userId, await githubAuthConfig(), {
+export async function beginConnect(userId, toolkit, callbackUrl) {
+  if (!TOOLKITS.includes(toolkit)) throw new Error("unknown source");
+  if (await connectionFor(userId, toolkit)) {
+    throw new Error(`${TOOLKIT_LABELS[toolkit]} is already connected — disconnect it first`);
+  }
+
+  const request = await client().connectedAccounts.link(userId, await authConfigFor(toolkit), {
     callbackUrl,
   });
   const url = request?.redirectUrl ?? request?.redirect_url;
   if (!url) throw new Error("Composio did not return a Connect Link");
-  return { redirectUrl: url, connectionId: request?.id ?? null };
+  return { redirectUrl: url };
 }
 
 /**
- * Disconnect one account.
+ * Disconnect one source.
  *
- * The ownership check is the security boundary, not a nicety: account ids are
- * guessable-ish strings, and without it any signed-in visitor could delete
- * anyone else's connection by posting an id. Only accounts belonging to the
- * asking user are ever passed to Composio's delete.
+ * The lookup is the security boundary, not a nicety: the caller names a
+ * *toolkit*, never an account id, so there is no id a visitor could post to
+ * reach someone else's connection. Only this user's own connections are ever
+ * passed to Composio's delete.
  */
-export async function disconnectAccount(userId, accountId) {
-  const mine = await listGithubAccounts(userId);
-  const target = mine.find((a) => a.id === accountId);
-  if (!target) return false;
+export async function disconnectSource(userId, toolkit) {
+  if (!TOOLKITS.includes(toolkit)) throw new Error("unknown source");
+  const connection = await connectionFor(userId, toolkit);
+  if (!connection) return false;
 
-  await client().connectedAccounts.delete(target.id);
-  loginCache.delete(target.id);
-  repoChoice.delete(`${userId}:${target.id}`);
-  if (accountChoice.get(userId) === target.id) accountChoice.delete(userId);
+  await client().connectedAccounts.delete(connection.id);
+  if (toolkit === "github") {
+    loginCache.delete(userId);
+    repoChoice.delete(userId);
+  }
   return true;
 }
 
-/** Switch which connected account this user searches as. */
-export async function selectAccount(userId, accountId) {
-  const mine = await listGithubAccounts(userId);
-  if (!mine.some((a) => a.id === accountId)) throw new Error("not your account");
-  accountChoice.set(userId, accountId);
-}
-
 /**
- * Repositories the connected account can see.
+ * Repositories the connected GitHub account can see.
  *
- * A connection alone is not enough to search: we have to know which repository.
- * This is the only place Badger reads outside the five agent tools, and it is
- * still read-only.
+ * A connection alone is not enough to search: we have to know which
+ * repository. This is the only place the server reads outside the agent's
+ * tools, and it is still read-only.
  */
 export async function listRepositories(userId) {
-  const account = await activeAccount(userId);
   const session = await client().create(userId, {
     toolkits: ["github"],
     tools: { github: { enable: ["GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER"] } },
@@ -232,8 +237,6 @@ export async function listRepositories(userId) {
   const res = await session.execute("GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER", {
     per_page: 100,
     sort: "updated",
-    // Target the account in use, not whichever Composio would pick.
-    ...(account ? { connectedAccountId: account.id } : {}),
   });
   if (res?.error != null) throw new Error(String(res.error).slice(0, 200));
 
@@ -248,10 +251,9 @@ export async function listRepositories(userId) {
     .filter((r) => r.slug);
 }
 
-/** Repositories are chosen per connected account, since each sees different ones. */
+/** Which repository this user searches. */
 export async function chooseRepo(userId, slug) {
   if (!/^[\w.-]+\/[\w.-]+$/.test(String(slug ?? ""))) throw new Error("not a repository slug");
-  const account = await activeAccount(userId);
-  if (!account) throw new Error("connect a GitHub account first");
-  repoChoice.set(`${userId}:${account.id}`, slug);
+  if (!(await connectionFor(userId, "github"))) throw new Error("connect a GitHub account first");
+  repoChoice.set(userId, slug);
 }
