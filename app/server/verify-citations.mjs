@@ -25,7 +25,74 @@ export function extractCitations(text) {
     numbers: [...new Set([...s.matchAll(/(?:^|[\s(\[])#(\d{1,6})\b/g)].map((m) => m[1]))],
     // Repo-relative paths: handbook/security-and-data.md, site/content/services.md
     paths: [...new Set([...s.matchAll(/\b((?:[\w.-]+\/)+[\w.-]+\.(?:md|yaml|yml|json|txt|ts|js|py|sql))\b/g)].map((m) => m[1]))],
+    ...extractSourceLines(s),
   };
+}
+
+/**
+ * Mail and Drive citations, taken from the Sources block.
+ *
+ * GitHub citations carry an id — a number, a path, a URL — that can be matched
+ * literally. Mail and documents have no such handle: RULES.md has them cited by
+ * subject and by document name, which are free text, so they need parsing
+ * rather than pattern-matching against the whole answer.
+ *
+ * Formats, from RULES.md:
+ *   - {subject} — mail, {sender}, {date}. {contribution}
+ *   - {document name} — {doc|sheet}, {date}. {what it says}
+ *   - {document name}, comment by {speaker} — {what it says}
+ *
+ * This class of citation is exactly the one worth checking. A fabricated issue
+ * number is conspicuous; a fabricated mail subject attributed to a real
+ * colleague reads as authoritative and is the more dangerous invention.
+ */
+function extractSourceLines(s) {
+  const mail = [];
+  const documents = [];
+
+  for (const line of s.split("\n")) {
+    const item = line.match(/^\s*[-*]\s+(.*)$/);
+    if (!item) continue;
+    const body = item[1].trim();
+
+    const asMail = body.match(/^(.+?)\s+—\s+mail,\s*([^,]+?),/i);
+    if (asMail) {
+      mail.push({ subject: stripLink(asMail[1]), sender: asMail[2].trim() });
+      continue;
+    }
+
+    const asDoc = body.match(/^(.+?)\s+—\s+(doc|sheet|document|spreadsheet)\b/i);
+    if (asDoc) {
+      documents.push(stripLink(asDoc[1]));
+      continue;
+    }
+
+    const asComment = body.match(/^(.+?),\s*comment by\s+([^—]+?)\s*—/i);
+    if (asComment) documents.push(stripLink(asComment[1]));
+  }
+
+  return { mail, documents };
+}
+
+/** Citations may be written as markdown links; compare the visible text. */
+const stripLink = (s) => s.replace(/^\[(.*)\]\([^)]*\)$/, "$1").replace(/^\*\*|\*\*$/g, "").trim();
+
+/**
+ * Loose containment: collapse whitespace, ignore case, and ignore a leading
+ * "Re:" so that a reply cited by its subject still matches the thread it was
+ * retrieved from. Deliberately forgiving — the target is invention, not
+ * transcription.
+ */
+function mentions(corpus, value) {
+  const norm = (t) =>
+    String(t)
+      .toLowerCase()
+      .replace(/^re:\s*/i, "")
+      .replace(/[‘’“”]/g, "'")
+      .replace(/\s+/g, " ")
+      .trim();
+  const needle = norm(value);
+  return needle.length > 3 && norm(corpus).includes(needle);
 }
 
 /**
@@ -73,9 +140,45 @@ export function verifyCitations(answer, toolOutputs) {
     }
   }
 
+  for (const m of cited.mail) {
+    if (!mentions(corpus, m.subject)) {
+      findings.push({
+        kind: "unretrieved-mail",
+        value: m.subject,
+        detail: "no tool result contains a message with this subject",
+      });
+    } else if (m.sender && !mentions(corpus, m.sender)) {
+      // The thread is real but the attribution is not — the more damaging half,
+      // since the quote then reads as something a named colleague said.
+      findings.push({
+        kind: "misattributed-mail",
+        // The subject alone, so annotateUnverified can find it in the answer —
+        // "subject — sender" is assembled by the citation format and does not
+        // appear as one literal string anywhere.
+        value: m.subject,
+        detail: `the thread was retrieved but "${m.sender}" never appears in it`,
+      });
+    }
+  }
+
+  for (const d of cited.documents) {
+    if (!mentions(corpus, d)) {
+      findings.push({
+        kind: "unretrieved-document",
+        value: d,
+        detail: "no tool result contains a document with this name",
+      });
+    }
+  }
+
   return {
     ok: findings.length === 0,
-    checked: cited.urls.length + cited.numbers.length + cited.paths.length,
+    checked:
+      cited.urls.length +
+      cited.numbers.length +
+      cited.paths.length +
+      cited.mail.length +
+      cited.documents.length,
     findings,
   };
 }

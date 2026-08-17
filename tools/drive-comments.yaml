@@ -1,0 +1,16 @@
+name: drive_comments
+description: >
+  Read the comments on a Drive document. This is where disagreement with the
+  document lives — a client-facing retro may say one thing while the comment
+  underneath it says another. Whenever a document answers a contested question,
+  check its comments before concluding, and say so if they disagree.
+input_schema:
+  type: object
+  properties:
+    file_id:
+      type: string
+      description: File id, taken from a drive_search result.
+  required: [file_id]
+implementation:
+  script: scripts/drive-comments.mjs
+  runtime: node

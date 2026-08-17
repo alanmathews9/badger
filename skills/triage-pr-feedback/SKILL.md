@@ -8,7 +8,7 @@ description: >
   reviewers ask for". Use whenever someone names a PR number and wants to know
   what to do next.
 license: MIT
-allowed-tools: github_pr github_issue github_file github_search memory
+allowed-tools: github_pr github_issue github_file github_search drive_search drive_file memory
 metadata:
   author: alan-mathews
   version: "1.0.0"

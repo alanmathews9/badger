@@ -22,6 +22,7 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "@open-gitagent/gitagent";
 import { search, SearchError } from "./search.mjs";
+import { readAllowedTools } from "./allowed-tools.mjs";
 import { authEnabled, clearSessionCookie, hasValidSession, issueSessionCookie, passphraseMatches, userIdFor } from "./auth.mjs";
 import {
   beginGithubConnect,
@@ -310,15 +311,10 @@ async function handleSearch(req, res) {
 // Unlike the shell hook this cannot fail open: allowedTools removes everything
 // else from the model's schema, so a crashed script cannot leave a tool
 // callable. No cli, write, edit, task_tracker or skill_learner.
-const ALLOWED_TOOLS = [
-  "github_search",
-  "github_issue",
-  "github_pr",
-  "github_file",
-  "github_commits",
-  "read",
-  "memory",
-];
+//
+// Read from the file rather than restated, so that adding a source in one
+// place cannot leave the agent unable to reach it here.
+const ALLOWED_TOOLS = readAllowedTools();
 
 /**
  * GET /api/ask?q=… — the second pass, streamed.

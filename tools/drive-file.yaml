@@ -1,0 +1,18 @@
+name: drive_file
+description: >
+  Read one Google Doc or Sheet in full, by id. Sheets come back as CSV, with
+  the first line as the header row. Use this after drive_search to read a
+  document properly rather than answering from its excerpt.
+input_schema:
+  type: object
+  properties:
+    file_id:
+      type: string
+      description: File id, taken from a drive_search result.
+    max_chars:
+      type: integer
+      description: Maximum characters to return, 500-20000. Default 8000.
+  required: [file_id]
+implementation:
+  script: scripts/drive-file.mjs
+  runtime: node

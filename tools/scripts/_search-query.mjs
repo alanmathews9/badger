@@ -56,7 +56,7 @@ const QUALIFIER_TOKEN = /^-?[A-Za-z_][A-Za-z_-]*:\S*$/;
  * @param {string} raw
  * @returns {{terms: string[], droppedTerms: string[], qualifiers: string[], passthrough: boolean}}
  */
-export function planQuery(raw) {
+export function planQuery(raw, { max = MAX_TERMS } = {}) {
   const text = String(raw ?? "").trim();
 
   // A quoted phrase means the user wants those words in that order. Rewriting
@@ -89,12 +89,67 @@ export function planQuery(raw) {
   }
 
   return {
-    terms: candidates.slice(0, MAX_TERMS),
-    droppedTerms: candidates.slice(MAX_TERMS),
+    terms: candidates.slice(0, max),
+    droppedTerms: candidates.slice(max),
     qualifiers,
     passthrough: false,
   };
 }
+
+/**
+ * Gmail's ceiling is far higher than GitHub's five-operator limit, and Drive
+ * has none at all. Both still want a bound, because every extra OR'd term
+ * widens the result set without adding precision.
+ */
+export const MAX_TERMS_GOOGLE = 10;
+
+/**
+ * Assemble a Gmail query.
+ *
+ * Gmail ANDs bare words exactly as GitHub does, so the same plan applies: OR
+ * the keywords, keep the qualifiers as written. Gmail's own qualifiers
+ * (`from:`, `subject:`, `after:`, `label:`) survive planQuery untouched because
+ * they match QUALIFIER_TOKEN.
+ *
+ * The parenthesis matters. `a OR b from:x` binds as `a OR (b from:x)` in
+ * Gmail, which quietly turns a filter into an alternative — the qualifier stops
+ * applying to half the query.
+ */
+export function buildGmailQuery(raw, plan, { extra = [] } = {}) {
+  const parts = plan.passthrough
+    ? [String(raw).trim()]
+    : [plan.terms.length > 1 ? `(${plan.terms.join(" OR ")})` : plan.terms[0], ...plan.qualifiers];
+
+  for (const qualifier of extra) if (qualifier) parts.push(qualifier);
+  return parts.filter(Boolean).join(" ");
+}
+
+/**
+ * Assemble a Google Drive query.
+ *
+ * Drive's syntax is nothing like the other two: no bare keywords at all, only
+ * `fullText contains 'term'` clauses joined with `and`/`or`. `fullText` covers
+ * the file name, the description and the content — including the cells of a
+ * Sheet, which is what lets spreadsheets take part in ordinary search.
+ *
+ * `trashed = false` is always appended. Without it Drive happily returns
+ * deleted files, and a corpus that has been re-seeded has plenty.
+ */
+export function buildDriveQuery(raw, plan, { extra = [] } = {}) {
+  const terms = plan.passthrough
+    ? String(raw).trim().replace(/"/g, "").split(/\s+/).filter(Boolean)
+    : plan.terms;
+
+  const clauses = terms.map((t) => `fullText contains '${driveEscape(t)}'`);
+  const parts = [];
+  if (clauses.length) parts.push(clauses.length > 1 ? `(${clauses.join(" or ")})` : clauses[0]);
+  for (const clause of extra) if (clause) parts.push(clause);
+  parts.push("trashed = false");
+  return parts.join(" and ");
+}
+
+/** Drive string literals are single-quoted; both quote and backslash escape. */
+const driveEscape = (s) => String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 
 /**
  * Assemble the query GitHub actually receives.
@@ -119,3 +174,21 @@ export function buildQuery(raw, plan, { repoSlug, extra = [] }) {
 
   return parts.filter(Boolean).join(" ");
 }
+
+/**
+ * The footer every search tool appends, naming the sources this one is not.
+ *
+ * This is prompt guidance delivered as data, which is the house fix on this
+ * project: three separate behaviours that prose in RULES.md failed to produce
+ * were obtained by encoding them in tool output instead. The observed failure
+ * here is specific — asked whether a client had been told something, Badger
+ * searched mail, found a good answer, and stopped, never checking the kickoff
+ * notes in the repository that the mail itself referred to.
+ *
+ * Kept to two lines. It is appended to every search result, so its cost is
+ * paid on every call.
+ */
+export const CROSS_SOURCE =
+  "\nSources hold different registers of the same events — Drive the written-down and " +
+  "client-facing version, GitHub the internal argument, Gmail what was actually said to whom. " +
+  "Before concluding, search at least one other source: github_search, drive_search, gmail_search.";

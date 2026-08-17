@@ -9,7 +9,7 @@ description: >
   proactively when someone is clearly new to a thing rather than asking one
   narrow question about it.
 license: MIT
-allowed-tools: github_search github_issue github_pr github_file github_commits memory
+allowed-tools: github_search github_issue github_pr github_file github_commits gmail_search gmail_thread drive_search drive_file drive_comments memory
 metadata:
   author: alan-mathews
   version: "1.0.0"
@@ -35,6 +35,23 @@ customs module was out of scope and nobody knows if it reads from Oracle.
 A useful brief therefore has to cover both the settled and the unsettled, and
 it must end with what is currently in dispute — because that is what the person
 will walk into.
+
+Each source contributes a different half of an orientation:
+
+| Source | What it gives a newcomer |
+|---|---|
+| **Drive** | The onboarding pack, the team page, the access register, the client-facing history. Where to start, who to ask, what was officially concluded. |
+| **GitHub** | What the team argued about, and what remains open. |
+| **Gmail** | The live relationship — what the client is currently expecting, and what was promised. |
+
+The Drive onboarding documents are genuinely useful and should be found rather
+than paraphrased: there is a first-week checklist, an engineering setup page,
+a document specifically about joining an engagement mid-flight, and an access
+register naming who approves what. Point the person at them by name.
+
+Access is the part that bites. It has real, measured lead times — nine days for
+one client system, eleven for another — so a brief that omits "request access
+today" has failed at the one thing it could have changed.
 
 ## Procedure
 

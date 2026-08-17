@@ -7,7 +7,7 @@ description: >
   experience in", "who's been working on". Also use when someone is preparing
   for a call or a staffing decision and needs to know where real depth is.
 license: MIT
-allowed-tools: github_search github_issue github_pr github_commits github_file memory
+allowed-tools: github_search github_issue github_pr github_commits github_file gmail_search gmail_thread drive_search drive_file drive_comments memory
 metadata:
   author: alan-mathews
   version: "1.0.0"
@@ -24,15 +24,24 @@ real depth in Oracle migrations?"
 
 ## Why this needs a procedure
 
-Nobody maintains an expertise directory, and if they did it would be out of
-date. Expertise has to be inferred from evidence, and there are two kinds that
-mean different things:
+Expertise has to be inferred from evidence, and the kinds of evidence mean
+different things:
 
 - **Commits** — who has actually changed the thing. Strongest signal of
   hands-on ownership, weakest signal of judgement.
 - **Substantive thread participation** — who argues about it with detail and
   gets deferred to. Strongest signal of who to ask, and the only signal that
   works for non-code topics like a client relationship or a pricing approach.
+- **Mail** — who the client actually writes to, and who answers. This is the
+  only reliable signal for a relationship, as distinct from a codebase.
+- **Drive** — team pages and the employee directory name roles and owners
+  directly, and the access register names who approves what.
+
+There *is* now a directory, and it is still not the answer on its own. A
+directory says what someone's role is; it does not say who has done the work.
+Use it to confirm a name and to get the role right, never to originate one —
+except for questions that are genuinely about roles, like who approves an
+access request, where the register is authoritative.
 
 A name appearing once in a thread is not expertise. Look for people who
 answered questions, were asked directly, or whose position the others accepted.
@@ -48,6 +57,9 @@ from a commit author, a comment author, or text that explicitly says so.
 |---|---|
 | "Who owns `<file or directory>`" | `github_commits` with `path` |
 | "Who knows about `<topic>`" | `github_search`, then read threads |
+| "Who do I ask for `<access>`" | `drive_search` for the access register — it names approvers |
+| "Who is our contact at `<client>`" | `gmail_search` with the client's domain |
+| "What is `<person>`'s role" | `drive_search` for the team page or directory |
 | "Who worked on `<client or project>`" | `github_search` on the name, then threads |
 | "Who should review this change" | `github_commits` on the touched paths |
 

@@ -8,7 +8,7 @@ description: >
   "what did we do this month". Use whenever the question is bounded by time
   rather than by topic.
 license: MIT
-allowed-tools: github_search github_commits github_pr github_issue github_file memory
+allowed-tools: github_search github_commits github_pr github_issue github_file gmail_search gmail_thread drive_search drive_file memory
 metadata:
   author: alan-mathews
   version: "1.0.0"
@@ -40,6 +40,22 @@ Three things carry different meaning:
 
 Something stalling is also news. A PR open for three weeks belongs in the
 digest.
+
+Mail carries a fourth kind, and it is usually the one the reader most needs:
+
+- **Client mail in the period** — what was promised, escalated or agreed
+  outside the repository. A week where nothing shipped but a client was told
+  the date is moving is a busy week, and a GitHub-only digest reports it as
+  quiet.
+
+Use `gmail_search` with `since_days` for this. Never write the date yourself —
+the window is computed for you, and a date recalled rather than computed
+silently produces a digest of the wrong period.
+
+Drive is mostly out of scope for a digest: documents do not announce
+themselves, and a modified date rarely means anything happened. The exception
+is a document created in the period, which usually marks an engagement closing
+or a policy changing.
 
 ## Procedure
 

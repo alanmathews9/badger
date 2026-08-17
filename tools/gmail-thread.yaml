@@ -1,0 +1,22 @@
+name: gmail_thread
+description: >
+  Read a whole mail thread, oldest message first. A single message is rarely
+  the answer — the ask, the pushback and the decision are usually several
+  messages apart in the same exchange. Call this with a thread id from
+  gmail_search whenever a result looks relevant.
+input_schema:
+  type: object
+  properties:
+    thread_id:
+      type: string
+      description: Thread id, taken from a gmail_search result.
+    full:
+      type: boolean
+      description: >
+        Return complete message bodies instead of clipping each one. Default
+        false. Use it when a clipped message looks like it continues into the
+        part you need.
+  required: [thread_id]
+implementation:
+  script: scripts/gmail-thread.mjs
+  runtime: node

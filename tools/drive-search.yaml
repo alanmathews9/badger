@@ -1,0 +1,29 @@
+name: drive_search
+description: >
+  Search Google Drive documents and spreadsheets by their contents. Drive
+  holds the written-down version of things — policies, onboarding, team pages,
+  client-facing retros, roadmaps, directories and trackers. Spreadsheet cells
+  are searched too, so questions about numbers, allocations and dates land
+  here. Returns files with an id, a kind and an excerpt of what matched.
+input_schema:
+  type: object
+  properties:
+    query:
+      type: string
+      description: >
+        What to look for, in plain words. Reduced to keywords for you and
+        matched against file names and full contents.
+    kind:
+      type: string
+      enum: [doc, sheet, folder, any]
+      description: >
+        Restrict to documents, spreadsheets or folders. Default any. Use
+        "sheet" when the question is about numbers, utilisation, dates or
+        anything tabular.
+    limit:
+      type: integer
+      description: Maximum files, 1-25. Default 10.
+  required: [query]
+implementation:
+  script: scripts/drive-search.mjs
+  runtime: node

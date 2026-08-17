@@ -10,7 +10,7 @@
 // because the failure is AND semantics rather than search mode. See
 // _search-query.mjs for the measurements and for why Onyx never hits this.
 import { exec, run, clip, asList, contextFrom } from "./_github.mjs";
-import { buildQuery, planQuery } from "./_search-query.mjs";
+import { buildQuery, planQuery, CROSS_SOURCE } from "./_search-query.mjs";
 
 run(async (args) => {
   const { query, kind, limit, since_days, date_field } = args;
@@ -81,6 +81,7 @@ run(async (args) => {
     `today: ${todayStr} — use this date, do not recall one\n` +
     `${items.length} shown of ${total} total match(es) in ${OWNER}/${REPO}\n\n` +
     lines.join("\n") +
-    `\nTo read a full thread including comments, call github_issue with its number.`
+    `\nTo read a full thread including comments, call github_issue with its number.\n` +
+    CROSS_SOURCE
   );
 });

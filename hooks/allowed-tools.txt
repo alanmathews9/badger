@@ -34,18 +34,23 @@ github_pr
 github_file
 github_commits
 
-# --- gmail ----------------------------------------------------------------
-# PROVISIONAL: exact names depend on the MCP server chosen in phase 2.
-# Verify each against the server's own tools/list before trusting this file.
-gmail__search_threads
-gmail__get_thread
-gmail__get_message
+# --- gmail and google drive -----------------------------------------------
+# VERIFIED 2026-08-17 against a live Composio session. These five are the
+# agent's whole Google surface; each is a thin script over the eight read
+# slugs listed in tools/scripts/_google.mjs.
+#
+# The names that USED to sit here were provisional MCP names invented before
+# the source existed — gmail__search_threads, drive__read_file_content and
+# four others, none of which was ever real. They are removed rather than left
+# as documentation: an allowlist naming tools that do not exist teaches the
+# reader that entries here are aspirational, which is precisely the habit that
+# makes an allowlist stop being trustworthy.
 
-# --- google drive ---------------------------------------------------------
-drive__search_files
-drive__read_file_content
-drive__get_file_metadata
-drive__list_recent_files
+gmail_search
+gmail_thread
+drive_search
+drive_file
+drive_comments
 
 # --- github ---------------------------------------------------------------
 # VERIFIED against github-mcp-server 1.9.0 via:
@@ -114,3 +119,24 @@ GITHUB_LIST_COMMITS
 GITHUB_GET_A_COMMIT
 GITHUB_GET_A_REPOSITORY
 GITHUB_SEARCH_CODE
+
+# --- composio: gmail and google drive -------------------------------------
+# VERIFIED 2026-08-17 against a live session. Gmail exposes 63 tools and Drive
+# 90; these eight are the whole read surface, enabled in
+# tools/scripts/_google.mjs. They are Composio slugs, not agent tool names —
+# the agent never sees them, and they are listed for auditing.
+#
+# This pair of namespaces is the strongest argument in this file for
+# allow-by-name. A "does the name sound like a write?" filter run over Drive's
+# 90 tools classified GOOGLEDRIVE_EDIT_FILE as read-only, along with
+# HIDE_DRIVE, WATCH_CHANGES and STOP_WATCH_CHANNEL. Gmail keeps SEND_EMAIL,
+# TRASH_MESSAGE and DELETE_DRAFT in the same namespace as FETCH_EMAILS.
+
+GMAIL_FETCH_EMAILS
+GMAIL_FETCH_MESSAGE_BY_THREAD_ID
+GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID
+GOOGLEDRIVE_FIND_FILE
+GOOGLEDRIVE_GET_FILE_METADATA
+GOOGLEDRIVE_EXPORT_GOOGLE_WORKSPACE_FILE
+GOOGLEDRIVE_LIST_COMMENTS
+GOOGLEDRIVE_LIST_REPLIES

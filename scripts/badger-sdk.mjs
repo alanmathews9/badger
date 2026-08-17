@@ -17,6 +17,7 @@
 //
 //   node scripts/badger-sdk.mjs "what did we decide about Halden phase 2?"
 import { query } from "@open-gitagent/gitagent";
+import { readAllowedTools } from "../app/server/allowed-tools.mjs";
 import { loadEnvFile } from "../tools/scripts/_env.mjs";
 import { verifyCitations, formatVerification, annotateUnverified } from "../app/server/verify-citations.mjs";
 
@@ -31,17 +32,7 @@ if (!prompt) {
 }
 
 // The same allowlist hooks/allowed-tools.txt enforces, applied in-process.
-// Badger's own tools plus read; no cli, write, edit, task_tracker or
-// skill_learner, which the runtime would otherwise load.
-const ALLOWED = [
-  "github_search",
-  "github_issue",
-  "github_pr",
-  "github_file",
-  "github_commits",
-  "read",
-  "memory",
-];
+const ALLOWED = readAllowedTools();
 
 const toolOutputs = [];
 let answer = "";
