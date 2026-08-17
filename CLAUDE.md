@@ -172,6 +172,49 @@ read-only guarantee.
    tool ever appears in Badger's tool list, the read-only guarantee is void
    until it is gone.
 
+### Composio proven end to end — 2026-08-17
+
+`scripts/composio-session.mjs` (needs `npm install`; `@composio/core` pinned at
+**0.16.0** — 0.2.x has no `SessionPreset` export). Three modes: `status`,
+`connect`, `call`.
+
+    node scripts/composio-session.mjs status   # connection + registered tools
+    node scripts/composio-session.mjs connect  # print Connect Link, wait
+    node scripts/composio-session.mjs call     # one real read-only call
+
+Verified: GitHub connected as `ca_r7L2biuuUBFe` for user `badger-demo-alan`,
+and a real call returned the private demo repo with 20 open issues and log id
+`log_aZ-mtTiv3EZZ`. That clears Composio's own bar for "it works" — a genuine
+provider result through the real execution path, with a non-empty log id.
+
+**The read-only story got stronger, with numbers.** Composio's GitHub toolkit is
+**823 tools** — the entire REST API, `GITHUB_BLOCK_A_USER` included. Badger's
+session registers **12**. "12 of 823" is the least-privilege line for the
+submission, and it is measured, not claimed.
+
+**API shapes that cost time, recorded so they don't again:**
+
+- The session method is `session.execute(slug, args)`, not `executeTool`.
+- The id is `session.sessionId`, not `session.id`.
+- The execute response is `{ data, error, logId }` — **there is no `successful`
+  field**, so success is `error == null`. Testing a non-existent field reads as
+  failure on a call that worked.
+- `waitForConnection()` has its own short timeout and throws
+  `CONNECTION_REQUEST_TIMEOUT` even when authorization later succeeds. Never
+  treat that throw as "not connected" — re-check `session.toolkits()`, which is
+  authoritative.
+
+**Still open, and needed before the agent can use any of this:** how gitagent
+reaches the session. `session.mcp` exists on the session object and is the
+likely bridge, but the endpoint is minted per user at runtime, so `agent.yaml`
+cannot hold a static url. Settle this before writing skills.
+
+**Follow-up, not blocking:** this connection uses Composio's managed GitHub
+OAuth, whose scopes are broader than read-only. Enforcement today is the tool
+allowlist, not the token. A custom auth config with read-only scopes would make
+the token itself incapable of writing — worth doing before this is a real
+product, and worth mentioning in the README either way.
+
 Two smaller notes. Composio returns a **Connect Link** for authorization, so we
 do not build a provider OAuth flow — that removes most of the auth work from the
 product build. And their bar for "it works" is worth adopting verbatim: a real

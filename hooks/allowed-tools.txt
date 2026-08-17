@@ -61,3 +61,39 @@ github__list_repository_collaborators
 
 # identity — resolves "my" / "our" in a question to the authenticated user
 github__get_me
+
+# ===========================================================================
+# COMPOSIO — supersedes the github__* block above once the agent is wired.
+# ===========================================================================
+# VERIFIED 2026-08-17 against a live Composio session:
+#   node scripts/composio-session.mjs status
+#
+# Composio's GitHub toolkit exposes 823 tools — the whole GitHub REST API,
+# including GITHUB_BLOCK_A_USER and GITHUB_ADD_A_REPOSITORY_COLLABORATOR.
+# The 12 below are what a session with the DIRECT_TOOLS preset registers.
+#
+# Two things this file's allow-by-name rule now has hard evidence for:
+#   1. GITHUB_LIST_REPOSITORY_SECRETS and GITHUB_GET_A_REPOSITORY_SECRET are
+#      read-shaped tools that read credentials. A "LIST/GET is safe" heuristic
+#      would hand Badger repo secrets. Naming each tool is not pedantry.
+#   2. A default (non-DIRECT_TOOLS) session registers COMPOSIO_MULTI_EXECUTE_TOOL
+#      and COMPOSIO_REMOTE_BASH_TOOL — one generic name that runs anything.
+#      Name-based gating cannot see through that, so this file would pass every
+#      write while looking green. The preset is load-bearing, not a tidy-up.
+#
+# Namespacing is NOT settled: these are Composio's own slugs. How they appear
+# to gitagent depends on the wiring (session MCP endpoint vs SDK), which is
+# still open. Re-run the probe after wiring and fix the prefixes here.
+
+GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS
+GITHUB_LIST_REPOSITORY_ISSUES
+GITHUB_GET_AN_ISSUE
+GITHUB_LIST_ISSUE_COMMENTS
+GITHUB_LIST_PULL_REQUESTS
+GITHUB_GET_A_PULL_REQUEST
+GITHUB_LIST_REVIEW_COMMENTS_ON_A_PULL_REQUEST
+GITHUB_GET_REPOSITORY_CONTENT
+GITHUB_LIST_COMMITS
+GITHUB_GET_A_COMMIT
+GITHUB_GET_A_REPOSITORY
+GITHUB_SEARCH_CODE

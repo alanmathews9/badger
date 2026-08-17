@@ -1,0 +1,14 @@
+{
+  "name": "badger-tooling",
+  "private": true,
+  "type": "module",
+  "description": "Dev tooling for the Badger agent. Not the agent itself — the agent is the Markdown.",
+  "scripts": {
+    "composio:status": "node scripts/composio-session.mjs status",
+    "composio:connect": "node scripts/composio-session.mjs connect",
+    "composio:call": "node scripts/composio-session.mjs call"
+  },
+  "dependencies": {
+    "@composio/core": "^0.16.0"
+  }
+}
