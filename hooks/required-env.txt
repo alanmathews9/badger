@@ -1,11 +1,22 @@
 # Credentials each declared source needs, as: <source>=<ENV_VAR>
 #
-# One line per MCP server in agent.yaml's mcp_servers map. If a server is
-# declared there, its credential must exist — otherwise the runtime skips it
-# with a one-line warning and Badger searches fewer sources than it thinks it
-# has. Comment out a line only when its server is also commented out.
+# One line per source Badger claims to search. If a source is declared here its
+# credential must exist, or the session refuses to start. The failure this
+# prevents is silent: a source Badger cannot reach returns nothing, and
+# "nothing found" is indistinguishable from "never looked".
+#
+# GitHub is reached through the declarative tools in tools/*.yaml, whose scripts
+# open a Composio session. One key covers every Composio-backed source, so this
+# line is what stands between a broken connection and a confidently empty
+# answer. Comment it out only when the github_* tools are also removed from
+# agent.yaml and hooks/allowed-tools.txt.
 
-# github=GITHUB_TOKEN  # TEMP: re-enable when a PAT exists
+github=COMPOSIO_API_KEY
 
-# gmail=GOOGLE_OAUTH_CREDENTIALS
-# drive=GOOGLE_OAUTH_CREDENTIALS
+# Vertex AI runs on Application Default Credentials rather than an API key, and
+# gitagent has no pre-flight check for google-vertex — a partial setup fails
+# late and unclearly. Project and location are the two that must be set.
+model=GOOGLE_CLOUD_PROJECT
+
+# gmail=COMPOSIO_API_KEY
+# drive=COMPOSIO_API_KEY

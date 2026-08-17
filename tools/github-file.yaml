@@ -1,0 +1,18 @@
+name: github_file
+description: >
+  Read a file, or list a directory, at a known path in the repository. File
+  contents cannot be searched on a private repository, so discover paths by
+  listing directories — pass "" for the repository root — then read the file.
+input_schema:
+  type: object
+  properties:
+    path:
+      type: string
+      description: Path to a file or directory. Use "" for the repository root.
+    ref:
+      type: string
+      description: Optional branch, tag or commit SHA. Defaults to the default branch.
+  required: [path]
+implementation:
+  script: scripts/file.mjs
+  runtime: node

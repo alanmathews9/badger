@@ -1,0 +1,26 @@
+name: github_search
+description: >
+  Search the connected GitHub repository's issues and pull requests by text.
+  This is the primary way to find anything — start here for almost every
+  question. Accepts plain words or GitHub search qualifiers. Returns numbered
+  results with title, author, date, comment count and a snippet.
+input_schema:
+  type: object
+  properties:
+    query:
+      type: string
+      description: >
+        What to look for. Plain words work. GitHub qualifiers are honoured —
+        add "in:title,body,comments" to force keyword search that reaches
+        comment text, "state:closed", "author:name", "label:x".
+    kind:
+      type: string
+      enum: [issue, pr, any]
+      description: Restrict to issues, to pull requests, or neither. Default any.
+    limit:
+      type: integer
+      description: Maximum results, 1-30. Default 10.
+  required: [query]
+implementation:
+  script: scripts/search.mjs
+  runtime: node

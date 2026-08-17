@@ -1,19 +1,27 @@
 # Skills
 
-Each skill is a directory containing `SKILL.md` with YAML frontmatter
-(`name`, `description`, optional `metadata`), plus an optional `scripts/`.
-Skills listed in `agent.yaml` are loaded at startup; invoke one in the REPL
-with `/skill:<name> <args>`.
-
-Planned for Badger — prompts land next session:
+Each skill is a directory holding `SKILL.md` with YAML frontmatter (`name`,
+`description`, `license`, `allowed-tools`, `metadata`). Skills named in
+`agent.yaml` load at startup; invoke one explicitly with
+`/skill:<name> <args>`, though the model selects on the `description`.
 
 | Skill | Purpose |
 |---|---|
-| `search-gmail` | Turn a natural-language question into Gmail query syntax (`from:`, `after:`, `has:attachment`), page results, rank by recency and thread depth. |
-| `search-drive` | Drive full-text plus metadata search; decide when to open a document versus trust its title and snippet. |
-| `search-github` | Code, issue, PR and discussion search; map "who owns X" to CODEOWNERS and commit history. |
-| `federate` | Fan out one question to all three sources, run them concurrently, merge and dedupe results, and report which sources answered and which failed. |
-| `cite` | Format the answer: finding first, then citations with source, title, author, date and link. Enforces the no-uncited-claims rule from RULES.md. |
+| `answer-question` | Answer a question about the company's own work by searching connected sources live, reading the threads behind the results, and citing every claim. |
 
-Keep each `SKILL.md` under roughly 150 lines. They are injected into context on
-invocation, and Badger's turns already carry large tool results.
+## Why one skill, and not one per source
+
+An earlier plan here listed five: `search-gmail`, `search-drive`,
+`search-github`, `federate`, `cite`. That was a split by **data source and
+pipeline stage**, and reading seventeen published gitagent agents showed it has
+no precedent — those agents decompose by **user-facing task**, and none of them
+has a routing or formatting skill (see `RESEARCH-GAP-IDIOM.md` §5).
+
+So per-source mechanics live in the tools (`tools/*.yaml`) and, as more sources
+arrive, in `skills/answer-question/references/<source>.md`. Citation is an
+output-format section inside the skill plus a rule in `RULES.md`, which is how
+every agent in the corpus handles an output contract.
+
+New skills should be added when a genuinely different **question shape** needs
+a different procedure — a scheduled digest, or reconstructing a decision
+timeline — not when a new source is connected.

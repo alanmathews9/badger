@@ -46,4 +46,10 @@ if grep -v '^[[:space:]]*#' "$ALLOWLIST" 2>/dev/null \
   exit 0
 fi
 
-block "$tool is not in Badger's read-only allowlist. Badger reads and reports; it never writes. Tell the user what you would have done and give them the link so they can do it themselves."
+# The reason has to do two jobs, because two very different calls land here.
+# A write attempt should be declined to the user. But a neutral builtin the
+# runtime loads anyway (task_tracker, skill_learner) is just unavailable — and
+# an early version of this message said only "tell the user what you would have
+# done", which the model read as "stop". It abandoned the question after one
+# blocked bookkeeping call. So: say plainly that the work continues.
+block "$tool is not available to Badger. Do NOT retry it and do NOT stop working. Continue the task with your allowed tools - the github_* search and read tools, read, and memory. Only if the user actually asked you to write, send or change something: decline in one sentence and give them the link and the draft so they can do it themselves."

@@ -1,0 +1,67 @@
+#!/usr/bin/env node
+// github_issue — one issue or PR, WITH its full comment thread.
+//
+// Issue and comments are fetched together on purpose. The comments are usually
+// where the real answer is: the file or the issue body carries the official
+// version, and the thread carries what the team actually concluded. Making the
+// model remember a second call would mean it often stops at the official answer.
+import { exec, run, clip, asList, OWNER, REPO } from "./_github.mjs";
+
+run(async ({ number, max_comments }) => {
+  const n = Number(number);
+  if (!Number.isInteger(n) || n < 1) return "ERROR: `number` must be an issue/PR number.";
+
+  const issue = await exec("GITHUB_GET_AN_ISSUE", {
+    owner: OWNER,
+    repo: REPO,
+    issue_number: n,
+  });
+
+  const cap = Math.min(Math.max(Number(max_comments) || 20, 1), 50);
+  const comments = await exec("GITHUB_LIST_ISSUE_COMMENTS", {
+    owner: OWNER,
+    repo: REPO,
+    issue_number: n,
+    per_page: cap,
+  });
+
+  const list = asList(comments);
+  const type = issue.pull_request ? "PR" : "issue";
+
+  const head =
+    `#${issue.number} [${type}, ${issue.state}] ${issue.title}\n` +
+    `by @${issue.user?.login ?? "unknown"} on ${(issue.created_at ?? "").slice(0, 10)}` +
+    `, updated ${(issue.updated_at ?? "").slice(0, 10)}\n` +
+    `${issue.html_url}\n` +
+    (issue.labels?.length ? `labels: ${issue.labels.map((l) => l.name ?? l).join(", ")}\n` : "") +
+    `\n--- body ---\n${clip(issue.body ?? "(empty)", 2000)}\n`;
+
+  // State is decision-bearing, so say it in words rather than leaving the model
+  // to infer it from a bracketed token. An open thread reported as a settled
+  // decision is the most damaging error this agent can make — someone acts on
+  // it — and prose instructions alone did not reliably prevent it.
+  const verdict =
+    issue.state === "open"
+      ? `\n!! This ${type} is OPEN. No conclusion has been recorded. Positions in the\n` +
+        `!! thread are proposals or arguments, not decisions. Report them as such,\n` +
+        `!! attribute them to whoever made them, and say it is unresolved.\n`
+      : `\n(This ${type} is CLOSED${issue.closed_at ? ` on ${issue.closed_at.slice(0, 10)}` : ""}.` +
+        ` Check the final comments for what settled it.)\n`;
+
+  if (!list.length) return head + verdict + `\n--- comments ---\n(none)`;
+
+  const thread = list
+    .map(
+      (c) =>
+        `@${c.user?.login ?? "unknown"} on ${(c.created_at ?? "").slice(0, 10)}:\n` +
+        `${clip(c.body ?? "", 1200)}`,
+    )
+    .join("\n\n");
+
+  return (
+    head +
+    verdict +
+    `\n--- comments (${list.length}${list.length >= cap ? `, capped at ${cap}` : ""}) ---\n` +
+    thread
+  );
+});

@@ -17,6 +17,22 @@
 read
 memory
 
+# ===========================================================================
+# BADGER'S OWN TOOLS — declarative, tools/*.yaml
+# ===========================================================================
+# These are the names the agent actually sees. Each is a thin script over a
+# Composio session (tools/scripts/), so the Composio slugs listed below never
+# reach the model. dist/index.js wraps declarative tools with pre_tool_use
+# exactly like MCP tools, so this file gates them.
+#
+# All four are read-only by construction: the script can only call the five
+# allowlisted Composio slugs in tools/scripts/_github.mjs.
+
+github_search
+github_issue
+github_file
+github_commits
+
 # --- gmail ----------------------------------------------------------------
 # PROVISIONAL: exact names depend on the MCP server chosen in phase 2.
 # Verify each against the server's own tools/list before trusting this file.

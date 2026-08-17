@@ -1,75 +1,36 @@
 spec_version: "0.1.0"
 name: badger
 version: 0.1.0
-description: >-
+description: >
   Federated workplace search. Answers questions about your work by querying
-  Gmail, Google Drive and GitHub live at ask-time, and citing every source.
-  No crawler, no index, no copy of your data.
+  connected sources live at ask-time and citing every source. No crawler, no
+  index, no copy of your data. Read-only: Badger searches, reads and reports,
+  and never sends, edits or changes anything.
 author: alan-mathews
 license: MIT
 
-tags:
-  - workplace-search
-  - federated-search
-  - enterprise-search
-  - gmail
-  - google-drive
-  - github
-
-# Model ids are "provider:model" and must exist BOTH in the runtime's registry
-# and on the account. Unknown-to-registry ids crash with "Cannot read properties
-# of undefined (reading 'baseUrl')"; unavailable-to-account ids fail at call
-# time. The two checks are independent — see NOTES.md §7.
-#
-# Auth is Application Default Credentials, no API key and no key file:
-#   gcloud auth application-default login
-#   GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION in .env
-# All three are required together; pi-ai returns no credential if any is
-# missing, and gitagent has no pre-flight check for google-vertex, so a partial
-# setup fails late and unclearly rather than at startup. This is the same auth
-# path a Compute Engine VM gets from its attached service account, so hosting
-# on this project needs no credential at all.
-#
-# Billing runs against the GCP project, which is what clears the free-tier walls
-# that blocked us earlier (AI Studio 5 req/min, Groq 8k tokens/min).
-#
-# Tested live in us-central1 on 2026-08-17. Listed-in-region does NOT mean
-# callable — the 3.x models all appear in the publisher catalogue and 404 on
-# generate, gated behind preview enrolment rather than missing:
-#   gemini-2.5-flash         OK          <- in use
-#   gemini-3.1-pro-preview   404 no access
-#   gemini-3-pro-preview     404 no access
-#   gemini-3-flash-preview   404 no access
-#   gemini-2.5-pro           400 "does not support setting thinking_budget to 0"
-#                            pi-ai sends 0 and gitagent exposes no knob for it,
-#                            so 2.5-pro is unusable here without patching pi-ai.
-# Requesting preview access on the project is the route to Pro-tier reasoning.
-#
-# fallback: is NOT automatic in gitagent 2.1.0 — the loader reads
-# model.preferred only. The list below is documentation, not failover.
 model:
   preferred: "google-vertex:gemini-2.5-flash"
   fallback:
     - "google-vertex:gemini-2.5-flash-lite"
   constraints:
-    temperature: 0.1        # search answers should be reproducible, not creative
+    temperature: 0.1
     max_tokens: 8192
 
-# Advisory only in gitagent 2.1.0 — the runtime loads all builtins regardless.
-# Kept accurate so the manifest documents intent and stays portable to other
-# GAP runtimes that DO honour it. Real enforcement lives in RULES.md + hooks.
-tools: [read, memory]
-
-runtime:
-  max_turns: 30
-  timeout: 300            # seconds; federated fan-out across 3 sources is slow
+tools:
+  - read
+  - memory
+  - github_search
+  - github_issue
+  - github_file
+  - github_commits
 
 skills:
-  - search-gmail
-  - search-drive
-  - search-github
-  - federate
-  - cite
+  - answer-question
+
+runtime:
+  max_turns: 40
+  timeout: 300
 
 compliance:
   risk_level: medium
@@ -79,61 +40,9 @@ compliance:
     audit_logging: true
     retention_days: 30
 
-# ---------------------------------------------------------------------------
-# Federated sources. Placeholders only — credentials and final server choices
-# land next session. Shape is verified against dist/mcp/manager.js:
-#   - "${VAR}" is interpolated from env at connect time (unset -> empty string)
-#   - tools register as <server>__<tool>, e.g. gmail__search_threads
-#   - a server that fails to connect is warned about and SKIPPED, not fatal
-# ---------------------------------------------------------------------------
-mcp_servers:
-  # Source 1 of 3. Install: brew install github-mcp-server
-  #
-  # Four independent layers keep this read-only, strongest first:
-  #   1. --read-only    the server refuses to register write tools at all.
-  #                     Verified: 42 tools without it, 26 with. It removes
-  #                     merge_pull_request, delete_file, create_or_update_file,
-  #                     issue_write and 12 others.
-  #   2. GITHUB_TOOLSETS  limits which toolsets register at all. Worth keeping
-  #                     narrow so the model chooses tools well; measured spend
-  #                     is only ~2.2k tokens/turn, so this is not a cost lever
-  #                     (NOTES.md §4b).
-  #   3. the allowlist  hooks/allowed-tools.txt gates by exact name at call time.
-  #   4. PAT scopes     fine-grained token scoped to the single demo repo, read
-  #                     on Metadata + Contents + Issues + Pull requests. Nothing
-  #                     here can exceed what the token allows. Not classic
-  #                     scopes: the demo repo is private (see CLAUDE.md).
-  #
-  # A remote alternative exists — https://api.githubcopilot.com/mcp/readonly,
-  # with per-toolset variants at /mcp/x/<toolset>/readonly — but it authenticates
-  # against the Copilot endpoint. Local stdio keeps us on a plain PAT.
-  # TEMP: stood down until a PAT exists. Re-enable here AND in
-  # hooks/required-env.txt together.
-  # github:
-  #   command: github-mcp-server
-  #   args: ["stdio", "--read-only"]
-  #   env:
-  #     GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
-  #     GITHUB_TOOLSETS: "context,repos,issues,pull_requests,users"
-  #   timeoutMs: 30000
-
-  # gmail:
-  #   command: npx
-  #   args: ["-y", "<gmail-mcp-package>"]
-  #   env:
-  #     GOOGLE_OAUTH_CREDENTIALS: "${GOOGLE_OAUTH_CREDENTIALS}"
-  #   timeoutMs: 30000
-  #
-  # drive:
-  #   command: npx
-  #   args: ["-y", "<gdrive-mcp-package>"]
-  #   env:
-  #     GOOGLE_OAUTH_CREDENTIALS: "${GOOGLE_OAUTH_CREDENTIALS}"
-  #   timeoutMs: 30000
-  #
-  # github:
-  #   type: http
-  #   url: "https://api.githubcopilot.com/mcp/"
-  #   headers:
-  #     Authorization: "Bearer ${GITHUB_TOKEN}"
-  #   timeoutMs: 30000
+tags:
+  - workplace-search
+  - federated-search
+  - enterprise-search
+  - github
+  - citations

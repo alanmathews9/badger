@@ -1,0 +1,19 @@
+name: github_issue
+description: >
+  Read one issue or pull request in full, including its entire comment thread.
+  Use this after github_search surfaces something relevant. The comments matter:
+  a decision's official version tends to live in the body or a file, while what
+  the team actually concluded lives in the discussion underneath.
+input_schema:
+  type: object
+  properties:
+    number:
+      type: integer
+      description: The issue or pull request number, as shown by github_search.
+    max_comments:
+      type: integer
+      description: Maximum comments to include, 1-50. Default 20.
+  required: [number]
+implementation:
+  script: scripts/issue.mjs
+  runtime: node
