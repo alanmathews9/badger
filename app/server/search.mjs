@@ -30,6 +30,11 @@
 // per-term fan-out would have been the expensive way to get the same rows.
 import { exec, asList, clip, OWNER, REPO, REPO_SLUG } from "../../tools/scripts/_github.mjs";
 import { buildQuery, planQuery } from "../../tools/scripts/_search-query.mjs";
+import { searchDrive, searchGmail } from "./search-google.mjs";
+// Ranking lives in rank.mjs so that every source is scored by the same
+// function. It used to live here, which was fine while GitHub was the only
+// source and wrong the moment there were three.
+import { highlight, matchedIn, matcher, score } from "./rank.mjs";
 
 /**
  * One result row, shaped after Onyx's SearchDoc so the UI has the same fields
@@ -176,8 +181,8 @@ function toRow(item, terms) {
   const title = item.title ?? "";
   const body = String(item.body ?? "").replace(/\s+/g, " ").trim();
 
-  const matchedInTitle = terms.filter((t) => matcher(t).test(title));
-  const matchedInBody = terms.filter((t) => matcher(t).test(body));
+  const matchedInTitle = matchedIn(title, terms);
+  const matchedInBody = matchedIn(body, terms);
   const matchedTerms = [...new Set([...matchedInTitle, ...matchedInBody])];
 
   // GitHub's keyword search reaches comment text, but the search API never
@@ -190,6 +195,7 @@ function toRow(item, terms) {
 
   return {
     id: `${isPr ? "pr" : "issue"}-${item.number}`,
+    source: "github",
     kind: isPr ? "pr" : "issue",
     number: item.number,
     title,
@@ -209,61 +215,82 @@ function toRow(item, terms) {
 }
 
 /**
- * Rank a row by how much of the query it covers, since GitHub only filters.
- * A title hit counts for more than a body hit — "Halden retro" answering
- * "halden" should beat an issue that mentions Halden in passing.
+ * Search all three sources at once, and merge.
+ *
+ * The three run concurrently rather than in sequence: they are independent
+ * HTTP calls to different providers, and a user watching a search box should
+ * wait for the slowest, not the sum.
+ *
+ * **A failing source is reported, never dropped.** This is the part that
+ * matters. If Drive is not connected, or Gmail rate limits, the honest result
+ * is "GitHub found 12, Drive was not reached" — a silently shorter list is the
+ * same failure as answering from one source and calling it the answer.
+ *
+ * Merging is a plain sort because every row was already re-scored locally by
+ * rank.mjs. Each engine's own relevance number is discarded on the way in: they
+ * are computed differently, on different corpora, and comparing them would be
+ * guesswork. See rank.mjs.
  */
-function score({ terms, matchedInTitle, matchedInBody, matchedInDiscussionOnly, comments }) {
-  if (!terms.length) return 0;
-  const titleWeight = 3;
-  const bodyWeight = 1;
-  // A discussion-only match is a real match, just an unlocatable one. Score it
-  // as a weak body hit rather than zero, or GitHub's own hits sort to the
-  // bottom of our list for no reason the user can see.
-  const discussionWeight = matchedInDiscussionOnly ? 0.5 : 0;
-  const max = terms.length * (titleWeight + bodyWeight);
-  const earned =
-    matchedInTitle.length * titleWeight + matchedInBody.length * bodyWeight + discussionWeight;
+export async function searchAll(query, { limit = 20, userId, repo, account } = {}) {
+  const raw = String(query ?? "").trim();
+  if (!raw) throw new SearchError("empty query", 400);
 
-  // A thread with argument in it is usually the better answer on this corpus.
-  // Deliberately tiny — a tiebreak, never enough to outrank a real term hit.
-  const discussion = Math.min(comments, 10) * 0.01;
-  return Number((earned / max + discussion).toFixed(4));
-}
+  const plan = planQuery(raw);
+  const startedAt = Date.now();
 
-/**
- * Excerpts of the body around each match, with the matched words wrapped in
- * <hi>…</hi>. The convention is Onyx's: the server says what matched, and the
- * frontend splits on the marker rather than being handed HTML to inject. The
- * design's <mark> highlighting is then a fact about the search, not a guess
- * made in the browser.
- */
-function highlight(body, terms, { window = 160, max = 2 } = {}) {
-  if (!body || !terms.length) return [];
-  const re = new RegExp(`(${terms.map(escapeRe).join("|")})`, "gi");
+  const settled = await Promise.allSettled([
+    search(raw, { limit, userId, repo, account }),
+    searchGmail(raw, { limit: Math.ceil(limit / 2), userId }),
+    searchDrive(raw, { limit: Math.ceil(limit / 2), userId }),
+  ]);
 
-  const excerpts = [];
-  const used = [];
-  for (const match of body.matchAll(re)) {
-    if (excerpts.length >= max) break;
-    const at = match.index;
-    if (used.some((prev) => Math.abs(prev - at) < window)) continue;
-    used.push(at);
+  const names = ["github", "gmail", "drive"];
+  const sources = {};
+  let rows = [];
+  let apiCalls = 0;
 
-    const start = Math.max(0, at - Math.floor(window / 3));
-    const end = Math.min(body.length, at + window);
-    const slice = body.slice(start, end);
-    excerpts.push(
-      (start > 0 ? "…" : "") +
-        slice.replace(new RegExp(`(${terms.map(escapeRe).join("|")})`, "gi"), "<hi>$1</hi>") +
-        (end < body.length ? "…" : ""),
-    );
+  settled.forEach((outcome, i) => {
+    const name = names[i];
+    if (outcome.status === "fulfilled") {
+      const value = outcome.value;
+      const found = value.results ?? value.rows ?? [];
+      rows = rows.concat(found);
+      apiCalls += value.apiCalls ?? 1;
+      sources[name] = {
+        ok: true,
+        count: found.length,
+        total: value.total ?? found.length,
+        resolvedQuery: value.resolvedQuery,
+      };
+    } else {
+      // Keep the reason. "Not connected" and "rate limited" are different
+      // facts, and the UI says which.
+      sources[name] = {
+        ok: false,
+        count: 0,
+        error: String(outcome.reason?.message ?? outcome.reason).slice(0, 200),
+      };
+    }
+  });
+
+  // One scale, so this is an ordering rather than a reconciliation. Ties break
+  // on recency, which is the only other signal all three sources share.
+  if (plan.terms.length) {
+    rows.sort((a, b) => b.score - a.score || String(b.updatedAt).localeCompare(String(a.updatedAt)));
   }
-  return excerpts;
-}
 
-const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const matcher = (term) => new RegExp(`\\b${escapeRe(term)}`, "i");
+  return {
+    query: raw,
+    repo: repo || REPO_SLUG,
+    terms: plan.terms,
+    droppedTerms: plan.droppedTerms,
+    total: rows.length,
+    tookMs: Date.now() - startedAt,
+    apiCalls,
+    sources,
+    results: rows.slice(0, limit),
+  };
+}
 
 /** An error carrying the HTTP status the server should send. */
 export class SearchError extends Error {

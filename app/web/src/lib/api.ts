@@ -1,8 +1,14 @@
-/** The shape src/search.mjs returns. Kept in step with it by hand. */
+/** Which system a row came from. */
+export type SourceId = "github" | "gmail" | "drive";
+
+/** The shape app/server/search.mjs returns. Kept in step with it by hand. */
 export type SearchRow = {
   id: string;
-  kind: "issue" | "pr";
-  number: number;
+  source: SourceId;
+  /** issue/pr from GitHub, mail from Gmail, doc/sheet from Drive. */
+  kind: "issue" | "pr" | "mail" | "doc" | "sheet" | "file";
+  /** GitHub only — mail and documents have no number. */
+  number: number | null;
   title: string;
   state: string;
   author: string;
@@ -17,6 +23,23 @@ export type SearchRow = {
   /** The matched comment, fetched for the top few discussion-only rows. */
   discussion: { author: string; at: string; excerpt: string } | null;
   score: number;
+  /** Gmail only — lets a row link through to the whole exchange. */
+  threadId?: string | null;
+  /** Drive only. */
+  fileId?: string;
+};
+
+/**
+ * Per-source outcome. A source that failed is reported rather than omitted:
+ * "Drive was not reached" and "Drive found nothing" are different facts, and a
+ * search UI that conflates them is lying by omission.
+ */
+export type SourceOutcome = {
+  ok: boolean;
+  count: number;
+  total?: number;
+  resolvedQuery?: string;
+  error?: string;
 };
 
 export type SearchResponse = {
@@ -28,6 +51,8 @@ export type SearchResponse = {
   total: number;
   tookMs: number;
   apiCalls: number;
+  /** Keyed by source id. Always present for every source attempted. */
+  sources: Partial<Record<SourceId, SourceOutcome>>;
   results: SearchRow[];
 };
 

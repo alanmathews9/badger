@@ -2,6 +2,7 @@ import { Loader2 } from "lucide-react";
 import { AnswerCard, type AnswerState } from "@/components/AnswerCard";
 import { ClayBars, DigInput } from "@/components/DigInput";
 import { ResultRow } from "@/components/ResultRow";
+import { SourceCoverage } from "@/components/SourceCoverage";
 import type { SearchResponse } from "@/lib/api";
 
 /**
@@ -110,6 +111,8 @@ export function SearchScreen({
 
             {data && (
               <>
+                <SourceCoverage sources={data.sources} />
+
                 {data.droppedTerms.length > 0 && (
                   <p className="mb-3 text-[11.5px] text-stone-500">
                     Searched the first {data.terms.length} terms. GitHub allows no more, so{" "}
@@ -120,7 +123,7 @@ export function SearchScreen({
 
                 {data.results.length === 0 ? (
                   <p className="text-sm text-stone-600">
-                    Nothing in <span className="font-mono">{data.repo}</span> matches{" "}
+                    Nothing in GitHub, Gmail or Drive matches{" "}
                     <span className="font-medium">{data.query}</span>. This is a real empty result,
                     not an error — Badger searched and found nothing.
                   </p>

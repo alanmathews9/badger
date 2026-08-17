@@ -1,19 +1,20 @@
 import { Highlight, HighlightTerms } from "./Highlight";
 import { GitHubMark, StateIcon } from "./octicons";
+import { DriveLogo, GmailLogo } from "./BrandLogos";
 import type { SearchRow } from "@/lib/api";
 
 /**
- * One hit.
+ * One hit, from any of the three sources.
  *
  * Two icons, and they answer two different questions:
  *
- *   left edge   — which SYSTEM this came from. GitHub today, Drive and Gmail
- *                 later. It stays in the same place for every source, so the
- *                 eye can scan a mixed list by origin.
- *   title start — WHAT it is and what state it is in, in GitHub's own icons
- *                 and colours: green open, purple merged or completed. A
- *                 GitHub user reads it without a legend, which is why this
- *                 replaced the text badges.
+ *   left edge   — which SYSTEM this came from. It sits in the same place for
+ *                 every source, so the eye can scan a mixed list by origin,
+ *                 which is the whole point of merging them into one list.
+ *   title start — WHAT it is and what state it is in. GitHub rows keep GitHub's
+ *                 own icons and colours, green open and purple merged, which a
+ *                 GitHub user reads without a legend. Mail and documents have
+ *                 no state, so they get nothing rather than a decorative dot.
  *
  * The title is a plain blue link. Nothing else on the row is blue, so blue
  * means "this goes somewhere".
@@ -22,14 +23,16 @@ export function ResultRow({ row, terms }: { row: SearchRow; terms: string[] }) {
   return (
     <li className="flex gap-3 border-t border-stone-100 py-3 first:border-t-0">
       <span className="mt-0.5 shrink-0 text-stone-900">
-        <GitHubMark size={16} />
+        <SourceMark source={row.source} />
       </span>
 
       <div className="min-w-0 flex-1">
         <h3 className="flex items-baseline gap-1.5 text-[15px]/[1.4]">
-          <span className="translate-y-[2px]">
-            <StateIcon kind={row.kind} state={row.state} />
-          </span>
+          {row.source === "github" && (
+            <span className="translate-y-[2px]">
+              <StateIcon kind={row.kind === "pr" ? "pr" : "issue"} state={row.state} />
+            </span>
+          )}
           <a
             href={row.url}
             target="_blank"
@@ -58,21 +61,55 @@ export function ResultRow({ row, terms }: { row: SearchRow; terms: string[] }) {
                 </p>
               ))
             ) : (
-              <p className="line-clamp-2">
-                {row.matchedInDiscussionOnly
-                  ? "Matched somewhere in this thread's comments."
-                  : row.snippet || "No description."}
-              </p>
+              <p className="line-clamp-2">{unlocatableText(row)}</p>
             )}
           </div>
         )}
 
-        <div className="mt-1.5 font-mono text-[11px] text-stone-500">
-          {row.kind === "pr" ? "PR" : "issue"} #{row.number} · @{row.author} · {row.updatedAt} ·{" "}
-          {row.comments} {row.comments === 1 ? "comment" : "comments"}
-        </div>
+        <div className="mt-1.5 font-mono text-[11px] text-stone-500">{metaLine(row)}</div>
       </div>
     </li>
   );
 }
 
+function SourceMark({ source }: { source: SearchRow["source"] }) {
+  if (source === "gmail") return <GmailLogo size={16} />;
+  if (source === "drive") return <DriveLogo size={16} />;
+  return <GitHubMark size={16} />;
+}
+
+/**
+ * What to say when we know the row matched but cannot show where.
+ *
+ * The two cases are genuinely different and the wording says which: GitHub
+ * matched inside a thread whose comments we did not fetch, while Drive matched
+ * inside a document whose text we did not export. Both are "matched, not
+ * shown", never "no description".
+ */
+function unlocatableText(row: SearchRow): string {
+  if (!row.matchedInDiscussionOnly) return row.snippet || "No description.";
+  return row.source === "drive"
+    ? "Matched inside this document."
+    : "Matched somewhere in this thread's comments.";
+}
+
+/** The metadata line, which differs per source because the facts differ. */
+function metaLine(row: SearchRow): string {
+  const parts: string[] = [];
+
+  if (row.source === "github") {
+    parts.push(`${row.kind === "pr" ? "PR" : "issue"} #${row.number}`);
+    if (row.author) parts.push(`@${row.author}`);
+    if (row.updatedAt) parts.push(row.updatedAt);
+    parts.push(`${row.comments} ${row.comments === 1 ? "comment" : "comments"}`);
+  } else if (row.source === "gmail") {
+    parts.push("mail");
+    if (row.author) parts.push(row.author);
+    if (row.updatedAt) parts.push(row.updatedAt);
+  } else {
+    parts.push(row.kind === "sheet" ? "spreadsheet" : "document");
+    if (row.updatedAt) parts.push(`modified ${row.updatedAt}`);
+  }
+
+  return parts.join(" · ");
+}

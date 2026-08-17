@@ -16,7 +16,21 @@
 import { Composio } from "@composio/core";
 import { DEMO_REPO, DEMO_USER_ID } from "../../tools/scripts/_github.mjs";
 
-const DEMO_FALLBACK = process.env.BADGER_DEMO_FALLBACK === "1";
+/**
+ * Whether a visitor who has connected nothing sees the seeded Arkind corpus.
+ *
+ * On by default, and that is a reversal. It was off while the demo account
+ * held only a GitHub repository and connecting your own account was the more
+ * interesting thing to show. Now that Gmail, Drive and GitHub are all seeded
+ * with one story told three different ways, the corpus *is* the demo: an
+ * evaluator who opens the link should be able to ask "why did Halden slip?"
+ * immediately, not be asked to authorise three Google scopes first.
+ *
+ * The per-user connect flow is untouched and still takes precedence — anyone
+ * who connects their own account searches theirs. BADGER_DEMO_FALLBACK=0
+ * restores the old behaviour of showing an empty app instead.
+ */
+const DEMO_FALLBACK = process.env.BADGER_DEMO_FALLBACK !== "0";
 
 let composio = null;
 function client() {

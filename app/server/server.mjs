@@ -21,7 +21,7 @@ import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "@open-gitagent/gitagent";
-import { search, SearchError } from "./search.mjs";
+import { searchAll, SearchError } from "./search.mjs";
 import { readAllowedTools } from "./allowed-tools.mjs";
 import { authEnabled, clearSessionCookie, hasValidSession, issueSessionCookie, passphraseMatches, userIdFor } from "./auth.mjs";
 import {
@@ -300,7 +300,9 @@ async function handleSearch(req, res) {
   }
 
   try {
-    return json(res, 200, await search(body.query, { limit: body.limit, ...ctx }));
+    // All three sources, merged and re-scored locally. A source that fails
+    // comes back reported rather than omitted — see searchAll.
+    return json(res, 200, await searchAll(body.query, { limit: body.limit, ...ctx }));
   } catch (err) {
     if (err instanceof SearchError) return json(res, err.status, { error: err.message });
     throw err;
@@ -605,7 +607,7 @@ server.listen(PORT, HOST, async () => {
   // Creating the Composio session costs about four seconds, once per process.
   // Pay it at boot rather than making the first person to search wait for it.
   try {
-    await search("badger-warmup", { limit: 1 });
+    await searchAll("badger-warmup", { limit: 1 });
     githubReachable = true;
     console.log("github session warm");
   } catch (err) {
