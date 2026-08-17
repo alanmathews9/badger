@@ -12,7 +12,18 @@ import { Fragment, type ReactNode } from "react";
  * The `[UNVERIFIED]` tag that verification adds is inline code, so it renders
  * through the code branch and stands out on its own.
  */
-export function Markdown({ text, tone = "light" }: { text: string; tone?: "light" | "dark" }) {
+/** A source the answer cites, and the number its card carries. */
+export type Citation = { token: string; index: number };
+
+export function Markdown({
+  text,
+  tone = "light",
+  citations = [],
+}: {
+  text: string;
+  tone?: "light" | "dark";
+  citations?: Citation[];
+}) {
   const blocks = String(text ?? "").split(/\n{2,}/);
 
   return (
@@ -25,7 +36,7 @@ export function Markdown({ text, tone = "light" }: { text: string; tone?: "light
           return (
             <ul key={i} className="mt-2 flex list-disc flex-col gap-1.5 pl-5">
               {lines.map((line, j) => (
-                <li key={j}>{inline(line.replace(/^\s*[*-]\s+/, ""), tone)}</li>
+                <li key={j}>{inline(line.replace(/^\s*[*-]\s+/, ""), tone, citations)}</li>
               ))}
             </ul>
           );
@@ -35,14 +46,14 @@ export function Markdown({ text, tone = "light" }: { text: string; tone?: "light
         if (heading) {
           return (
             <p key={i} className="mt-4 font-semibold first:mt-0">
-              {inline(heading[2], tone)}
+              {inline(heading[2], tone, citations)}
             </p>
           );
         }
 
         return (
           <p key={i} className="mt-3 first:mt-0">
-            {inline(block, tone)}
+            {inline(block, tone, citations)}
           </p>
         );
       })}
@@ -50,11 +61,34 @@ export function Markdown({ text, tone = "light" }: { text: string; tone?: "light
   );
 }
 
-/** Bold, inline code and links, in one pass. */
-function inline(text: string, tone: "light" | "dark"): ReactNode {
-  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)\s]+\))/g;
+/** Bold, inline code, links and citation markers, in one pass. */
+function inline(text: string, tone: "light" | "dark", citations: Citation[] = []): ReactNode {
+  // Citation tokens are matched last in the alternation, so a "#2" inside a
+  // code span or a link is consumed by those branches first and never gets a
+  // marker attached to it.
+  const refs = citations.map((c) => escapeRe(c.token)).join("|");
+  const pattern = new RegExp(
+    `(\\*\\*[^*]+\\*\\*|\`[^\`]+\`|\\[[^\\]]+\\]\\([^)\\s]+\\)${refs ? `|${refs}` : ""})`,
+    "g",
+  );
+
   return text.split(pattern).map((part, i) => {
     if (!part) return null;
+
+    const citation = citations.find((c) => c.token === part);
+    if (citation) {
+      return (
+        <span key={i}>
+          {part}
+          <a
+            href={`#source-${citation.index}`}
+            className="ml-0.5 align-super text-[11px] font-semibold text-amber-700 no-underline"
+          >
+            {citation.index}
+          </a>
+        </span>
+      );
+    }
 
     if (part.startsWith("**") && part.endsWith("**")) {
       return (
@@ -103,3 +137,5 @@ function inline(text: string, tone: "light" | "dark"): ReactNode {
     return <Fragment key={i}>{part}</Fragment>;
   });
 }
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

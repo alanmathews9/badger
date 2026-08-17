@@ -1,5 +1,11 @@
 /** What a tool call opened, so the answer can be measured against it. */
-export type OpenedItem = { kind: "issue" | "pr" | "file"; ref: string; label: string };
+export type OpenedItem = {
+  kind: "issue" | "pr" | "file";
+  ref: string;
+  label: string;
+  /** "issue #12, open" — recovered from tool output, absent for plain opens. */
+  detail?: string;
+};
 
 export type Verification = {
   ok: boolean;
@@ -11,8 +17,12 @@ export type AskResult = {
   answer: string;
   verification: Verification;
   toolCalls: string[];
-  opened: OpenedItem[];
+  /** Sources the answer cites, titled from the tool output that found them. */
   cited: OpenedItem[];
+  /** Threads opened in full. */
+  opened: OpenedItem[];
+  /** Opened and then not cited — the honesty signal. */
+  uncited: OpenedItem[];
   tookMs: number;
   costUsd: number | null;
   inputTokens: number | null;
@@ -36,8 +46,11 @@ export type AskHandlers = {
  *
  * Returns a function that cancels the run.
  */
-export function ask(question: string, handlers: AskHandlers): () => void {
-  const source = new EventSource(`/api/ask?q=${encodeURIComponent(question)}`);
+export function ask(question: string, handlers: AskHandlers, context?: string): () => void {
+  const url =
+    `/api/ask?q=${encodeURIComponent(question)}` +
+    (context ? `&context=${encodeURIComponent(context)}` : "");
+  const source = new EventSource(url);
   let finished = false;
 
   source.addEventListener("tool", (e) => {
@@ -72,6 +85,44 @@ export function ask(question: string, handlers: AskHandlers): () => void {
     finished = true;
     source.close();
   };
+}
+
+/**
+ * Split the agent's own trailing sections off the prose.
+ *
+ * Badger's skills tell it to end an answer with a **Sources** list and a
+ * **Coverage** note. Both are worth keeping, but not inside the body: the
+ * sources belong in the grid, which is built from verified citations rather
+ * than from whatever the model typed, and coverage is a footnote. Rendering
+ * all three would show the same links twice.
+ *
+ * Anything unrecognised is left in the body — a missing section is normal,
+ * and swallowing prose would be much worse than a duplicated heading.
+ */
+export function splitAnswer(text: string): { body: string; coverage: string | null } {
+  const source = String(text ?? "");
+  const at = (heading: string) => {
+    const match = source.match(new RegExp(`^\\s*\\*\\*${heading}\\b.*?\\*\\*:?`, "im"));
+    return match?.index ?? -1;
+  };
+
+  const sourcesAt = at("Sources");
+  const coverageAt = at("Coverage");
+
+  const cut = [sourcesAt, coverageAt].filter((i) => i >= 0);
+  const body = cut.length ? source.slice(0, Math.min(...cut)).trim() : source.trim();
+
+  const coverage =
+    coverageAt >= 0
+      ? source
+          .slice(coverageAt)
+          .replace(/^\s*\*\*Coverage\b.*?\*\*:?/i, "")
+          .trim() || null
+      : null;
+
+  // If the split leaves nothing, the model wrote only sections. Keep the
+  // original rather than showing an empty answer.
+  return { body: body || source.trim(), coverage };
 }
 
 /** Turn a tool call into the line the user reads while waiting. */

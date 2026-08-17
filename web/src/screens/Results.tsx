@@ -22,6 +22,7 @@ export function Results({
   error,
   data,
   answer,
+  onOpenAnswer,
 }: {
   query: string;
   onQueryChange: (next: string) => void;
@@ -31,6 +32,7 @@ export function Results({
   error: string | null;
   data: SearchResponse | null;
   answer: AnswerState;
+  onOpenAnswer: () => void;
 }) {
   return (
     <div className="flex h-dvh flex-col bg-white text-stone-900">
@@ -61,7 +63,7 @@ export function Results({
         <div className="max-w-[820px]">
           {/* The answer sits above the results and streams into place; the
               list below it never waits for the agent to finish. */}
-          <AnswerCard state={answer} onOpen={() => {}} />
+          <AnswerCard state={answer} onOpen={onOpenAnswer} />
 
           {error && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">

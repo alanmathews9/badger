@@ -120,8 +120,18 @@ const ALLOWED_TOOLS = [
  * at all. query() will not commit to the repo on each request.
  */
 async function handleAsk(url, req, res) {
-  const prompt = (url.searchParams.get("q") ?? "").trim();
-  if (!prompt) return json(res, 400, { error: "q is required" });
+  const question = (url.searchParams.get("q") ?? "").trim();
+  if (!question) return json(res, 400, { error: "q is required" });
+
+  // Follow-ups carry their own context, because the runtime has nowhere to
+  // keep it. `sessionId` looks like conversation resumption but is only a
+  // logging label — dist/sdk.js never loads prior messages. Real multi-turn
+  // would mean holding one query() open and feeding it the AsyncIterable
+  // prompt form, which needs server-side session state and its own expiry;
+  // this is the honest version until that exists. Each follow-up re-retrieves,
+  // which costs about a third of a cent.
+  const context = (url.searchParams.get("context") ?? "").trim().slice(0, 4000);
+  const prompt = context ? `${context}\n\nFollow-up question: ${question}` : question;
 
   res.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
@@ -183,11 +193,18 @@ async function handleAsk(url, req, res) {
     answer: annotateUnverified(answer, verification),
     verification,
     toolCalls,
-    // What Badger opened, and which of those it went on to cite. The gap
-    // between the two is the honesty signal the design asks for: "N items
-    // were opened but not cited".
+    // Sources come from what the answer actually cites, not from what was
+    // opened in full. An answer can legitimately cite an issue it only saw in
+    // search results, and an earlier version of this — which listed only
+    // explicitly-opened threads — reported "0 sources" under an answer
+    // carrying four verified citations.
+    cited: resolveCitations(cited, toolOutputs),
+    // Threads Badger opened in full and then did not cite. This is the gap the
+    // design asks for: "N items were opened but not cited". It is deliberately
+    // not "everything that appeared in a search result" — those were listed,
+    // not read, and calling them opened would overstate the work.
     opened,
-    cited: opened.filter((item) => isCited(item, cited)),
+    uncited: opened.filter((item) => !isCited(item, cited)),
     tookMs: Date.now() - startedAt,
     costUsd: costs?.totalCostUsd ?? null,
     inputTokens: costs?.totalInputTokens ?? null,
@@ -206,6 +223,35 @@ function recordOpened(opened, msg) {
   if (msg.toolName === "github_issue") add("issue", args.number, `issue #${args.number}`);
   if (msg.toolName === "github_pr") add("pr", args.number, `PR #${args.number}`);
   if (msg.toolName === "github_file") add("file", args.path, args.path);
+}
+
+/**
+ * Turn the answer's citations into source cards, recovering each one's title
+ * from the tool output that produced it.
+ *
+ * The tools print issues as "#12 [issue, open] Title", so the title is
+ * available without a further API call. When it cannot be recovered the card
+ * falls back to the bare reference rather than inventing a name.
+ */
+function resolveCitations(cited, toolOutputs) {
+  const corpus = toolOutputs.join("\n");
+  const items = [];
+
+  for (const number of cited.numbers) {
+    const match = corpus.match(new RegExp(`#${number} \\[(issue|PR), ([^\\]]*)\\] (.+)`));
+    items.push({
+      kind: match?.[1] === "PR" ? "pr" : "issue",
+      ref: number,
+      label: match?.[3]?.trim() || `#${number}`,
+      detail: match ? `${match[1] === "PR" ? "pull request" : "issue"} #${number}, ${match[2]}` : `#${number}`,
+    });
+  }
+
+  for (const path of cited.paths) {
+    items.push({ kind: "file", ref: path, label: path, detail: "file" });
+  }
+
+  return items;
 }
 
 /** Did the answer actually cite this opened item? */

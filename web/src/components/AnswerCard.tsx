@@ -1,7 +1,7 @@
 import { AlertTriangle, ArrowRight, BadgeCheck, Loader2 } from "lucide-react";
 import { BadgerMark } from "./BadgerMark";
 import { Markdown } from "./Markdown";
-import type { AskResult } from "@/lib/ask";
+import { splitAnswer, type AskResult } from "@/lib/ask";
 
 export type AnswerState = {
   running: boolean;
@@ -38,7 +38,7 @@ export function AnswerCard({ state, onOpen }: { state: AnswerState; onOpen: () =
               <div className="text-sm/[1.65] text-stone-200">
                 {/* Only the first paragraphs live here; the full answer is one
                     click away on Ask. The card stays short by design. */}
-                <Markdown text={truncate(text)} tone="dark" />
+                <Markdown text={truncate(splitAnswer(text).body)} tone="dark" />
               </div>
             ) : (
               <p className="flex items-center gap-2 text-sm text-stone-400">
@@ -82,8 +82,7 @@ export function AnswerCard({ state, onOpen }: { state: AnswerState; onOpen: () =
  * "retrieved" rather than "correct" on purpose.
  */
 export function VerificationBadge({ result }: { result: AskResult }) {
-  const { verification, opened, cited } = result;
-  const uncited = opened.length - cited.length;
+  const { verification, uncited } = result;
 
   if (verification.checked === 0) {
     return <Meta>no citations to check</Meta>;
@@ -94,7 +93,9 @@ export function VerificationBadge({ result }: { result: AskResult }) {
       <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-emerald-400">
         <BadgeCheck className="size-3.5" strokeWidth={2} />
         {verification.checked} citations, all retrieved
-        {uncited > 0 && <span className="text-stone-400">· {uncited} opened, not cited</span>}
+        {uncited.length > 0 && (
+          <span className="text-stone-400">· {uncited.length} opened, not cited</span>
+        )}
       </span>
     );
   }
