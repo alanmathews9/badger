@@ -238,6 +238,27 @@ The public-repo query cost one request and turned "search is broken" into
 returned 1 hit first try, so the two search families behave differently and
 must be reasoned about separately.
 
+## 4g. `/search/issues` now REQUIRES `is:issue` or `is:pull-request`
+
+Found while probing the fine-grained token. A bare repo-scoped query returns
+**HTTP 422**:
+
+    GET /search/issues?q=ARKINDPROBEECHO+repo:<r>            -> 422
+      "Query must include 'is:issue' or 'is:pull-request'"
+    GET /search/issues?q=ARKINDPROBEECHO+repo:<r>+is:issue   -> 200, 1 hit
+
+**This is a live API change, and the trap is that it is invisible through
+`gh`.** The identical query run earlier as `gh api search/issues` returned its
+hit without complaint — the CLI evidently supplies the qualifier or pins older
+behaviour. So a query verified with `gh` can still 422 when the MCP server
+issues it over plain REST. **Verify search syntax against `curl`, not `gh`.**
+
+Consequence for the `search-github` skill: since `search_issues` is now the
+*primary* retrieval path (§4f), every issue query must carry `is:issue` or
+`is:pull-request`. If `github-mcp-server` 1.9.0 builds a bare query internally,
+that path is broken for us regardless of what we write in the skill — it must
+be tested at the MCP layer, not just at REST. Untested as of writing.
+
 **Search API rate limit: 30 requests/minute**, hit for real mid-probe. It
 returns HTTP 403 with a rate-limit body, *not* an empty result set. A federated
 turn issuing several searches per source will reach this. Any skill that treats

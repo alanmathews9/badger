@@ -92,10 +92,25 @@ known paths. Treat `search_code` as a public-repo-only bonus, never a
 dependency. This also shapes the corpus: searchable knowledge has to live
 substantially in issues and PR threads rather than in files.
 
-Still unverified: whether a fine-grained PAT behaves differently. Test when the
-token exists, but expect no improvement — fine-grained is more restrictive than
-classic, not less. `list_repository_collaborators` may also need
-Administration:read; drop it if it 403s, as nothing critical depends on it.
+**Fine-grained PAT tested 2026-08-17 — behaves identically.** Private
+`search_code` still returns 0 / `incomplete_results: true`; the public control
+still returns 4,536. Token class is irrelevant, as expected. Everything else
+Badger needs works on the fine-grained token with Contents + Issues + Pull
+requests read and **no account permissions at all**:
+
+| Path | Result |
+|---|---|
+| `get_me` → `GET /user` | 200, `login: alanmathews9` — no account permission needed |
+| `get_file_contents`, `list_commits`, `list_issues` | 200 |
+| `list_repository_collaborators` | **200 — no Administration:read needed** |
+| `search_issues` on the private repo | 200, 1 hit, `incomplete_results: false` |
+| `search_code` private / public | 0 `true` / 4,536 `false` |
+
+Two notes that outlive the probe. Private issue search reaches **body text**,
+not just titles — the hit was a sentinel inside an issue body, so full-text
+retrieval into a private repo does work, just not over files. And
+`list_repository_collaborators` needs no extra permission, so the caveat that
+used to sit here is dropped rather than carried.
 
 **Search API rate limit is 30 requests/minute** and returns HTTP 403, not an
 empty result. Hit for real during this probe. A federated fan-out issuing
