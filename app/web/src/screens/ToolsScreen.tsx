@@ -1,6 +1,5 @@
 import { Check } from "lucide-react";
-import { SourceGlyph } from "@/components/SourceGlyph";
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { BRAND_LOGOS } from "@/components/BrandLogos";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Source } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -25,37 +24,26 @@ type ToolCard = {
   description: string;
   /** Read-only operations the agent can actually call. */
   operations: number | null;
-  tint: string;
-  color: string;
 };
 
 const CATALOGUE: ToolCard[] = [
   {
     id: "github",
     name: "GitHub",
-    description:
-      "Issues, pull requests, files and commits — including the discussion underneath them, which is where decisions actually get made.",
+    description: "Issues, pull requests, files and commits.",
     operations: 5,
-    tint: "bg-stone-100",
-    color: "text-stone-900",
   },
   {
     id: "drive",
     name: "Google Drive",
-    description:
-      "Docs, sheets and slides. The tidy version of a decision usually lives here; the argument that produced it usually does not.",
+    description: "Docs, sheets and slides.",
     operations: null,
-    tint: "bg-emerald-50",
-    color: "text-emerald-700",
   },
   {
     id: "gmail",
     name: "Gmail",
-    description:
-      "Threads and attachments. The place a commitment gets made to a client without anyone writing it down anywhere else.",
+    description: "Threads and attachments.",
     operations: null,
-    tint: "bg-red-50",
-    color: "text-red-700",
   },
 ];
 
@@ -67,7 +55,6 @@ export function ToolsScreen({ sources }: { sources: Source[] }) {
   return (
     <div className="flex h-dvh flex-col bg-white">
       <header className="flex h-14 shrink-0 items-center gap-3 border-b border-stone-200 px-4">
-        <SidebarTrigger className="text-stone-500" />
         <h1 className="text-[15px] font-semibold">Tools</h1>
         <span className="font-mono text-[11px] text-stone-500">
           {connectedCount} of {CATALOGUE.length} connected
@@ -76,15 +63,11 @@ export function ToolsScreen({ sources }: { sources: Source[] }) {
 
       <main className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
         <div className="max-w-[1100px]">
-          <p className="max-w-[640px] text-[13px]/[1.7] text-stone-600">
-            Every integration goes through Composio, so Badger never holds a source credential
-            itself. Adding one is configuration — a tool definition and an allowlist entry — rather
-            than a new connector to write and maintain.
-          </p>
 
-          <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {CATALOGUE.map((tool) => {
               const isConnected = connected(tool.id);
+              const Logo = BRAND_LOGOS[tool.id];
               const card = (
                 <div
                   className={cn(
@@ -95,13 +78,11 @@ export function ToolsScreen({ sources }: { sources: Source[] }) {
                   <div className="flex items-start justify-between">
                     <span
                       className={cn(
-                        "inline-flex size-10 items-center justify-center rounded-lg",
-                        tool.tint,
-                        isConnected ? tool.color : "text-stone-400",
-                        !isConnected && "bg-stone-100",
+                        "inline-flex size-10 items-center justify-center rounded-lg border border-stone-200 bg-white",
+                        !isConnected && "opacity-45 grayscale",
                       )}
                     >
-                      <SourceGlyph id={tool.id} size={20} />
+                      <Logo size={22} />
                     </span>
                     {isConnected ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10.5px] font-medium text-emerald-700">
@@ -158,11 +139,6 @@ export function ToolsScreen({ sources }: { sources: Source[] }) {
             })}
           </div>
 
-          <p className="mt-6 max-w-[640px] text-[12px]/[1.7] text-stone-500">
-            Read-only is enforced in four independent layers, the tightest of which is an allowlist
-            of exact tool names — Badger can call 8 of GitHub's 823 operations, and nothing that
-            writes.
-          </p>
         </div>
       </main>
     </div>

@@ -3,7 +3,6 @@ import { ArrowUp, Loader2, MessageSquare } from "lucide-react";
 import { BadgerMark } from "@/components/BadgerMark";
 import { Markdown, type Citation } from "@/components/Markdown";
 import { SourceGlyph } from "@/components/SourceGlyph";
-import { SidebarTrigger } from "@/components/ui/sidebar";
 import { VerificationBadge } from "@/components/AnswerCard";
 import type { AnswerState } from "@/components/AnswerCard";
 import { splitAnswer, type OpenedItem } from "@/lib/ask";
@@ -48,7 +47,6 @@ export function ChatScreen({
   return (
     <div className="flex h-dvh flex-col bg-white text-stone-900">
       <header className="flex h-14 shrink-0 items-center gap-3 border-b border-stone-200 px-4">
-        <SidebarTrigger className="text-stone-500" />
         <span className="truncate text-[13px] font-medium text-stone-600">
           {question || "Chat"}
         </span>
@@ -76,7 +74,9 @@ export function ChatScreen({
             </h1>
           )}
 
-          <div className="mt-3 flex items-center gap-2.5">
+          {/* Provenance only exists once there is a run to describe. It was
+              rendering as a lone badger dot under the empty state. */}
+          <div className={`mt-3 flex items-center gap-2.5 ${question ? "" : "hidden"}`}>
             <span className="inline-flex size-5 items-center justify-center rounded-full bg-stone-900">
               <BadgerMark size={14} />
             </span>

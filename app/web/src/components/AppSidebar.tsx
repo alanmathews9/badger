@@ -45,12 +45,11 @@ export function AppSidebar({
 }) {
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader className="border-b border-sidebar-border">
+      <SidebarHeader>
         <div className="flex items-center gap-2.5 px-1 py-1.5 group-data-[collapsible=icon]:px-0">
           <BadgerBadge size={26} />
           <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
             <div className="truncate text-[14.5px] font-semibold tracking-[-0.01em]">badger</div>
-            <div className="truncate font-mono text-[10.5px] text-stone-500">arkind</div>
           </div>
           <SidebarTrigger className="shrink-0 text-stone-500 group-data-[collapsible=icon]:hidden" />
         </div>

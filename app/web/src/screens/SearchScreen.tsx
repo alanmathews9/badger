@@ -2,7 +2,6 @@ import { Loader2 } from "lucide-react";
 import { AnswerCard, type AnswerState } from "@/components/AnswerCard";
 import { ClayBars, DigInput } from "@/components/DigInput";
 import { ResultRow } from "@/components/ResultRow";
-import { SidebarTrigger } from "@/components/ui/sidebar";
 import type { SearchResponse } from "@/lib/api";
 
 /**
@@ -46,7 +45,6 @@ export function SearchScreen({
           empty state it would be a rule with a single icon under it. */}
       {started && (
       <header className="flex h-14 shrink-0 items-center gap-3 border-b border-stone-200 px-4">
-        <SidebarTrigger className="text-stone-500" />
         <DigInput value={query} onChange={onQueryChange} onSubmit={onSubmit} size="compact" />
         <span className="ml-auto flex items-center gap-2 font-mono text-[11.5px] text-stone-500">
           {busy && <Loader2 className="size-3.5 animate-spin" />}
@@ -62,7 +60,6 @@ export function SearchScreen({
       {!started ? (
         // The empty state IS the home screen now, rather than a separate route.
         <main className="relative flex flex-1 flex-col items-center justify-center px-6 pb-20">
-          <SidebarTrigger className="absolute top-4 left-4 text-stone-400 hover:text-stone-700" />
           <div className="w-full max-w-[640px]">
             <h1 className="text-[34px]/[1.25] font-semibold tracking-[-0.03em] text-pretty">
               What do you want to dig into today?
