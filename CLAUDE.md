@@ -18,7 +18,9 @@ four fifths of the grade.
 # START HERE — state as of 2026-08-17
 
 **Badger runs.** It answers on Vertex AI, holds its persona, and refuses writes.
-It has **no sources connected yet**, so it cannot actually search anything.
+The demo corpus exists and every GitHub retrieval path is verified — but **the
+GitHub source is still commented out in `agent.yaml`, so Badger itself cannot
+yet search it.** Everything verified so far was tested outside the agent.
 
 ## Works today
 
@@ -29,28 +31,59 @@ It has **no sources connected yet**, so it cannot actually search anything.
   a declared source has no credential.
 - GitHub MCP server installed and its 26 read-only tools audited; 15 are in the
   allowlist by verified name.
-- `scripts/badger.sh` (run wrapper), `scripts/mcp-tools.mjs` (audit any MCP
-  server with no model), `scripts/probe-models.sh` (AI Studio only, now stale).
+- **`GITHUB_TOKEN` is set** — fine-grained PAT, scoped to the demo repo, all
+  paths verified (see below).
+- **Demo corpus exists**: `alanmathews9/arkind-internal`, private. 18 files, 20
+  issues, 5 PRs. Fictional consultancy, Arkind Consultants.
+- `scripts/mcp-tools.mjs` now **calls** tools, not just lists them:
+  `MCP_SCHEMA=<tool>` and `MCP_CALL=<tool> MCP_ARGS=<json>`. No model, no spend.
+  Use it to probe every new source before wiring it.
+- `scripts/badger.sh` (run wrapper), `scripts/probe-models.sh` (stale).
 
 ## Not built
 
-No source is connected. `skills/` holds a plan, not prompts. No custom UI, no
-hosting, no digest agent.
+`skills/` holds a plan, not prompts. No custom UI, no hosting, no digest agent.
 
-## The one thing to do first
+## The two things to do next, in order
 
-**`GITHUB_TOKEN` is empty, and the GitHub source is deliberately commented out
-in two files** — `agent.yaml` (the `github:` block) and `hooks/required-env.txt`
-(the `github=GITHUB_TOKEN` line). That was done to test the model in isolation.
-Uncomment **both** when the token exists, or the session will refuse to start.
+### 1. Research how the framework's authors build agents
 
-### Demo repo and token — decided 2026-08-17
+**Decided 2026-08-17, not started.** Before writing Badger's skills, read the
+public gitagent agents published by the framework's own authors — the registry
+at registry.gitagent.sh, the `architect` example, and whatever else is public.
 
-**Private repo, fine-grained PAT, scoped to that one repository.** A public demo
-repo would contradict the enterprise-search premise, and single-repo scope is
-the same least-privilege discipline as the read-only allowlist. The repo will
-hold invented internal company data — docs, issues, discussions — for Badger to
-search.
+The goal is convention, not inspiration: how they structure `SOUL.md` and
+`RULES.md`, how skill prompts are written and how long they are, how tools are
+named and referenced, what a well-formed agent repo looks like. This is a
+hiring submission for these people, so matching their idiom is worth real
+marks — and two of the five graded axes are research and framework
+understanding.
+
+Run this as a subagent sweep, then write the findings up before writing skills.
+
+### 2. Turn the GitHub source on
+
+`agent.yaml` (the `github:` block) and `hooks/required-env.txt` (the
+`github=GITHUB_TOKEN` line) are both still commented out from when the token
+was empty. **Uncomment both together** — source on with credential line off
+means Badger can start with a dead source and not know it, which is the exact
+failure `check-sources.sh` exists to prevent.
+
+Then confirm the startup banner lists the GitHub tools, and run the first real
+query end-to-end with citations.
+
+### Demo repo and token — done 2026-08-17
+
+`alanmathews9/arkind-internal`, **private**, fine-grained PAT scoped to that one
+repository. A public demo repo would contradict the enterprise-search premise,
+and single-repo scope is the same least-privilege discipline as the read-only
+allowlist.
+
+**Corpus shape, and why.** Files hold the official answer; issues hold the real
+one. `clients/halden/retro.md` says the engagement slipped because scope
+changed; the retro *issue* has the team concluding that four of the six weeks
+were self-inflicted. That gap is the product thesis in miniature — the answer
+exists, but not where you would look. Anything contested lives in comments.
 
 Fine-grained token, repository permissions (**read** on all):
 
@@ -286,3 +319,15 @@ Caught Badger claiming it could search all three sources while holding tools for
 none — it had read its own description instead of its tool list — and added the
 RULES.md rule that fixed it. Corrected a wrong ~35k token-per-turn figure with a
 real measurement of ~2.2k.
+
+**2026-08-17 — corpus built, retrieval verified, one trap found.** Created the
+private demo repo `alanmathews9/arkind-internal` and filled it: 18 files, 20
+issues with threaded argument, 5 PRs (3 merged, 2 open and unresolved). Settled
+the code-search risk negatively — REST code search does not serve private repos
+for any token class, so `search_issues` plus `get_file_contents` is the primary
+path, not the fallback. Extended `scripts/mcp-tools.mjs` to call tools, which
+immediately paid for itself: `search_issues` runs in semantic mode, and semantic
+mode cannot see issue comments and degrades as queries lengthen. Adding an `in:`
+qualifier switches GitHub to classic keyword search and recovers them. See
+NOTES.md §4f–§4i. Read-only was also restated as phase 1 of three rather than a
+flat constraint, since Glean itself ships 85+ write actions.
