@@ -475,9 +475,14 @@ as a value, RULES as a Must Never, and every skill's output section.
 
 ## 8. Where Badger departs — and how to defend it
 
-Three of Badger's design decisions have **no precedent** in seventeen repos.
-Each is defensible, and each now needs saying out loud in the README rather than
-being left to look like ignorance of the idiom.
+> **Corrected 2026-08-17, after reading the actual spec.** An earlier draft of
+> this section claimed Badger's `mcp_servers:`, `hooks/` and `tools/` had "no
+> precedent." That was wrong, and wrong in our favour. It was inferred from the
+> published agents alone, without reading `open-gitagent/opengap`. **All three
+> are first-class, formally specified GAP features** — see §11. What is true is
+> narrower: the framework's *own published agents* don't use them. So Badger is
+> not going off-road; it is using documented parts of the standard that the
+> reference agents leave on the table.
 
 ### MCP sources
 
@@ -630,3 +635,155 @@ Decided by this research, in the order it affects work:
    read-only phasing belongs here), annotated file tree, and the standard
    closing line — *"Built with gitagent — a git-native, framework-agnostic open
    standard for AI agents."* Name the three departures in §8 as choices.
+
+---
+
+## 11. The formal spec — read this, don't infer it
+
+Added 2026-08-17. Sections 1–10 above were induced from published agents. The
+authoritative source is **`github.com/open-gitagent/opengap`**, which nothing in
+the agent repos points to. It contains `spec/SPECIFICATION.md` (1,056 lines),
+eleven JSON Schemas under `spec/schemas/`, and three worked conformance examples.
+The rendered version is `gitagent.sh` §04, which is JavaScript-rendered and
+therefore invisible to a plain fetch — it needs a browser.
+
+**The published agents are not the standard.** They use maybe a third of it.
+Several things we assumed were unidiomatic are simply unused by them.
+
+### Conformance tiers
+
+`examples/` ships three, and the gradient is the useful part:
+
+| Tier | Contents |
+|---|---|
+| `minimal` | `agent.yaml` + `SOUL.md` — that is the entire required surface |
+| `standard` | adds `RULES.md`, `AGENTS.md`, `PROMPT.md`, `skills/`, `knowledge/`, `memory/`, `tools/` |
+| `full` | adds `DUTIES.md`, `hooks/`, `compliance/`, `config/`, `agents/`, `workflows/`, `examples/` |
+
+Only `name`, `version`, `description` are schema-required. Everything else,
+including `spec_version` and `SOUL.md`, is optional to the validator.
+
+### Canonical directory structure
+
+```
+my-agent/
+├── agent.yaml              # [REQUIRED] Agent manifest
+├── SOUL.md                 # [REQUIRED] Identity and personality
+├── RULES.md                # Hard constraints and boundaries
+├── DUTIES.md               # Segregation of duties policy and role declaration
+├── AGENTS.md               # Framework-agnostic fallback instructions
+├── README.md               # Human documentation
+├── skills/<skill-name>/    # SKILL.md + scripts/ references/ assets/ examples/
+├── tools/                  # MCP-compatible tool definitions
+├── knowledge/              # index.yaml + reference documents
+├── memory/                 # MEMORY.md (200 line max), memory.yaml, archive/
+├── workflows/              # Multi-step procedures (*.yaml, *.md)
+├── hooks/                  # hooks.yaml + scripts/
+├── examples/               # good-outputs.md, bad-outputs.md, scenarios/
+├── agents/                 # Sub-agent definitions
+├── compliance/             # regulatory-map.yaml, risk-assessment.md, …
+├── config/                 # default.yaml + <env>.yaml
+└── .gitagent/              # Runtime state (gitignored)
+```
+
+Note `skills/<name>/` officially carries four subdirectories —
+`scripts/`, `references/`, `assets/`, `examples/`. Bundling a script beside a
+skill is spec-sanctioned, which settles the §8 `scripts/` question.
+
+### Three corrections that matter to Badger
+
+**1. `mcp_servers:` is a valid top-level manifest key.** It is in
+`spec/schemas/agent-yaml.schema.json` — *"MCP server definitions. Keys are server
+names. Each server is either stdio-based (command) or HTTP-based (url)."*
+Badger's existing block already conforms. The prose spec never mentions it and
+no published agent uses it, but it is standard, not invention.
+
+The full property list, which is worth knowing since we use a fraction:
+`spec_version, name, version, description, author, license, model, extends,
+dependencies, skills, tools, agents, delegation, runtime, a2a, compliance,
+registries, tags, mcp_servers, metadata`.
+
+**2. `hooks/` is fully specified — §9.** `hooks.yaml` declares scripts against
+lifecycle events including **`pre_tool_use`**, and the protocol is JSON on
+stdin, JSON on stdout, with `"action": "allow" | "block" | "modify"`. That is
+exactly what `hooks/allow-read-only.sh` implements. The `full` example even
+ships `hooks/scripts/audit-tool-call.sh` and `validate-tool-output.sh` as
+reference implementations.
+
+So our read-only enforcement is a canonical use of the standard, and we should
+align naming with the spec's event names and read their examples before
+finalising ours.
+
+**3. `tools/<name>.yaml` carries declarative safety annotations.** The tool
+schema includes:
+
+```yaml
+annotations:
+  requires_confirmation: false
+  read_only: true
+  cost: low
+  compliance_sensitive: false
+```
+
+A machine-readable `read_only: true` marker is precisely Badger's guarantee,
+expressed in the standard's own vocabulary. Combined with
+`compliance.segregation_of_duties` (§2) this gives us **three** layers to state
+read-only in — manifest annotation, compliance grant, and the runtime hook —
+where we currently rely on the hook plus prose.
+
+### Other things the spec has that we don't
+
+- **`AGENTS.md`** — framework-agnostic fallback instructions, for runtimes that
+  don't read SOUL/RULES. Cheap to add and it is in the `standard` tier.
+- **`examples/good-outputs.md` / `bad-outputs.md` / `scenarios/`** — calibration
+  interactions as a first-class directory. For a citation-formatting agent this
+  is unusually valuable: a good/bad answer pair pins the output contract better
+  than prose can.
+- **`memory/memory.yaml`** and a stated **200-line cap on `MEMORY.md`** with
+  auto-archiving to `memory/archive/<YYYY-MM>.md`.
+- **`workflows/`** — YAML SkillFlows chaining `skill:`, `agent:` and `tool:`
+  steps with `depends_on` and `${{ }}` templating. This is the idiomatic home
+  for the scheduled digest agent in our phase list, rather than a cron script.
+- **`compliance/`** — `regulatory-map.yaml`, `risk-assessment.md`,
+  `validation-schedule.yaml`. Our `agent.yaml` already sets `risk_level` and
+  `data_classification`; the directory is where the justification lives.
+- **`gitagent validate`** — a real validator, and the site sells running it in
+  CI as a pattern. We have never run it.
+
+### Composio — the framework's own answer to our problem
+
+The site's Integrations section is the part that most directly challenges our
+design. GitAgent ships a **Composio** integration: one `COMPOSIO_API_KEY`
+unlocks *"Gmail, Google Calendar, Slack, GitHub, Notion, Jira, and 200+ more"*,
+explicitly *"no agent.yaml changes needed"*, connected through the web UI's
+Integrations tab.
+
+That is a supported, zero-config path to exactly the three sources Badger
+federates. We chose per-source MCP servers with a hand-audited allowlist
+instead. The read-only argument still favours our approach — Composio's blanket
+grant is the opposite of least privilege, and we cannot allowlist what we
+cannot enumerate — but this is now a real fork in the road that the submission
+has to address rather than ignore. A reviewer from this team will know Composio
+exists, because they built the integration.
+
+### Version discrepancy
+
+`spec/SPECIFICATION.md` is headed **v0.1.0** and the schema defaults
+`spec_version` to `0.1.0`; every published agent uses `"0.1.0"`. But the site's
+architecture panel shows **`spec_version: "0.4.0"`**, and the August agent
+commits call the standard "OpenGAP (GitAgentProtocol)" rather than "gitagent".
+The site also lists the harness at v1.5.0 while we run `@open-gitagent/gitagent`
+2.1.0. The spec repo appears to lag the site. Stay on `"0.1.0"` — it matches the
+schema default, the validator, and every published agent — but know that 0.4.0
+exists and that the naming is mid-migration.
+
+### What to do about this
+
+1. Run `gitagent validate` against Badger now, and again before submission.
+2. Read `examples/full/hooks/` and align our hook event names with the spec.
+3. Add `annotations.read_only: true` wherever we declare tools, and keep the
+   `compliance:` block — the third statement of the same guarantee.
+4. Add `AGENTS.md` and `examples/good-outputs.md` + `bad-outputs.md`.
+5. Decide the Composio question explicitly, in writing, in the README.
+6. Reread §8 above with this correction in mind — the departures are narrower
+   and far more defensible than the first pass concluded.
