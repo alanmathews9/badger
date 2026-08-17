@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { ArrowLeft, ArrowUp, Loader2, MessageSquare } from "lucide-react";
+import { ArrowUp, Loader2, MessageSquare } from "lucide-react";
 import { BadgerMark } from "@/components/BadgerMark";
 import { Markdown, type Citation } from "@/components/Markdown";
 import { SourceGlyph } from "@/components/SourceGlyph";
-import { TopBar } from "@/components/TopBar";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { VerificationBadge } from "@/components/AnswerCard";
 import type { AnswerState } from "@/components/AnswerCard";
 import { splitAnswer, type OpenedItem } from "@/lib/ask";
@@ -18,15 +18,13 @@ import { splitAnswer, type OpenedItem } from "@/lib/ask";
  * the cheapest honest signal in the product — it says what was looked at, not
  * just what was used.
  */
-export function Ask({
+export function ChatScreen({
   question,
   answer,
-  onBack,
   onFollowUp,
 }: {
   question: string;
   answer: AnswerState;
-  onBack: () => void;
   onFollowUp: (next: string) => void;
 }) {
   const [draft, setDraft] = useState("");
@@ -49,21 +47,34 @@ export function Ask({
 
   return (
     <div className="flex h-dvh flex-col bg-white text-stone-900">
-      <TopBar>
-        <button
-          onClick={onBack}
-          className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-stone-600 hover:text-stone-900"
-        >
-          <ArrowLeft className="size-3.5" strokeWidth={2} />
-          Back to results
-        </button>
-      </TopBar>
+      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-stone-200 px-4">
+        <SidebarTrigger className="text-stone-500" />
+        <span className="truncate text-[13px] font-medium text-stone-600">
+          {question || "Chat"}
+        </span>
+      </header>
 
       <main className="min-h-0 flex-1 overflow-y-auto px-6 pt-7">
         <div className="mx-auto max-w-[720px] pb-10">
-          <h1 className="text-[24px]/[1.4] font-semibold tracking-[-0.02em] text-pretty">
-            {question}
-          </h1>
+          {!question ? (
+            <div className="pt-10">
+              <h1 className="text-[24px]/[1.4] font-semibold tracking-[-0.02em]">
+                Ask Badger a question
+              </h1>
+              <p className="mt-2 text-sm text-stone-600">
+                It searches, reads the threads, and answers with citations it can verify. Start
+                from Search, or type below.
+              </p>
+              <p className="mt-4 text-[12px] text-stone-500">
+                Past conversations are not saved yet — that needs a store, which is the next piece
+                of work.
+              </p>
+            </div>
+          ) : (
+            <h1 className="text-[24px]/[1.4] font-semibold tracking-[-0.02em] text-pretty">
+              {question}
+            </h1>
+          )}
 
           <div className="mt-3 flex items-center gap-2.5">
             <span className="inline-flex size-5 items-center justify-center rounded-full bg-stone-900">

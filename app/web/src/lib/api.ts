@@ -57,3 +57,21 @@ export async function fetchSources(): Promise<Source[]> {
   if (!res.ok) return [];
   return (await res.json()).sources ?? [];
 }
+
+export type Budget = { answersToday: number; answersRemaining: number; running: number };
+
+/** The live answer budget, shown in the sidebar. Public and carries no data. */
+export async function fetchBudget(): Promise<Budget | null> {
+  try {
+    const res = await fetch("/api/health");
+    if (!res.ok) return null;
+    const body = await res.json();
+    return {
+      answersToday: body.answersToday ?? 0,
+      answersRemaining: body.answersRemaining ?? 0,
+      running: body.running ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
