@@ -687,3 +687,89 @@ The hosting axis has a documented path:
 - Two SDK cookbooks are directly on-point and worth reading before we build:
   `sdk/cookbooks/summarize-emails` (Gmail through a custom tool) and
   `sdk/cookbooks/custom-tool` (`buildTool()` wiring).
+
+---
+
+# §10. Citation verification, and why it cannot be a hook — 2026-08-17
+
+## §10a. `post_response` is unusable for verifying anything
+
+The plan was a `post_response` hook that checks Badger's citations before the
+answer reaches the user. **It cannot work.** Two independent blockers, both in
+`dist/index.js:122` and `dist/sdk.js:359`:
+
+```js
+// Fire post_response hooks (non-blocking)
+runHooks(hooksConfig.hooks.post_response, agentDir, {
+    event: "post_response",
+    session_id: sessionId,
+}).catch(() => { });
+```
+
+1. **It is fire-and-forget.** Not awaited, result discarded, and it runs after
+   the text has already been written to stdout. It cannot block or modify.
+2. **The payload is `{ event, session_id }` only.** The hook never receives the
+   response text, so it has nothing to inspect. The SDK's programmatic
+   `options.hooks.postResponse` is the same — `{sessionId, agentName, event}`,
+   result discarded.
+
+Only `pre_tool_use` (via `wrapToolWithHooks`) and `on_session_start` and
+`pre_query` have their results honoured. Everything else is notification.
+
+**So verification lives in the SDK caller**, which is the one place holding both
+the tool outputs (`tool_result` messages) and the final answer (`assistant`).
+`src/verify-citations.mjs` + `scripts/badger-sdk.mjs`. This is also the product
+backend — the web UI will do exactly this and render the badge.
+
+## §10b. `allowedTools` genuinely removes tools — measured
+
+Claimed in §9b from reading `dist/sdk.js:175-178`; now confirmed by experiment.
+Running with `allowedTools: ['github_search','read']` and explicitly instructing
+the model to call `task_tracker`:
+
+```
+TOOL_USE: task_tracker
+TOOL_RESULT isError= true   Tool task_tracker not found
+```
+
+The tool is absent from the model's schema. Gemini still *invented* the call —
+worth knowing, models will hallucinate tools that were never offered — but the
+runtime rejected it outright. This is **stronger** than the shell-hook path,
+where the tool exists and is blocked at call time, and it cannot fail open.
+
+Consequence for the product: run on the SDK with `allowedTools`, and keep
+`hooks/allow-read-only.sh` for the CLI path. Two mechanisms, different failure
+modes.
+
+## §10c. Cost tracking works, and is worth surfacing
+
+`result.costs()` on the SDK path returns real numbers. A representative
+find-expert question:
+
+    cost: $0.0039 — 7874 in / 352 out
+
+Confirms the earlier order-of-magnitude estimate. Worth showing in the UI: a
+per-answer price supports the federated-live-search argument against
+maintaining an index, and it is a number a buyer asks for.
+
+## §10d. What the verifier does and does not prove
+
+`verifyCitations(answer, toolOutputs)` extracts URLs, `#123` references and
+repo-relative file paths from the answer and requires each to appear in the
+concatenated tool output. Findings are typed: `malformed-url`,
+`unretrieved-url`, `unretrieved-reference`, `unretrieved-path`.
+
+Tested against the real failure observed earlier —
+`https://github.alanmathews9/arkind-internal/issues/15`, the `.com` dropped
+while copying — which it catches as `malformed-url`, alongside invented issue
+numbers and invented file paths, while passing an honest answer.
+
+**It proves a cited source was retrieved. It does not prove the answer
+characterises that source correctly** — quoting real issue #18 but
+misrepresenting Priya's position would pass. Fabricated sources are the failure
+that actually occurs; this kills that class and nothing more. Say so plainly
+rather than overclaiming, since overclaiming is the exact sin the agent exists
+to avoid.
+
+`scripts/badger-sdk.mjs` exits non-zero on an unverified citation, so it can
+gate a demo or CI.
