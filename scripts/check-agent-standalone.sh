@@ -22,7 +22,11 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
 
 # Everything the GAP runtime reads. If this list grows, the agent grew.
-AGENT="agent.yaml SOUL.md RULES.md skills tools hooks"
+#
+# memory/ is in here because the spec puts it there: the `standard` profile is
+# RULES.md, skills/, knowledge/, memory/, tools/. `memory` is also in the
+# allowlist both callers pass, so it is a live capability, not scaffolding.
+AGENT="agent.yaml SOUL.md RULES.md skills tools hooks memory"
 
 fail() {
   printf '  ✗ %s\n' "$1"
@@ -48,7 +52,14 @@ for path in $AGENT; do
   cp -R "$path" "$SANDBOX/"
 done
 [ -f .env ] && cp .env "$SANDBOX/"
-# Symlink rather than copy: node_modules is large and this is a read-only use.
+
+# node_modules is symlinked, not copied — it is large and this is read-only.
+#
+# It is also the reason the repository has a package.json at the root at all.
+# tools/scripts/_github.mjs imports @composio/core, so the AGENT itself has an
+# npm dependency; that manifest serves the whole repo rather than belonging to
+# app/. An agent with `runtime: node` tools cannot avoid this, and it is why
+# node_modules at the root is not product spill.
 ln -s "$ROOT/node_modules" "$SANDBOX/node_modules"
 
 if [ -e "$SANDBOX/app" ]; then

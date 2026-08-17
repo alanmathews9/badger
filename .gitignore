@@ -1,4 +1,9 @@
+# Installed dependencies. The root node_modules belongs to the AGENT, not to
+# app/: tools/scripts/_github.mjs imports @composio/core, so a GAP agent with
+# runtime:node tools has real npm dependencies. app/web keeps its own.
 node_modules/
+
+# Vite output, built at deploy time and served by app/server.
 dist/
 
 # Runtime state: sessions, audit logs, learned-skill metadata. Not source.
@@ -7,7 +12,10 @@ dist/
 # Credentials. The runtime auto-loads this file from the agent dir.
 .env
 
-# Scratch space the builtin tools write into.
+# Scratch space the runtime's `write` tool outputs into. Badger is read-only
+# and `write` is in neither allowlist, so nothing can ever put a file here —
+# but the scaffold creates it and a CLI run may recreate it, so it stays
+# ignored rather than tracked.
 workspace/
 
 .DS_Store

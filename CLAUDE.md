@@ -31,9 +31,29 @@ four independent layers.
 The task is to build a Glean equivalent **using GAP**, so the framework's
 thesis has to survive contact with the product. It does, and the layout says so:
 
-    agent.yaml SOUL.md RULES.md skills/ tools/ hooks/   ← the agent. This IS the repo.
-    app/server/   app/web/                              ← the product. A consumer.
-    scripts/                                            ← dev tooling
+    agent.yaml SOUL.md RULES.md skills/ tools/ hooks/ memory/
+                                    ← the agent. This IS the repo.
+    app/server/  app/web/           ← the product. A consumer.
+    scripts/                        ← dev tooling
+    package.json  node_modules/     ← the agent's npm dependency. See below.
+
+`memory/` is agent surface, not scaffolding: the spec's `standard` profile is
+`RULES.md`, `skills/`, `knowledge/`, `memory/`, `tools/`, and `memory` is in the
+allowlist both callers pass.
+
+**`node_modules/` at the root belongs to the agent, not to `app/`.**
+`tools/scripts/_github.mjs` imports `@composio/core`, so a GAP agent whose tools
+declare `runtime: node` has genuine npm dependencies. That is why the root has a
+`package.json` at all, and why `check:agent` symlinks `node_modules` into its
+agent-only copy. `app/web` keeps its own separate `node_modules`.
+
+**There is no `workspace/`.** The scaffold creates one as the output directory
+for the runtime's `write` tool. Badger is read-only and `write` is in neither
+allowlist, so nothing can ever put a file there. It stays in `.gitignore`
+because a CLI run may recreate it. (The runtime still injects a "Workspace
+Directory" block into the system prompt telling the agent to write outputs
+there — dead advice for a read-only agent, and not overridable without
+`systemPromptSuffix`.)
 
 The dependency is **strictly one-way**: `app/` reaches up into `tools/`, and
 nothing under the agent references `app/`. So Badger is still a git repo you can
