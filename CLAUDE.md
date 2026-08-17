@@ -24,6 +24,29 @@ four independent layers.
 
     ./scripts/badger.sh -p "Who knows about payments integrations?"   # CLI
     npm run ask "What shipped in the last week?"                      # SDK + verification
+    npm run serve                                                     # web UI on :4000
+
+## Repository shape — the agent, and the product built on it
+
+The task is to build a Glean equivalent **using GAP**, so the framework's
+thesis has to survive contact with the product. It does, and the layout says so:
+
+    agent.yaml SOUL.md RULES.md skills/ tools/ hooks/   ← the agent. This IS the repo.
+    app/server/   app/web/                              ← the product. A consumer.
+    scripts/                                            ← dev tooling
+
+The dependency is **strictly one-way**: `app/` reaches up into `tools/`, and
+nothing under the agent references `app/`. So Badger is still a git repo you can
+clone and run with the CLI alone, exactly as GAP intends.
+
+That is tested, not asserted — `npm run check:agent` greps for a downward
+reference, then copies **only** the agent files to a temp directory and runs a
+tool there. If the boundary ever rots, the check fails.
+
+One repo rather than two, deliberately. `query({dir})` loads the agent from
+disk, so a separate web repo would need the agent vendored in as a submodule or
+cloned at deploy. It would still be one deployed service — the agent is files,
+not a server — so splitting buys no isolation and costs version pinning.
 
 ## What exists
 
@@ -39,7 +62,8 @@ four independent layers.
   `onboard-to-project`, `triage-pr-feedback`, `activity-digest`. Named for the
   user's task, per `RESEARCH-GAP-IDIOM.md`. See `skills/README.md` for why these
   five and not others.
-- **Citation verification** — `src/verify-citations.mjs` + `scripts/badger-sdk.mjs`.
+- **Citation verification** — `app/server/verify-citations.mjs`, used by both
+  `scripts/badger-sdk.mjs` and the server.
   Anything cited must appear in a tool result; failures are marked
   `[UNVERIFIED]` inline. Exits non-zero, so it can gate a demo.
 - **Read-only, four layers** — Composio `DIRECT_TOOLS` preset (no generic
@@ -48,41 +72,46 @@ four independent layers.
   name. The SDK path adds `allowedTools`, which removes tools from the model's
   schema entirely and cannot fail open.
 
+- **The web product** in `app/` — three screens (Home, Results, Ask) on Vite +
+  React + Tailwind + shadcn/ui. `POST /api/search` retrieves live from GitHub
+  with no model involved; `GET /api/ask` streams the agent over SSE with tool
+  calls forwarded as they happen. Two passes, the split Glean and Onyx both use.
+
 ## What does not exist
 
-**No UI. No hosting.** Those are the two remaining graded axes and the whole of
-the next phase. Gmail and Drive are not connected.
+**No hosting, no login.** Hosting is the last graded axis at zero. Gmail and
+Drive are not connected.
 
-## Next: the search UI — Alan is providing a design
+## Next: hosting, then login
 
-The product shape Alan described: log in → connect tools → search bar → results
-like Google's, but over internal data → chat on top of the results.
+The UI is built and works against the live repo. Hosting is the last graded
+axis sitting at zero.
 
-**The wiring, already settled (do not redesign):**
+**Hosting, as settled:** a Compute Engine VM in the existing GCP project gets
+Vertex credentials from its own service account, so there is no model key to
+deploy. Cloudflare Tunnel for HTTPS; never expose the port directly (their
+security docs). Build `app/web` at deploy time and let `app/server` serve
+`app/web/dist` — one process, one port.
 
-- `query()` is a Node function, so a server is required. `src/server.mjs` +
-  `web/`. The agent files at the repo root stay untouched — the "agent is a git
-  repo" thesis has to survive.
-- Browser → SSE → Node server → `query({prompt, dir, allowedTools})`. Forward
-  `tool_use` and `delta` events as they arrive: **watching Badger search is the
-  demo.** `scripts/badger-sdk.mjs` already consumes exactly this stream; the
-  server is that script with an HTTP wrapper.
-- Connect flow is Composio's: `session.authorize("github")` returns a Connect
-  Link, the browser redirects, Composio calls back. We never handle a GitHub
-  credential and write no OAuth code.
-- Do **not** use gitagent's built-in web UI: its composer is broken and it
-  switches the repo onto a `chat/<timestamp>` branch.
+**Login is scope, not security.** A single shared password is the honest demo
+answer, with per-user accounts named in the README as the next step. It has to
+land before anything is publicly reachable.
 
 **Two honest limits to carry into that work.** Multi-user is not built — the
 user id is an env var read by tool subprocesses, which races with concurrent
 users; real multi-tenancy means moving from `tools/*.yaml` to SDK-injected
 tools via `buildTool()`, which are in-process closures that can hold per-request
-context. And login is scope: a single shared password is the honest demo
-answer, with per-user accounts named in the README as the next step.
+context. And follow-ups are stateless: `sessionId` is a logging label, not
+conversation resumption (`dist/sdk.js` never loads prior messages), so each
+follow-up resends the previous exchange and re-retrieves.
 
-**Hosting:** a Compute Engine VM in the existing GCP project gets Vertex
-credentials from its service account, so there is no model key to deploy.
-Cloudflare Tunnel for HTTPS; never expose 3333 directly (their security docs).
+**Still to do after hosting:** the Composio connect flow —
+`session.authorize("github")` returns a Connect Link, the browser redirects,
+Composio calls back, and we never handle a GitHub credential. Until then the
+footer reports real connection state and says Drive and Gmail are not connected.
+
+Do **not** use gitagent's built-in web UI: its composer is broken and it
+switches the repo onto a `chat/<timestamp>` branch.
 
 **Nothing to match here.** Not one of the 18 published gitagent agents has a UI,
 a Dockerfile, or GitHub Pages. Every one is delivered as a CLI invocation, an
@@ -338,6 +367,26 @@ before touching `agent.yaml` or writing a skill. It records the shipped code's
 behaviour where that differs from the published docs, which it does often.
 
 ## Session log
+
+**2026-08-17 — the web product, and one bug it caught.** Built the search UI
+from Alan's design: `POST /api/search` retrieves live from GitHub with no model
+on the path, `GET /api/ask` streams the agent over SSE, and the results never
+wait for the answer. That two-pass split is what Glean and Onyx both do, read
+from Onyx's own source rather than its docs — which also corrected two things:
+current Onyx uses OpenSearch, having deleted Vespa entirely in v4.0.0, and its
+GitHub connector never searches GitHub at all, it enumerates a repo into the
+index.
+
+The UI immediately exposed a defect in the agent. GitHub ANDs every search term,
+so `"Halden engagement slip"` returned nothing while the results list beside it
+showed twenty hits — and the tool's own advice, to add `in:title,body,comments`,
+could not have helped, because the failure is AND semantics rather than search
+mode. Query planning now lives in `tools/scripts/_search-query.mjs` and is
+shared by the agent tool and the web search, so the two cannot drift again.
+
+Restructured to `app/server` and `app/web` so the repository says out loud which
+part is the agent, and added `npm run check:agent`, which proves the boundary
+rather than claiming it.
 
 **2026-08-16 — runtime verified, repo scaffolded.** Installed the CLI, ran the
 `architect` example from the registry, confirmed the web UI on :3333, read the

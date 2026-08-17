@@ -28,8 +28,8 @@
 // One API call per search. The search endpoint is capped at 30 requests per
 // minute and returns 403 rather than an empty list when you cross it, so
 // per-term fan-out would have been the expensive way to get the same rows.
-import { exec, asList, clip, OWNER, REPO, REPO_SLUG } from "../tools/scripts/_github.mjs";
-import { buildQuery, planQuery } from "../tools/scripts/_search-query.mjs";
+import { exec, asList, clip, OWNER, REPO, REPO_SLUG } from "../../tools/scripts/_github.mjs";
+import { buildQuery, planQuery } from "../../tools/scripts/_search-query.mjs";
 
 /**
  * One result row, shaped after Onyx's SearchDoc so the UI has the same fields

@@ -7,7 +7,12 @@
     "composio:status": "node scripts/composio-session.mjs status",
     "composio:connect": "node scripts/composio-session.mjs connect",
     "composio:call": "node scripts/composio-session.mjs call",
-    "ask": "node scripts/badger-sdk.mjs"
+    "ask": "node scripts/badger-sdk.mjs",
+    "serve": "node app/server/server.mjs",
+    "web:dev": "npm --prefix app/web run dev",
+    "web:build": "npm --prefix app/web run build",
+    "web:install": "npm --prefix app/web install",
+    "check:agent": "./scripts/check-agent-standalone.sh"
   },
   "dependencies": {
     "@composio/core": "^0.16.0",

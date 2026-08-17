@@ -24,8 +24,11 @@ import { query } from "@open-gitagent/gitagent";
 import { search, SearchError } from "./search.mjs";
 import { annotateUnverified, extractCitations, verifyCitations } from "./verify-citations.mjs";
 
-const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const WEB_DIST = join(ROOT, "web", "dist");
+// The repo root, which is also the agent directory query() loads. The server
+// lives two levels down under app/ precisely so that this is an explicit,
+// one-way reach *upward* into the agent — never the reverse.
+const ROOT = fileURLToPath(new URL("../..", import.meta.url));
+const WEB_DIST = join(ROOT, "app", "web", "dist");
 const PORT = Number(process.env.BADGER_PORT) || 4000;
 
 const MIME = {

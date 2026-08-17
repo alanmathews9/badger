@@ -18,7 +18,7 @@
 //   node scripts/badger-sdk.mjs "what did we decide about Halden phase 2?"
 import { readFileSync } from "node:fs";
 import { query } from "@open-gitagent/gitagent";
-import { verifyCitations, formatVerification, annotateUnverified } from "../src/verify-citations.mjs";
+import { verifyCitations, formatVerification, annotateUnverified } from "../app/server/verify-citations.mjs";
 
 const AGENT_DIR = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
