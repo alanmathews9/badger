@@ -18,7 +18,41 @@ four fifths of the grade.
 
 ---
 
-# START HERE — state as of 2026-08-18, night
+# START HERE — state as of 2026-08-19
+
+**The next build is PLAN-AGENT-ON-INDEX.md step 4 — Composio Triggers —
+then that plan's docs step, then the single batched deploy (21+ commits
+waiting; Alan calls the deploy, never you). Steps 1–3 of that plan are done
+and gated: incremental refresh on a timer (default 2h,
+BADGER_INDEX_REFRESH_HOURS), and the agent's search tools answer from the
+local index with the live path as second look — eval 14/15 against a 13/15
+same-day baseline.**
+
+What else changed on 2026-08-19, all pushed to GitHub
+(`alanmathews9/badger`, public — pushing IS allowed on Alan's word, he asked
+for it twice today):
+
+- **The seed toolchain is deleted from HEAD** (Alan's call: a corpus in the
+  repo reads as answering from local files). Recoverable from git history.
+  The eval's graded facts are pinned in evals/questions.mjs.
+- **No more demo defaults in tools.** BADGER_GITHUB_REPO is REQUIRED for the
+  GitHub source (tool output says how to set it; Gmail/Drive work without
+  it); BADGER_USER_ID defaults to neutral "default". Demo identity lives in
+  .env and in the deploy command's --set-env-vars — **the next deploy MUST
+  pass BADGER_USER_ID and BADGER_GITHUB_REPO or production loses the
+  corpus** (command updated below).
+- **The harness path is first-class in the README**: clone + `claude "Be
+  Badger — follow AGENTS.md."` needs only the Composio key — no Google, no
+  model key. Verified end to end by Alan; the registry's `-a claude` adapter
+  does not exist in the shipped gitagent 2.1.0 (read from its dist), so this
+  one-liner is the adapter until theirs ships.
+- Composio Triggers verified affordable (50K events/month free) and their
+  catalogue read from the live API — coverage notes are in
+  PLAN-AGENT-ON-INDEX.md, which also records why chat-on-index went first.
+
+---
+
+# The state before that — 2026-08-18, night (still-true background)
 
 **The corpus is seeded, the eval set exists, search has been rebuilt, the app
 has had a cleanup pass, and production is nine commits behind. There is also an
@@ -481,8 +515,8 @@ what tools return — which is where every win so far has actually come from.
 
 ### Also outstanding
 
-- ⚠️ **Production is THIRTEEN commits behind as of 2026-08-18 night** —
-  the nine below plus the four index commits. What
+- ⚠️ **Production is TWENTY-ONE commits behind as of 2026-08-19** (the
+  nine below plus the whole index/refresh/chat-on-index/cleanup arc). What
   follows describes the last deploy, which is revision `badger-00003-zfh` —
   accurate about that revision, and no longer a description of `main`.
   Revision `badger-00003-zfh`,
