@@ -307,9 +307,30 @@ not by choice, and some of the sharpness problem may simply be the model tier.
 
 ### Also outstanding
 
-- **Production is stale.** The deployed service predates Gmail, Drive,
-  cross-source search and the README. One `gcloud run deploy` picks all of it up.
-- **The passphrase rotation** is agreed but not done. Alan sets it himself, and
+- ✅ **Production is current as of 2026-08-18** — revision `badger-00003-zfh`,
+  serving 100% of traffic. It carries Gmail, Drive, cross-source search, the new
+  corpus, the ranking fix, the eval set and the rewritten README. Verified from
+  outside: `/`, `/api/search`, `/api/ask` and a built asset all 401
+  unauthenticated, a forged cookie is refused, and `/api/health` answers.
+  **Artifact Registry is at 258.5MB of the 500MB free tier** — roughly four more
+  deploys of headroom this week, after which the seven-day rule sweeps the old
+  images; the keep-three policy caps the steady state either way. The image for
+  revision 00001 was deliberately left in place so it stays rollback-able.
+
+  The deploy that produced this, for repeating it:
+
+      gcloud run deploy badger --source . --region us-central1 \
+        --service-account badger-run@$PROJECT.iam.gserviceaccount.com \
+        --allow-unauthenticated --max-instances 1 --concurrency 20 \
+        --set-env-vars GOOGLE_CLOUD_PROJECT=$PROJECT,GOOGLE_CLOUD_LOCATION=us-central1,NODE_ENV=production \
+        --set-secrets COMPOSIO_API_KEY=badger-composio-api-key:latest,BADGER_SESSION_SECRET=badger-session-secret:latest,BADGER_PASSPHRASE=badger-passphrase:latest
+
+  `--set-env-vars` replaces the whole set rather than adding to it, so all three
+  have to be named every time or Vertex loses its project and the container
+  fails on its first answer.
+- ✅ **The passphrase was rotated on 2026-08-18** — version 2 of
+  `badger-passphrase`, live on revision 00003. Alan holds it; it is written down
+  nowhere. For the next rotation, and note that
   **his shell is zsh**, where `read -p` means "read from a coprocess" and the
   bash form fails with `read: -p: no coprocess`. In zsh the prompt attaches to
   the variable name:
