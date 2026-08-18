@@ -3,6 +3,9 @@
 Glean-style workplace search agent, built on the GAP standard (gitagent.sh).
 Submission for a hiring task.
 
+**This file is for developing Badger. To *use* Badger — answer questions as
+the agent, with any harness — follow `AGENTS.md` instead.**
+
 ## The task, as given
 
 > Use https://www.gitagent.sh/ to build a Glean equivalent. Your ability to do

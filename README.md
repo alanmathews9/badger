@@ -495,6 +495,32 @@ npm run serve                     # web UI on :4000
 `scripts/google-connect.mjs` prints a Connect Link per toolkit. Composio holds the
 credential; Badger never receives a token.
 
+### Running it with a different brain
+
+The repository is the agent; the model is supplied by whoever runs it. Two
+ways to run Badger without the setup above:
+
+**The gitagent CLI, standalone** — the framework-native route, same as any
+agent on the registry:
+
+```bash
+git clone https://github.com/alanmathews9/badger
+cd badger && npm install
+cp env.template .env              # the Composio key; model credentials
+npx @open-gitagent/gitagent --dir . -p "why was the app five weeks late?"
+```
+
+**Claude Code (or any assistant harness) as the brain** — no model API key at
+all. `AGENTS.md` is GAP's framework-agnostic entry point: it tells a foreign
+harness how to be Badger, including how to call each tool script directly.
+Open your assistant in the cloned folder and say "read AGENTS.md and act
+accordingly". Tested with Claude Code: same agent files, same corpus, same
+cited answers, different vendor's model.
+
+Both routes still need the `.env` — the model is swappable, the door to the
+data is not. Read-only survives the swap either way, because the tool scripts
+can only call the read-only operations whatever the brain asks for.
+
 ---
 
 ## Repository map
