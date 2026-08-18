@@ -17,6 +17,9 @@ npm run serve                                               # web UI on :4000
 npm run eval                                                # 15 questions with known answers
 ```
 
+No Google Cloud, no UI, just the agent in your own assistant? One secret and
+one command — see [Running it with a different brain](#running-it-with-a-different-brain).
+
 ---
 
 ## The question this was built to answer
@@ -546,16 +549,31 @@ cp env.template .env              # the Composio key; model credentials
 npx @open-gitagent/gitagent --dir . -p "why was the app five weeks late?"
 ```
 
-**Claude Code (or any assistant harness) as the brain** — no model API key at
-all. `AGENTS.md` is GAP's framework-agnostic entry point: it tells a foreign
-harness how to be Badger, including how to call each tool script directly.
-Open your assistant in the cloned folder and say "read AGENTS.md and act
-accordingly". Tested with Claude Code: same agent files, same corpus, same
-cited answers, different vendor's model.
+**Claude Code (or any assistant harness) as the brain** — the simplest route,
+and the one to hand a friend. No Google anything, no model key of ours; the
+harness *is* the brain, and the only secret is the Composio key that opens the
+door to the data:
 
-Both routes still need the `.env` — the model is swappable, the door to the
-data is not. Read-only survives the swap either way, because the tool scripts
-can only call the read-only operations whatever the brain asks for.
+```bash
+git clone https://github.com/alanmathews9/badger && cd badger && npm install
+COMPOSIO_API_KEY=<your-key> claude "Be Badger — follow AGENTS.md."
+```
+
+The quoted line is the adapter instruction, not a question — after it, you
+just talk. `AGENTS.md` is GAP's framework-agnostic entry point: it tells any
+harness how to be Badger, including how to call each tool script directly.
+Codex reads `AGENTS.md` on its own, so there `codex` in the folder is enough.
+A brand-new Composio key with nothing connected is fine too: the first tool
+call says to run `npm run connect`, and the agent relays that — the
+onboarding lives in the tool output.
+
+The model credentials in `env.template` belong to the *other* route only: the
+gitagent runtime (and the hosted web product) must bring their own brain, and
+Badger's is Gemini on Vertex. A harness brings its brain with it, which is why
+that whole requirement disappears. What never disappears is the Composio key —
+the model is swappable, the door to the data is not — and read-only survives
+any swap, because the tool scripts can only call the read-only operations no
+matter what the brain asks for.
 
 ---
 
