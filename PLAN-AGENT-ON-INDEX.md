@@ -24,12 +24,17 @@ next arc. Decisions first, order of work after.
   worth the name) to run the same BM25 we already compute in 3ms over a
   200KB corpus. Revisit only when a corpus outgrows the JSON file (~tens of
   thousands of docs); `_index.mjs` is the single module that would swap.
-- **Webhooks deferred.** Free in dollars, real in engineering (public
-  endpoint + signature checks for GitHub; Pub/Sub + expiring channels for
-  Google). If ever taken, use Composio Triggers — it does this
-  plumbing for our exact three sources, and the free tier includes 50K
-  trigger events/month (verified against composio.dev/pricing 2026-08-19;
-  $0.003/event beyond, hard-capped on free).
+- **Webhooks: yes, via Composio Triggers, as the step AFTER chat-on-index**
+  (Alan's call 2026-08-19, order settled: chat-on-index changes every
+  question, triggers shrink a rarely-seen freshness window). Free tier
+  covers 50K trigger events/month (verified against composio.dev/pricing;
+  $0.003/event beyond, hard-capped on free). Catalogue read from the live
+  API 2026-08-19: Gmail NEW_GMAIL_MESSAGE covers everything indexed; Drive
+  covers created/updated/comment-added AND deleted-or-trashed — the
+  deletion signal polling cannot see; GitHub covers issues, issue comments
+  (= PR conversation comments) and commits, but NOT PR review comments or
+  PR opened, so the 2h poll stays as catch-up. The layering is then exactly
+  Glean's: triggers in seconds → incremental poll → daily full sweep.
 - **The eval is the gate.** Rewiring the agent's retrieval is exactly the
   change PLAN-SEARCH-INDEX.md said must "revisit with eval evidence":
   `npm run eval` must hold ≥13/15 with the agent on the index, compared
@@ -59,9 +64,15 @@ next arc. Decisions first, order of work after.
    questions ("what shipped this week") — the index carries dates, but the
    agent must not conclude "nothing" from an index gap without the live
    second look.
-4. **Docs**: README freshness section (the Glean/Onyx comparison, what we
+4. **Composio Triggers** (after chat-on-index ships its eval gate): one
+   public webhook route on the server, signature-verified in place of the
+   cookie gate and attacked before trusting; trigger subscriptions created
+   in `npm run connect status` next to the index build; handler upserts the
+   one document named by the event, reusing the refresh fetchers. A webhook
+   wakes a scaled-to-zero Cloud Run instance, so push survives idle.
+5. **Docs**: README freshness section (the Glean/Onyx comparison, what we
    run and what we deferred), CLAUDE.md state.
-5. **Gates and the batched deploy** — deploys stay rationed; nothing
+6. **Gates and the batched deploy** — deploys stay rationed; nothing
    deploys without Alan.
 
 ## Risks
