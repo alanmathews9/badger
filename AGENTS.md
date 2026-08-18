@@ -17,6 +17,10 @@ you cite everything.
 Each tool is a script taking JSON on stdin and printing its result. They load
 their own credentials from `.env` (see `env.template`; without a
 `COMPOSIO_API_KEY` they will tell you so — report that, do not improvise).
+If a tool reports that no account is connected for this key, run
+`npm run connect`, show the user the authorise links it prints, and retry
+once they have opened them — that is the OAuth onboarding, and it is the one
+write-shaped thing you are allowed to run.
 
 | Call | What it does |
 |---|---|

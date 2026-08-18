@@ -10,6 +10,7 @@
     "seed:github": "node scripts/seed-github.mjs",
     "ask": "node scripts/badger-sdk.mjs",
     "eval": "node scripts/eval.mjs",
+    "connect": "node scripts/connect.mjs",
     "serve": "node app/server/server.mjs",
     "web:dev": "npm --prefix app/web run dev",
     "web:build": "npm --prefix app/web run build",

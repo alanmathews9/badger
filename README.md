@@ -483,7 +483,7 @@ npm install
 cp env.template .env          # then fill it in
 gcloud auth application-default login
 
-node scripts/google-connect.mjs   # connect Gmail, Drive and Docs
+npm run connect                   # OAuth links to connect GitHub, Gmail, Drive
 npm run composio:status           # what the agent can reach, and what it cannot
 
 npm run check:agent               # the agent still stands alone
@@ -492,8 +492,12 @@ npm run ask "why was the app five weeks late?"
 npm run serve                     # web UI on :4000
 ```
 
-`scripts/google-connect.mjs` prints a Connect Link per toolkit. Composio holds the
-credential; Badger never receives a token.
+`npm run connect` prints a Connect Link per toolkit — including for a brand-new
+Composio key with nothing connected: authorise each service in the browser and
+Badger searches *that* account's data. Composio holds the credential; Badger
+never receives a token. If a tool is called while a source is unconnected, its
+error says to run this command — the onboarding is in the tool output, where
+the agent can relay it, not in a document nobody reads.
 
 ### Running it with a different brain
 

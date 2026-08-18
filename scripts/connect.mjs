@@ -1,13 +1,15 @@
 #!/usr/bin/env node
-// Connect the seeded demo Google account to Composio.
+// Connect this Composio key's accounts — GitHub, Gmail, Drive, Docs.
 //
-// The Arkind corpus lives across three sources, and Composio treats each
-// Google product as its own toolkit with its own connected account — so one
-// Google login still means three consent screens. This script walks them in
-// order rather than making anyone click through the dashboard.
+// This is the whole onboarding for a fresh Composio workspace: run it, open
+// the printed links, authorise each service in the browser. Composio holds
+// the tokens; Badger never sees one. Composio treats each Google product as
+// its own toolkit with its own connected account — so one Google login still
+// means three consent screens. This script walks all four toolkits in order
+// rather than making anyone click through the dashboard.
 //
-//   node scripts/google-connect.mjs            # print a Connect Link per toolkit
-//   node scripts/google-connect.mjs status     # report, connect nothing
+//   npm run connect                            # print a Connect Link per toolkit
+//   npm run connect status                     # report, connect nothing
 //
 // The links are printed all at once rather than waited on one at a time, so
 // all three consent screens can be opened as tabs and worked through at a
@@ -31,7 +33,7 @@ import { loadEnvFile } from "../tools/scripts/_env.mjs";
 loadEnvFile(new URL("../.env", import.meta.url));
 
 const USER_ID = process.env.BADGER_USER_ID ?? "badger-demo-alan";
-const TOOLKITS = ["gmail", "googledrive", "googledocs"];
+const TOOLKITS = ["github", "gmail", "googledrive", "googledocs"];
 
 const composio = new Composio();
 const statusOnly = process.argv[2] === "status";
@@ -112,6 +114,7 @@ for (const slug of TOOLKITS) {
 }
 
 if (!statusOnly) {
-  console.log("\nOpen each link, sign in as the demo account, then run:");
-  console.log("  node scripts/google-connect.mjs status");
+  console.log("\nOpen each link and authorise with the account whose data Badger");
+  console.log("should search, then confirm with:");
+  console.log("  npm run connect status");
 }

@@ -169,8 +169,11 @@ export async function run(fn) {
       );
     } else if (/no active connection|not connected/i.test(msg)) {
       process.stdout.write(
-        "ERROR: this user has not connected Gmail or Google Drive.\n" +
-          "This is NOT an empty result. Say so plainly rather than reporting that nothing was found.\n",
+        "ERROR: this Composio key has no Gmail/Drive account connected.\n" +
+          "This is NOT an empty result — the source was never reached. To connect one:\n" +
+          "run `npm run connect` in this repository. It prints an authorise link per\n" +
+          "service; opening each in a browser completes OAuth, and Composio holds the\n" +
+          "token. Offer to run it for the user, then retry this call afterwards.\n",
       );
     } else {
       process.stdout.write(`ERROR: ${msg}\n`);

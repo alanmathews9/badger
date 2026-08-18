@@ -157,6 +157,14 @@ export async function run(fn) {
         "ERROR: rate limited by the GitHub search API (30 requests/minute).\n" +
           "This is NOT an empty result. Wait ~30s, then retry with a narrower query.\n",
       );
+    } else if (/no active connection|not connected/i.test(msg)) {
+      process.stdout.write(
+        "ERROR: this Composio key has no GitHub account connected.\n" +
+          "This is NOT an empty result — the source was never reached. To connect one:\n" +
+          "run `npm run connect` in this repository. It prints an authorise link per\n" +
+          "service; opening each in a browser completes OAuth, and Composio holds the\n" +
+          "token. Offer to run it for the user, then retry this call afterwards.\n",
+      );
     } else {
       process.stdout.write(`ERROR: ${msg}\n`);
     }
