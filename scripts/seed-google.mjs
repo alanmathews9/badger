@@ -22,6 +22,7 @@
 //   node scripts/seed-google.mjs --gmail    # Gmail only
 //   node scripts/seed-google.mjs --force    # seed again even if it looks seeded
 //   node scripts/seed-google.mjs --reset-gmail   # trash seeded mail, then stop
+//   node scripts/seed-google.mjs --reset-gmail old.example   # trash only that domain
 //
 // --reset-gmail exists because a failed run leaves a partial mailbox and there
 // is no way to make imports idempotent: every import creates a new message even
@@ -30,7 +31,7 @@ import { Composio, SessionPreset } from "@composio/core";
 import { loadEnvFile } from "../tools/scripts/_env.mjs";
 import { ROOT, FOLDERS, DOCS, SHEETS } from "./seed/corpus-drive.mjs";
 import { THREADS } from "./seed/corpus-gmail.mjs";
-import { P, addr } from "./seed/people.mjs";
+import { P, addr, ARKIND, CUSTOMERS } from "./seed/company.mjs";
 
 loadEnvFile(new URL("../.env", import.meta.url));
 
@@ -42,6 +43,12 @@ const DO_DRIVE = !args.has("--gmail");
 const DO_GMAIL = !args.has("--drive");
 
 const RESET_GMAIL = args.has("--reset-gmail");
+// Domains for --reset-gmail to trash *instead of* the current corpus, e.g.
+//   node scripts/seed-google.mjs --reset-gmail arkind.dev haldenlogistics.nl
+// Taking them as arguments rather than keeping a hard-coded list of retired
+// domains means a replaced corpus can be swept up once and then forgotten,
+// instead of leaving dead names in the source forever.
+const EXTRA_DOMAINS = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 // Sheets were added after the documents were already seeded, so they need to
 // be runnable on their own against an existing folder tree.
 const SHEETS_ONLY = args.has("--sheets");
@@ -259,7 +266,7 @@ async function seedGmail() {
     let first = null;
 
     for (const [i, m] of thread.messages.entries()) {
-      const messageId = `<${thread.id}-${i + 1}@arkind.dev>`;
+      const messageId = `<${thread.id}-${i + 1}@${ARKIND}>`;
       const raw = mime({
         ...m,
         // Gmail groups on In-Reply-To/References, but a matching subject keeps
@@ -309,7 +316,17 @@ async function seedGmail() {
 async function resetGmail() {
   console.log("\n=== reset ===");
   let trashed = 0;
-  for (const domain of ["arkind.dev", "haldenlogistics.nl"]) {
+  // Named domains win outright, so pointing this at a retired corpus cannot
+  // take the live one with it — the difference between "clean up the old mail"
+  // and "delete everything" should not be one forgotten argument.
+  //
+  // With none named, it is every domain the current corpus can send from,
+  // derived rather than listed so that adding a customer to `company.mjs`
+  // cannot leave a pocket of mail this walks past.
+  const domains = EXTRA_DOMAINS.length
+    ? EXTRA_DOMAINS
+    : [ARKIND, ...Object.values(CUSTOMERS).map((c) => c.domain)];
+  for (const domain of domains) {
     // One page at a time: trashing changes the result set under the cursor, so
     // re-query from the start until a query returns nothing.
     for (;;) {
@@ -322,7 +339,7 @@ async function resetGmail() {
       }
     }
   }
-  console.log(`trashed ${trashed} messages from the seeded domains.`);
+  console.log(`trashed ${trashed} messages from: ${domains.join(", ")}`);
 }
 
 if (RESET_GMAIL) {

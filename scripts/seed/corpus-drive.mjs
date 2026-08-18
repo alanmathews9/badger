@@ -1,1083 +1,1068 @@
 // The Google Drive half of the Arkind corpus.
 //
-// Drive holds what a company writes down for itself and for its clients: the
-// onboarding pack, the team pages, the HR policies, the roadmaps, and the
-// client-facing version of events. GitHub holds the argument. Gmail holds what
-// was actually said to whom. No single one of the three answers
-// "why did Halden slip?" the same way, which is the demo.
+// Drive holds what a company writes down: the onboarding pack, the team pages,
+// the HR policies, the roadmap, and the version of events that goes to
+// customers. That last category is why Drive is the source most often *wrong* —
+// not through anyone lying, but because a document is written once, sent
+// outwards, and then stops being updated while the thing it describes moves on.
 //
-// Two deliberate seams, both of which exist in every real company:
+// GitHub holds the argument. Gmail holds what was actually said to whom. Drive
+// holds the official version. The demo is the gap between them.
 //
-//   1. `Halden Logistics — Engagement Retro` is the client-facing document.
-//      It says the engagement slipped because scope changed. GitHub issue #2
-//      says roughly four of the six weeks were self-inflicted. Both are filed;
-//      neither mentions the other.
+// Four deliberate seams, each authored and each recorded in `company.mjs`:
 //
-//   2. `HR — Leave Policy 2026` supersedes `handbook/leave.md` in the GitHub
-//      repo and gives a different carry-over number. Documents drift, the old
-//      copy stays reachable, and a search engine that returns only one of them
-//      is lying by omission.
+//   1. `Android 4.2 — Release Notes` says the release was delayed by App Store
+//      review. Issue #8 does the arithmetic: review took 4 of the 35 days. The
+//      release notes are the version that gets forwarded.
 //
-// Comments carry the disagreement, the same way GitHub issue comments do.
-// GOOGLEDRIVE_LIST_COMMENTS is in the agent's read allowlist for exactly this.
+//   2. `Leave Policy 2026` gives ten days' carry-over with a 31 March deadline.
+//      `handbook/leave.md` in the repository still says five days and no
+//      deadline. Both are reachable, and returning only one of them is lying by
+//      omission.
+//
+//   3. `Clearview Dental — Churn Review` records the reason as price. Their
+//      notice email says the March outage and how it was handled. Issue #14 has
+//      the team split. The health sheet shows the score falling before either.
+//
+//   4. `Refund Policy` says outages are not refundable. Support gave Clearview
+//      a month's credit anyway, in writing, in April.
+//
+// Comments carry the disagreement, exactly as GitHub issue comments do.
+// `GOOGLEDRIVE_LIST_COMMENTS` is in the agent's read allowlist for that reason:
+// a Google Doc comment thread is the same shape as a code review, and the
+// margin is where a document stops being official.
+//
+// Drive attributes every comment to the authenticated account, so the speaker
+// is named in the text — the same convention the GitHub corpus uses.
+
+import { P, C, CUSTOMERS, DEPARTMENTS, FACTS, STAFF } from "./company.mjs";
+
+const { release42: R, marchOutage: O } = FACTS;
 
 export const ROOT = "Arkind";
 
-// Google Sheets, created through the Drive connection and nothing else.
-//
-// Passing `application/vnd.google-apps.spreadsheet` as the mime type to
-// GOOGLEDRIVE_CREATE_FILE_FROM_TEXT makes Drive convert the CSV on the way in,
-// so these are real spreadsheets rather than CSV attachments: Drive's
-// full-text index reaches the cells, and
-// GOOGLEDRIVE_EXPORT_GOOGLE_WORKSPACE_FILE reads them back as CSV. Measured
-// 2026-08-17 — passing `text/csv` instead stores a plain file that export
-// refuses, which is the trap worth avoiding.
-//
-// There is therefore no `googlesheets` toolkit, no fourth auth config and no
-// fourth connection. The agent's existing read allowlist already covers them.
-//
-// Sheets earn their place by answering a question prose cannot: numbers that
-// have to be compared across rows. "Who is over-allocated in September" is a
-// spreadsheet question, and its answer contradicts nothing in the documents —
-// it quantifies what the roadmap and the capacity mail thread only assert.
-export const SHEETS = [
-  {
-    folder: "People and HR",
-    title: "Utilisation Tracker 2026",
-    csv: `Person,Practice,Band,Q1,Q2,Jul,Aug,Sep,Sep commitment,Note
-Tomas Lindqvist,Data & Platform,4,71%,78%,60%,60%,70%,Halden phase 2 discovery,Lead time is not billable
-Dev Bhattacharya,Data & Platform,2,94%,101%,90%,95%,140%,Halden phase 2 + Verity foundations,OVER — both engagements want him
-Ana Ferreira,Data & Platform,1,58%,60%,60%,60%,60%,Verity,Contracted at 60%
-Rahul Desai,Data & Platform,2,88%,85%,80%,85%,90%,Verity foundations,
-Marta Nowak,Data & Platform,1,76%,90%,75%,80%,135%,Halden cutover + Verity,OVER — same conflict as Dev
-Luca Bianchi,Product Engineering,4,65%,70%,65%,65%,65%,Verity extraction,
-Karan Shah,Product Engineering,2,92%,95%,90%,90%,95%,Verity extraction,
-Sofia Almeida,Product Engineering,2,70%,68%,70%,70%,70%,Internal tooling 8% + Verity,
-Wei Zhang,Product Engineering,1,85%,88%,85%,90%,90%,Verity extraction,
-Nadia Okonkwo,Product Engineering,1,0%,0%,40%,75%,80%,Verity phase 0,Started June 2026
-Priya Raghunathan,Delivery,4,45%,48%,45%,45%,45%,All engagements,Delivery is not billed per engagement
-Target,,,85%,85%,85%,85%,85%,,Company target utilisation`,
-  },
-  {
-    folder: "People and HR",
-    title: "Expense Claims — Q2 2026",
-    csv: `Claim ID,Person,Date submitted,Trip date,Client,Category,Amount EUR,Status,Note
-EX-2026-081,Ana Ferreira,2026-04-08,2026-04-02,Verity,Rail,142.50,Paid,
-EX-2026-082,Tomas Lindqvist,2026-04-09,2026-03-28,Halden,Flight,388.00,Paid,Rotterdam
-EX-2026-083,Tomas Lindqvist,2026-04-09,2026-03-28,Halden,Hotel,264.00,Paid,Two nights
-EX-2026-084,Dev Bhattacharya,2026-04-14,2026-04-10,Verity,Flight,612.00,Paid,
-EX-2026-091,Marta Nowak,2026-05-02,2026-04-21,Halden,Rail,96.20,Paid,
-EX-2026-092,Ana Ferreira,2026-05-06,2026-02-11,Verity,Hotel,310.00,Disputed,Submitted 12 weeks late — see issue #11
-EX-2026-097,Karan Shah,2026-05-19,2026-05-14,Verity,Flight,540.00,Paid,
-EX-2026-101,Tomas Lindqvist,2026-06-02,2026-05-27,Halden,Flight,401.00,Paid,Close-out visit
-EX-2026-102,Tomas Lindqvist,2026-06-02,2026-05-27,Halden,Taxi,48.00,Rejected,No receipt
-EX-2026-108,Nadia Okonkwo,2026-06-22,2026-06-18,Internal,Equipment,89.00,Paid,Monitor stand
-Policy,,,,,,,,Claims due within 30 days of the trip; travel billed to client at 50%`,
-  },
-  {
-    folder: "People and HR",
-    title: "Engagement Margin Tracker 2026",
-    csv: `Engagement,Client,Structure,Contract value EUR,Contingency EUR,Planned weeks,Actual weeks,Overrun EUR,Margin planned,Margin actual,Status
-Halden migration,Halden Logistics,Fixed price,412000,82400,14,20,118000,32%,4%,Closed 5 Jun 2026
-Verity extraction,Verity,T&M with cap,285000,0,18,,0,28%,29%,In flight
-Verity discovery,Verity,Fixed price,42000,8400,3,3,0,30%,31%,Closed
-Nomura Park platform,Nomura Park,T&M,196000,0,12,13,0,26%,25%,Closed Feb 2026
-Halden phase 2,Halden Logistics,UNDECIDED,,,,,,,,Proposal draft — see issue #18
-Note,,,,,,,,,,Halden overrun exceeded contingency by 35600 and consumed the 2025 profit share`,
-  },
-  {
-    folder: "Access and Security",
-    title: "Access Grants Log 2026",
-    csv: `Request date,Person,System,Arkind approver,Client approver,Granted date,Days waited,Engagement,Note
-2026-01-19,Tomas Lindqvist,Halden — Oracle read replica,Tomas Lindqvist,Elke Sanders,2026-01-28,9,Halden migration,Agreed date was 19 Jan — critical path
-2026-01-19,Dev Bhattacharya,Halden — Oracle read replica,Tomas Lindqvist,Elke Sanders,2026-01-28,9,Halden migration,Same delay
-2026-01-20,Dev Bhattacharya,Halden — AWS eu-west-1,Tomas Lindqvist,Joris van Dijk,2026-01-23,3,Halden migration,
-2026-02-02,Ana Ferreira,Halden — AWS eu-west-1,Tomas Lindqvist,Joris van Dijk,2026-02-04,2,Halden migration,
-2026-06-02,Nadia Okonkwo,GitHub org (arkind),Ravi Menon,,2026-06-02,0,Onboarding,Should have been day one — was missed
-2026-06-02,Nadia Okonkwo,AWS sandbox,Ravi Menon,,2026-06-02,0,Onboarding,
-2026-06-04,Ana Ferreira,Verity — production,Luca Bianchi,Verity IT,2026-06-15,11,Verity extraction,Named individuals only
-2026-06-10,Nadia Okonkwo,Verity — staging,Luca Bianchi,Verity IT,2026-06-12,2,Verity extraction,
-2026-06-10,Nadia Okonkwo,Verity — production,Luca Bianchi,Verity IT,,PENDING,Verity extraction,Raised 10 Jun — still open
-2026-06-18,ALL,Nomura Park — all systems,Ravi Menon,,REVOKED,,Nomura Park,Closed Feb 2026 — access live 4 months. See issue #7`,
-  },
-  {
-    folder: "Clients/Verity",
-    title: "Verity — Notification Call Site Inventory",
-    csv: `ID,File,Type,Notification type,Has tests,Owner at Verity,Phase,Risk
-CS-01,app/models/order.rb,Mailer,order_confirmation,Yes,Platform,1,Low
-CS-02,app/models/order.rb,Mailer,order_shipped,Yes,Platform,1,Low
-CS-03,app/services/billing/invoice.rb,Mailer,invoice_ready,Yes,Billing,1,Low
-CS-04,app/services/billing/dunning.rb,Direct write,payment_failed,No,UNOWNED,2,HIGH
-CS-05,lib/tasks/nightly.rake,Direct write,digest_daily,No,UNOWNED,2,HIGH — nobody owns the nightly job
-CS-06,app/models/user.rb,Mailer,welcome,Yes,Platform,1,Low
-CS-07,app/models/user.rb,Mailer,password_reset,Yes,Platform,1,Low
-CS-08,app/services/prefs/sync.rb,Direct write,preference_changed,No,Platform,2,HIGH — Verity are rebuilding this concurrently
-CS-09,app/jobs/reminder_job.rb,Mailer,reminder,Partial,Platform,1,Medium
-CS-10,app/services/legacy/notify.rb,Direct write,legacy_alert,No,UNOWNED,2,HIGH — uses the 2017 forked gem
-CS-11,app/services/legacy/notify.rb,Direct write,legacy_digest,No,UNOWNED,2,HIGH
-CS-12,app/models/shipment.rb,Direct write,shipment_delayed,No,Logistics,2,HIGH
-Summary,,,,,,,34 call sites total — 28 clean (phase 1) and 6 direct writers (phase 2). 12 catalogued here; the remaining 22 are all phase 1 mailers.`,
-  },
-];
-
-/** Folder tree, parents first — the runner relies on this order. */
+/** Folders, parents before children — the seeder relies on that order. */
 export const FOLDERS = [
   "Onboarding",
   "Teams",
-  "Clients",
-  "Clients/Halden Logistics",
-  "Clients/Verity",
-  "Roadmaps",
+  "Customers",
+  "Customers/Brightsmile",
+  "Customers/Clearview",
+  "Product",
   "People and HR",
-  "Access and Security",
+  "Support",
+  "Security and Access",
 ];
 
+// ------------------------------------------------------------------- docs
+
 export const DOCS = [
-  // ---------------------------------------------------------------- onboarding
+  // =========================================================== Onboarding
   {
     folder: "Onboarding",
-    title: "New Joiner — First Week Checklist",
-    md: `# New joiner — first week
+    title: "First Week Checklist",
+    md: `# First week at Arkind
 
-Owner: Meera Iyer (People). Last reviewed 4 May 2026.
-
-Everything here should be done by end of day five. If something is blocked,
-say so in #joiners rather than waiting — half of this list depends on somebody
-else pressing a button.
+Your buddy owns this list with you. If anything here is still unticked on
+Friday, that is a process failure and not yours — tell Meera.
 
 ## Day one
 
-- [ ] Laptop collected or delivered. Ravi Menon ships to Lisbon on Tuesdays.
-- [ ] Google account active, 2FA enrolled. **2FA is not optional and IT will
-      disable an account that has gone seven days without it.**
-- [ ] Slack, and read the channel list in the glossary before joining twelve
-      of them.
-- [ ] Payroll form and bank details to Meera. Cut-off for the current month is
-      the 18th.
-- [ ] Photo and one-line bio for the site, if you want one. Genuinely optional.
+- [ ] Laptop, and full-disk encryption confirmed (Ravi)
+- [ ] Google account, calendar, and the two channels that matter: #general and
+      #incidents
+- [ ] GitHub organisation invite accepted
+- [ ] Read \`handbook/security.md\` in the repository. It is short and it is the
+      one thing we ask everybody to read on day one.
+- [ ] Coffee with your lead, twenty minutes, no agenda
 
-## Day two and three
+## Week one
 
-- [ ] Read \`playbooks/engagement-lifecycle.md\` in the internal repo. It is
-      short and it is the closest thing we have to a house style.
-- [ ] Read the security handbook. The laptop encryption section applies to you
-      from day one, not from your first client.
-- [ ] Request the access you need — see **Access Register** in
-      Access and Security. Do not ask in Slack; the register exists so that
-      requests are traceable.
-- [ ] 30 minutes with your practice lead. Tomas for Data & Platform, Luca for
-      Product Engineering.
+- [ ] Engineering Setup, if you are in Engineering — the api running locally
+      with the seeded clinics
+- [ ] Sit with Support for an hour. Everybody does this, including Sales.
+      It is the fastest way to learn what the product actually is.
+- [ ] Read the last two incident reviews
+- [ ] Leave policy and expenses: Leave Policy 2026 and \`handbook/expenses.md\`
 
-## Day four and five
+## Things nobody tells you
 
-- [ ] Shadow one client call. Any client, any call. Ask your lead.
-- [ ] Pick your buddy's brain about the retro habit. Every engagement ends with
-      one and the uncomfortable version is the one that gets filed.
-- [ ] Book your first-month check-in with Meera.
+Reminders are the product. Booking is the thing customers *say* they buy;
+reminders are the thing that stops them leaving.
 
-## What nobody tells you
-
-We turn down work we cannot staff properly. If you are ever on an engagement
-that feels understaffed, that is a mistake rather than a policy, and saying so
-early is the entire job.
-
-Expenses are reimbursed monthly and late claims are a recurring argument — read
-\`handbook/travel-and-expenses.md\` before your first trip, not after.`,
+Two sites, five and a half hours apart. Anything decided in a call at 16:00
+Lisbon was decided without Bengaluru, so it goes in writing afterwards.
+`,
   },
   {
     folder: "Onboarding",
-    title: "Onboarding — Engineering Setup",
+    title: "Engineering Setup",
     md: `# Engineering setup
 
-Owner: Dev Bhattacharya. Last reviewed 21 March 2026.
+    git clone git@github.com:arkind/arkind.git
+    cd arkind && npm install
+    npm run dev            # api on :4000, seeded with two clinics
+    npm test
 
-## Accounts you will need on day one
+Postgres 15 locally. The seed script creates one dental practice in London and
+one veterinary practice in Melbourne — the second one is deliberate, and it is
+there so that a timezone bug is visible on your machine rather than in
+production. See issue #1 for what it cost us to learn that.
 
-| System | Who approves | Typical wait |
-|---|---|---|
-| GitHub org (arkind) | Ravi Menon | same day |
-| AWS — sandbox | Ravi Menon | same day |
-| AWS — client accounts | practice lead, then client | 2–9 days |
-| Datadog | Ravi Menon | same day |
-| 1Password | Meera Iyer | same day |
+## Mobile
 
-Client systems are the slow ones and they are slow for reasons outside our
-control. On Halden the Oracle read replica took nine days against a date of
-19 January, and that delay is still visible in the engagement retro. **Ask for
-client access the day you are staffed, not the day you need it.**
+    cd mobile && npm install
+    npm run android        # or: npm run ios
 
-## Local environment
+You need a device or an emulator with the Play services image. Before you touch
+anything under \`src/sync/\`, read \`mobile/app/src/sync/README.md\`. It is the
+most important file in the repository and it exists because that layer has been
+written twice.
 
-We do not have a house language. Data & Platform is Python and dbt; Product
-Engineering is TypeScript. Both practices run everything through Docker so that
-the version argument never happens.
+## Access you will need, and who grants it
 
-- \`asdf\` for runtime versions. The \`.tool-versions\` file in each repo is
-  authoritative.
-- Pre-commit hooks are mandatory on client repositories. They are what stops a
-  credential reaching a client's history, which has happened to us once.
-- Never point a local environment at a client's production database, even
-  read-only, even briefly. Use the replica.
+| What | Who |
+|---|---|
+| GitHub organisation | Ravi |
+| AWS sandbox | Ravi |
+| Staging database | Your lead |
+| Production database | Two approvers, time-boxed to 24 hours. See the Access Register. |
 
-## Repository conventions
-
-Commit messages read like changelog entries: what changed and why. A reviewer
-should be able to reconstruct a decision from \`git log\` alone without asking
-anybody, because in eighteen months there will be nobody left to ask.
-
-Every engagement repository carries a \`README\` naming the client contact, the
-escalation path and the date the engagement closes. If that file is stale, the
-engagement is stale.`,
+Production access is not a default. Nobody has standing production access,
+including the VP of Engineering.
+`,
   },
   {
     folder: "Onboarding",
-    title: "Onboarding — Joining an Engagement Mid-Flight",
-    md: `# Joining an engagement mid-flight
+    title: "How We Ship",
+    md: `# How we ship
 
-Draft. Owner: Ana Ferreira. Raised as issue #17 in the internal repo and still
-open — this document is the working version and it is not yet policy.
+## api
 
-Joining in week nine is different from joining at kickoff and we keep pretending
-it is not. Three people have now had the same bad first fortnight.
+Continuous. Merged to \`main\`, tests green, it deploys itself. There is no
+release train and no cutoff.
 
-## Before your first day on the engagement
+Not on a Friday after 15:00 UTC. Not during the evening reminder batch.
 
-The lead owes you, in writing:
+## Mobile
 
-1. The SOW, and specifically the **Not doing** section. What is out of scope is
-   more useful than what is in it.
-2. The kickoff notes, including anything left as "to confirm". Halden's
-   reconciliation module was sitting unanswered in the kickoff notes for six
-   weeks before it arrived as a surprise.
-3. The current risk list, honestly stated.
-4. Who the client's decision-maker is, as distinct from who attends the calls.
+Every six to eight weeks. Both stores at once. The full process is
+\`playbooks/releases.md\` in the repository; the part people get wrong is that
+**store review is not the long pole** — our median is under two days on Play
+and four on App Store Connect.
 
-## Your first week
+## What "done" means
 
-- Read every weekly status sent so far, oldest first. It takes an afternoon and
-  it is the fastest way to understand why the engagement is where it is.
-- Do not fix anything in week one. Ask why it is like that.
-- Find out what has already been escalated and what has been quietly absorbed.
-  The second list is the one that hurts.
+- Tests, and a test that would have caught the bug you are fixing
+- The runbook updated if it changes what happens at 3am
+- The customer-facing note written by Product and read by Support before it
+  goes anywhere
 
-## What we owe you
+## Reviews
 
-A named buddy on the engagement who is not the lead. The lead is the person
-with the least time and the most reason to present things optimistically.`,
+One approval. Two if it touches payments or the sync layer. A review comment
+that says "why?" is a real question and deserves an answer in the thread rather
+than a force-push.
+`,
   },
   {
     folder: "Onboarding",
-    title: "Arkind Glossary",
+    title: "Glossary",
     md: `# Glossary
 
-Owner: Meera Iyer. Last reviewed 12 February 2026.
+**Clinic** — one physical practice. A customer may have forty of them.
 
-**Practice** — one of our three delivery groups: Data & Platform, Product
-Engineering, Delivery & Client Ops.
+**Practice** — what our customers call a clinic. We use both, interchangeably,
+which is mildly confusing and too late to fix.
 
-**Engagement** — a single contracted piece of client work. Has a SOW, a lead,
-a close date and a retro. If it has no close date it is not an engagement, it
-is a staffing arrangement, and we price those differently.
+**Slot** — a bookable interval on a clinic's diary. Length is per service.
 
-**Discovery** — the paid, time-boxed period before we commit to a price. The
-pricing playbook says three weeks when a migration is in scope. It has been
-compressed once, on Halden, and that decision is discussed at length in the
-retro issue.
+**Hold** — a 90-second exclusive claim on a slot while somebody fills in the
+booking form. Added after two receptionists confirmed the same 9:40 slot.
 
-**CR / change request** — priced in writing before work starts. The Halden
-reconciliation module went in without one and cost roughly three weeks
-unpriced. This is the origin of the rule.
+**Deposit** — money taken at booking to reduce no-shows. 10% of the appointment
+value, minimum EUR 5. Whether that is the right model is still argued about.
 
-**The uncomfortable version** — the internal retro, filed as a GitHub issue
-alongside the client-facing document. Company shorthand, and taken seriously.
+**No-show** — a patient who neither attends nor cancels. The number the whole
+product exists to move.
 
-**Contingency** — the 20% we add to fixed-price work. Halden burned €118,000
-against an €82,400 contingency, which is the number people mean when they say
-"we should not have fixed-priced that one".
+**Evening reminder** — sent at 18:00 clinic-local the day before. Note
+*clinic-local*: it was 18:00 UTC until March 2026 and that was a bug with a
+name.
 
-**T&M with a cap** — time and materials, ceiling agreed up front. What Sam
-argues for whenever discovery is compressed.
+**Intent** — in the mobile sync layer, a thing the user asked for, queued
+offline and applied on reconnect. As opposed to *state*, which is what the
+first version of that layer synchronised and why it was thrown away.
 
-## Channels
-
-\`#joiners\` questions from anyone in their first month, no matter how basic.
-\`#delivery\` engagement-level noise, statuses, escalations.
-\`#access\` requests go in the Access Register, not here. The channel is for
-chasing, not asking.`,
+**SEV1** — customers cannot book, or money is wrong. Money is always SEV1.
+`,
   },
 
-  // -------------------------------------------------------------------- teams
+  // ================================================================ Teams
   {
     folder: "Teams",
-    title: "Team — Data & Platform",
-    md: `# Data & Platform
+    title: "Team — Mobile",
+    md: `# Mobile
 
-Lead: Tomas Lindqvist. Eleven people. Bengaluru and Lisbon.
+**${P.tomas.name}** — ${P.tomas.role}, ${P.tomas.site}
+**${P.nadia.name}** — ${P.nadia.role}, ${P.nadia.site}, joined June 2026
 
-Migrations, warehouses, event pipelines. The practice that carries the most
-fixed-price risk, because migrations are the work where the thing you are
-migrating is not what the documentation says it is.
+Three further engineers, one designer shared with Product. Five people on the
+org sheet.
 
-## People
+## What we own
 
-| Person | Focus | Base |
-|---|---|---|
-| Tomas Lindqvist | Lead, migrations | Lisbon |
-| Dev Bhattacharya | Schema and tooling | Bengaluru |
-| Ana Ferreira | Pipelines | Lisbon |
-| Rahul Desai | dbt, modelling | Bengaluru |
-| Marta Nowak | Cutover and rehearsal | Lisbon |
+The React Native app, iOS and Android, one codebase. Clinic staff use it;
+patients book on the web.
 
-Three further consultants rotate in from Delivery depending on load. September
-capacity is the recurring problem and is tracked as issue #3 in the internal
-repo.
+The offline sync layer is ours and it is the part with history. It has been
+built twice — see \`mobile/app/src/sync/README.md\` and issue #8. A third
+rewrite is proposed in issue #9 and has not been agreed.
 
-## What we are known for
+## Release cadence
 
-Reversible migration tooling. On Halden we rolled back twice during rehearsal
-and the client never saw an incident, and that is the single thing that keeps
-being cited back to us in sales conversations.
+Six to eight weeks. 4.2 was the exception, at five weeks late, and the
+accounting for that is issue #8 rather than the release notes.
 
-## What we keep getting wrong
+## How to get our attention
 
-Estimating against client documentation instead of the client's actual schema.
-Halden's freight schema had 340 tables where the documentation implied about
-120, found in week two by Dev. Most were trivial, but the review time was not
-planned for. **A table-level count is now mandatory in discovery** — the rule
-is in \`playbooks/discovery.md\`.
-
-## Who to ask
-
-Anything commercial, Sam Whitfield. Anything about whether a migration is
-realistic in the time available, Tomas — and he would rather be asked before
-the proposal goes out than after.`,
+Anything customer-affecting goes through Support with a clinic name and a
+booking id. Anything else, ask Tomas.
+`,
   },
   {
     folder: "Teams",
-    title: "Team — Product Engineering",
-    md: `# Product Engineering
+    title: "Team — Platform and Payments",
+    md: `# Platform and Payments
 
-Lead: Luca Bianchi. Fourteen people. Mostly Bengaluru.
+## Platform — ${DEPARTMENTS.find((d) => d.name === "Engineering — Platform").size} people, Bengaluru
 
-We build and extract product surfaces: the thing the client's customers touch,
-or the service the client cannot safely pull out of their monolith on their own.
+**${P.dev.name}** — ${P.dev.role}
+**${P.wei.name}** — ${P.wei.role}
+**${P.karan.name}** — ${P.karan.role}
 
-## Current engagements
+Booking, availability, reminders, patients, and the reporting work. Every
+incident lands here first, which is a load nobody has properly costed.
 
-- **Verity** — extracting the notification service out of a fifteen-year-old
-  Rails monolith. Phased plan in Roadmaps. Discussed as issue #16 internally,
-  and there is no agreement yet on strangler-fig versus a clean rewrite behind
-  a facade.
-- **Nomura Park** — closed. Access was found still live four months after close,
-  which is why the offboarding checklist now exists and why it has a named
-  owner.
+## Payments — ${DEPARTMENTS.find((d) => d.name === "Engineering — Payments").size} people, Lisbon
 
-## People
+**${P.ana.name}** — ${P.ana.role}
 
-| Person | Focus | Base |
-|---|---|---|
-| Luca Bianchi | Lead | Bengaluru |
-| Nadia Okonkwo | Frontend, joined June 2026 | Lisbon |
-| Karan Shah | Rails, extraction | Bengaluru |
-| Sofia Almeida | Platform, CI | Lisbon |
-| Wei Zhang | Notifications, queues | Bengaluru |
+Deposits, refunds, the provider integration, and the webhook. If you are asking
+"who knows about payments", the answer is Ana, and the evidence is that she
+owns every commit under \`api/src/payments/\`.
 
-## How we work
+Payments is three people and the smallest team that carries a SEV1 category of
+its own. Money being wrong is always SEV1.
 
-Trunk-based, feature-flagged, and the client's engineers are in the pairing
-rotation from week one. This is not generosity. If we build something the
-client's team has never seen, we have handed them a liability rather than a
-system, and they will call us in eighteen months when we have moved on.`,
+## Ask Platform, not Payments, about
+
+Reminder timing, opening hours, the diary, and anything to do with why a
+booking exists or does not.
+`,
   },
   {
     folder: "Teams",
-    title: "Team — Delivery and Client Ops",
-    md: `# Delivery and Client Ops
+    title: "Team — Support",
+    md: `# Customer Success and Support
 
-Lead: Priya Raghunathan. Nine people across both offices.
+**${P.marta.name}** — ${P.marta.role}, ${P.marta.site}
+**${P.rahul.name}** — ${P.rahul.role}, ${P.rahul.site}
 
-Commercials, staffing, client relationships, and the retro habit. Delivery does
-not write the code; Delivery is why the engagement has a shape.
+Eight people including both sites. Coverage is 07:00–19:00 UK, which is not the
+same as the on-call window and is a source of confusion at both ends of the day.
 
-## What Delivery owns
+## What we do
 
-- The SOW, and defending the **Not doing** section when it is under pressure
-- Staffing and utilisation, tracked quarterly — see issue #13
-- Weekly written status to every active client, Fridays, without exception
-- The retro, both versions, at the close of every engagement
-- Escalation. The path is lead → Priya → Sam, and it is in every kickoff note
+First response inside two hours in hours. Reproduce before escalating, always
+with a clinic name, a booking id and a timestamp.
 
-## The retro rule
+## What we may promise
 
-Every engagement ends with two documents. The client-facing retro goes in the
-client's folder in Drive. The internal one is filed as an issue in the internal
-repository, because a GitHub thread keeps the disagreement attached to the
-conclusion and a document does not.
+- A deposit refund, immediately, no approval
+- A named engineer today, for SEV1 and SEV2
+- A written update by a stated time, which we then meet
 
-They will not always say the same thing. That is the point, and it is also the
-thing a new joiner finds most surprising.
+## What we may not promise
 
-## Standing arguments
+- A date for a fix
+- Account credit — that is Elena or Sam, and the Refund Policy is the boundary
+- A feature
 
-Fixed price versus T&M when discovery has been compressed. Sam's position after
-Halden is T&M with a cap or walk away. It is not yet written into the pricing
-playbook and Halden phase 2 will decide it.`,
+The middle one has been broken, in writing, and the customer quoted it back.
+`,
   },
   {
     folder: "Teams",
-    title: "On-Call and Escalation Paths",
+    title: "On-call and Escalation",
     md: `# On-call and escalation
 
-Owner: Priya Raghunathan. Last reviewed 2 June 2026.
+One engineer, one week, 06:00–21:00 UTC. Nothing pages overnight.
 
-## We do not run a 24/7 rota
+The rota is On-call Rota Q3. Swaps are between the two people involved; tell the
+channel so the rota stays true.
 
-We are a consultancy, not an operator. Where an engagement requires out-of-hours
-cover it is priced separately and named in the SOW. If a client expects it and
-it is not in the SOW, that is a commercial conversation and not an engineering
-one — bring it to Priya rather than solving it by being available.
+## Escalation by area
 
-## Escalation inside an engagement
+| Area | First | Then |
+|---|---|---|
+| Booking, availability, diary | ${P.dev.name} | ${P.priya.name} |
+| Reminders, SMS | ${P.wei.name} | ${P.priya.name} |
+| Payments, deposits, refunds | ${P.ana.name} | ${P.priya.name} |
+| Mobile app | ${P.tomas.name} | ${P.priya.name} |
+| Access, accounts, logins | ${P.ravi.name} | ${P.priya.name} |
 
-    engineer  →  engagement lead  →  Priya Raghunathan  →  Sam Whitfield
+## Known unfairness
 
-Escalate on the second occurrence, not the fifth. Every engagement that has gone
-badly went badly slowly, and the honest version of the timeline was always
-available weeks before anyone said it out loud.
-
-## Client-side escalation
-
-Named in the kickoff notes for each engagement. For Halden it was
-Joris van Dijk, then their CTO. Two facts worth carrying into the next kickoff:
-
-1. A dependency with an owner and a date but **no escalation trigger** will
-   simply be late. Halden's Oracle replica was nine days late and nobody
-   escalated, because there was nothing that said when to.
-2. The person who attends the calls is not always the person who decides.
-
-## Security incidents
-
-Immediately to Ravi Menon and Sam Whitfield, in that order, and by phone. Not
-Slack. This includes lost hardware, a credential in a git history, and access
-that should have been revoked and was not.`,
+The window is 11:30–02:30 in Bengaluru and 06:00–21:00 in Lisbon, and most
+engineers are in Bengaluru. Issue #13 is the open complaint. Nothing here should
+be read as that having been resolved — it has not been.
+`,
   },
 
-  // ------------------------------------------------------------------ clients
+  // ================================================ Customers / Brightsmile
   {
-    folder: "Clients/Halden Logistics",
-    title: "Halden Logistics — Engagement Retro",
-    md: `# Halden Logistics — engagement retro
+    folder: "Customers/Brightsmile",
+    title: "Brightsmile Dental Group — Account Plan",
+    md: `# ${CUSTOMERS.brightsmile.name}
 
-**Prepared for:** Joris van Dijk, Halden Logistics
-**Filed:** 8 June 2026 by Tomas Lindqvist
-**Planned:** 14 weeks, closing 24 April 2026
-**Actual:** 20 weeks, closed 5 June 2026
-**Overrun:** 6 weeks
+${CUSTOMERS.brightsmile.clinics} clinics, ${CUSTOMERS.brightsmile.plan} plan,
+customer since ${CUSTOMERS.brightsmile.since}. Our largest account by a
+distance.
 
-This is the version shared with Halden.
+**${C.joris.name}** — ${C.joris.role}. Decision maker, and the person who asks
+about dates.
+**${C.elke.name}** — ${C.elke.role}. Day to day, and the one who tells us when
+something is broken before their staff do.
 
-## Summary
+## What they care about, in their order
 
-The engagement delivered its scope. The migration off Oracle is complete, the
-event pipeline is live, and Halden's platform team has taken it over. It took
-six weeks longer than planned.
+1. Reminders arriving, reliably. They measure their own no-show rate weekly.
+2. Per-clinic branding. Four local brand names across forty practices, and the
+   booking page shows ours. Raised at the June QBR and twice since.
+3. Being told things before their patients tell them.
 
-## What went well
-
-- The migration tooling was genuinely reversible, and we used that twice during
-  rehearsal without any client-visible incident.
-- The cutover rehearsal in week 15 caught two ordering bugs before they reached
-  production.
-- Handover was clean. Halden's team was running the pipeline unaided within a
-  fortnight.
-
-## What went badly
-
-- **Scope changed mid-engagement.** The reconciliation module was added in
-  week 6 following client discussion.
-- Oracle read replica access arrived nine days after the agreed date of
-  19 January, compressing early work.
-- Schema mapping sign-off took eleven working days against an agreed five.
-
-## Actions we are taking
-
-1. Client dependencies will carry a named owner, a date **and an escalation
-   trigger**. A date with no trigger is a wish.
-2. Change requests will be priced in writing before work starts, without
-   exception.
-3. Discovery for migrations will include a table-level count of the source
-   system rather than an estimate from documentation.
-
-## For phase 2
-
-We would like to discuss commercial structure before scoping. Our
-recommendation is time and materials with an agreed cap.`,
-    comments: [
-      {
-        content:
-          "Tomas — this says \"scope changed mid-engagement\" and stops there. The internal retro (issue #2) has us concluding that roughly four of the six weeks were self-inflicted: compressed discovery, and then absorbing the reconciliation module without a CR. I am not arguing we send Joris the internal version. I am arguing that anyone who reads only this document will draw the wrong lesson, including us in eighteen months.",
-        author: "Priya",
-        replies: [
-          "Tomas: Agreed, and it is my engagement so it is my omission. The compromise I would defend is that the Actions section is honest even though the causes section is not — every action listed is a fix for something we did. Someone reading only this still ends up in the right place. Barely.",
-          "Sam: Leave the client version as it stands. We are not writing our own indictment for a client we intend to sell phase 2 to. The internal issue is the record. That is what it is for.",
-        ],
-      },
-    ],
-  },
-  {
-    folder: "Clients/Halden Logistics",
-    title: "Halden — Weekly Status, Week 6",
-    md: `# Halden — weekly status
-
-**Week 6** — w/c 23 February 2026
-**To:** Joris van Dijk, Elke Sanders
-**From:** Tomas Lindqvist
-
-## Progress
-
-- Schema mapping complete for the booking and pricing domains
-- Migration tooling running end to end against the replica, reversible path
-  tested twice
-- Event pipeline scaffolded; first booking events flowing to the staging
-  pricing service
-
-## In flight
-
-- Reconciliation: picking this up following our conversation this week. Sizing
-  it now and will confirm impact in next week's status.
-- Historical load for 2019 onwards, in progress
+Point 3 is not a preference. It is what March cost us with them.
 
 ## Risks
 
-| Risk | Status |
-|---|---|
-| Schema sign-off turnaround | **Amber** — eleven working days against five agreed |
-| Source table count higher than scoped | Amber — 340 tables against ~120 implied |
-| Reconciliation scope | New this week |
+- Branding has been "on the roadmap" for three quarters. Issue #10 is open and
+  the draft PR is unmerged.
+- They were told the new app would arrive in early March and it arrived in
+  April. That conversation is in mail, not in any document here.
 
-## Asks of Halden
+## Commercials
 
-- Sign-off on the pricing domain mapping by Friday
-- Confirmation of who owns reconciliation acceptance
+Renewal in April. No competitive threat we know of, which is not the same as
+none.
+`,
+  },
+  {
+    folder: "Customers/Brightsmile",
+    title: "Incident Review — 17 March 2026",
+    md: `# Incident review — ${O.date}
+
+**Prepared for ${CUSTOMERS.brightsmile.name}. Customer-facing.**
+
+## What happened
+
+On 17 March 2026, beginning at ${O.start}, our payment provider stopped
+responding to our booking service. Booking and deposit handling were degraded
+for ${Math.floor(O.durationMinutes / 60)} hours and ${O.durationMinutes % 60}
+minutes.
+
+During the incident a number of patients were charged twice for the same
+appointment deposit. Across all customers, ${O.doubleCharges} duplicate charges
+occurred. All were refunded the same day.
+
+## What caused it
+
+Our provider timed out on the endpoint that receives payment confirmations, then
+re-sent the confirmations it had queued. Our service treated each re-sent
+confirmation as a new payment.
+
+## What we have changed
+
+- Every payment confirmation is now recorded before it is acted on, so a
+  re-sent confirmation has no effect. Deployed 19 March.
+- An alert now fires if any appointment is charged more than once within a day.
+  Against the 17 March timeline it would have fired four minutes in.
+
+## What we did not do well
+
+We learned about the duplicate charges from a practice, who learned about them
+from a patient. That is the wrong order and it is the change we care most about.
+
+Prepared by ${P.marta.name}, with ${P.ana.name}.
+`,
+    comments: [
+      {
+        author: P.sam.name,
+        content: `The last section stays exactly as written. I know it is uncomfortable and it is the only part of this document they will believe.`,
+        replies: [
+          `${P.marta.name}: Agreed. Joris said as much when I sent it — that the admission was why he read the rest.`,
+        ],
+      },
+      {
+        author: P.ana.name,
+        content: `Should this say 61 across all customers, or the number that affected Brightsmile specifically? They had 14.`,
+        replies: [
+          `${P.marta.name}: All customers. If we give them only their own number they will ask for the total, and it looks worse to have had it withheld than to have said it.`,
+        ],
+      },
+    ],
+  },
+  {
+    folder: "Customers/Brightsmile",
+    title: "Brightsmile — QBR Notes, June 2026",
+    md: `# Brightsmile QBR — June 2026
+
+Present: ${C.joris.name}, ${C.elke.name}, ${P.elena.name}, ${P.marta.name},
+${P.luca.name}.
+
+## Their numbers
+
+No-show rate 5.9%, up from 4.8% in December. They raised this and we did not
+have a good answer — see issue #11, which is open and confounded.
+
+Booking volume up 11% quarter on quarter. They opened two practices.
+
+## What they asked for
+
+1. **Per-clinic branding.** Third quarter running. Joris asked, in the same
+   sentence, whether they could set a brand once and apply it to a group of
+   practices. That detail matters and is recorded in issue #10.
+2. Export of their own patient list without asking us. Currently a support
+   ticket.
+3. An earlier warning when a release is coming, "so we can tell our practices".
+
+## What we said
+
+Branding is being worked on and we did not give a date. Export is on the list.
+On releases we agreed to tell them two weeks ahead, which we have not yet done
+for any release.
+
+## Tone
+
+Warm. Joris raised the app timing twice, both times lightly, both times as a
+joke. He has not forgotten that it was promised in March.
+`,
+  },
+
+  // ================================================== Customers / Clearview
+  {
+    folder: "Customers/Clearview",
+    title: "Clearview Dental — Churn Review",
+    md: `# Churn review — ${CUSTOMERS.clearview.name}
+
+${CUSTOMERS.clearview.clinics} clinics, ${CUSTOMERS.clearview.plan} plan,
+customer since ${CUSTOMERS.clearview.since}.
+EUR ${FACTS.clearview.arrEur} annual.
+
+Notice given ${FACTS.clearview.noticeGiven}, effective
+${FACTS.clearview.effective}.
+
+**Reason recorded: ${FACTS.clearview.driveReason}.**
+
+## Detail
+
+${C.harriet.name} declined the Group tier in April and said the Practice tier
+was already at the top of what six clinics could justify. When notice came in
+June, price was the reason we recorded.
+
+## Health signals we had
+
+The account's health score fell from 78 in January to 41 in May. The largest
+single drop is March.
+
+## What we would do differently
+
+Offer the annual discount earlier. A six-clinic practice paying monthly is
+paying about 12% more than they need to and nobody had told them.
+
+## Actions
+
+- [ ] Elena to review pricing for accounts under ten clinics
+- [ ] Offboarding and data export by 31 August
+`,
+    comments: [
+      {
+        author: P.marta.name,
+        content: `This says price. Their notice email says the March outage and the way it was handled, and spends two of three paragraphs on it. I do not think we can file this as price.`,
+        replies: [
+          `${P.elena.name}: Price is what Harriet told me in April, and it is what I recorded. I am not going to write down a reason I was not given.`,
+          `${P.marta.name}: Then the document should say both, and say which of us heard which. Recording only the earlier one makes the later one disappear.`,
+          `${P.sam.name}: Both, with attribution. And note the health score was falling from January, which is before either explanation.`,
+        ],
+      },
+      {
+        author: P.rahul.name,
+        content: `For the record: Harriet also names the refund taking nine days. That is issue #7 and we changed the policy afterwards, but she did not know that.`,
+      },
+    ],
+  },
+
+  // ============================================================== Product
+  {
+    folder: "Product",
+    title: "Android 4.2 — Release Notes",
+    md: `# Arkind ${R.version} — Android
+
+Released ${R.actual}.
+
+## What's new
+
+**Offline booking.** The app now works without a connection. Bookings taken in
+a treatment room with no signal are saved on the device and applied
+automatically when you are back online. If a slot was taken while you were
+offline, the app tells you rather than guessing.
+
+**Patient search by phone number.** Type a number the way the caller display
+shows it and the patient comes up.
+
+**Faster diary.** The day view loads about twice as quickly on older devices.
+
+## Fixed
+
+- The app no longer closes if the connection drops while you are booking.
+- Reminders now use each clinic's local time.
+- Two members of staff can no longer confirm the same appointment slot.
+
+## A note on timing
+
+This release arrived later than we indicated. **The delay was caused by App
+Store review.** We are sorry for the wait, and we are looking at how we give
+practices more warning of release dates in future.
 
 ---
 
-*Note added by Priya, 9 June 2026, while assembling the retro pack: this status
-is the only place the reconciliation module is described as "picking this up",
-and no change request followed. The impact promised "next week" was never sent
-as a separate note.*`,
+Questions to your account manager or support@arkind.example.
+`,
     comments: [
       {
-        content:
-          "This is the document that answers whether Halden were told. They were told we were picking it up. They were never told what it would cost, and we never asked. Both of those are ours.",
-        author: "Priya",
+        author: P.luca.name,
+        content: `Wording on the timing note — I have gone with "App Store review". Four hundred practices do not know there was a March date and "we rewrote our sync layer twice" is not information to them, it is anxiety.`,
         replies: [
-          "Tomas: Correct, and it is worse than it looks — \"will confirm impact in next week's status\" is a commitment I made and did not keep. Week 7's status does not mention reconciliation at all.",
+          `${P.tomas.name}: Review took four days of thirty-five. I am not going to argue about how much detail customers need, but that sentence is not true.`,
+          `${P.luca.name}: Fair. "Took longer than we planned" would have cost nothing and I should have written that.`,
+          `${P.priya.name}: Leaving it as it went out, since it went out. The accounting is in issue #8 and that is where anyone internal should be reading it.`,
+        ],
+      },
+      {
+        author: P.marta.name,
+        content: `Support view: expect login tickets. The upgrade drops the stored session on Android and staff will think their password changed. We should say so here rather than answer it four hundred times.`,
+        replies: [
+          `${P.luca.name}: Missed this before publishing. It is exactly what happened — see issue #17.`,
         ],
       },
     ],
   },
   {
-    folder: "Clients/Halden Logistics",
-    title: "Halden Phase 2 — Proposal Draft",
-    md: `# Halden phase 2 — proposal draft
+    folder: "Product",
+    title: "Roadmap H2 2026",
+    md: `# Roadmap — H2 2026
 
-**Status: DRAFT — not sent.** Owner: Tomas Lindqvist, with Sam Whitfield on
-commercials. Internal discussion is issue #18.
+Not a commitment. Three engineering teams, one of which is two people.
 
-## What Halden are asking for
+## Agreed
 
-Decommissioning of the Oracle instance, the customs declaration module, and
-historical data before 2019 — all three explicitly excluded from phase 1.
+**Reporting replica.** The primary's slow log is filling with reporting
+queries. Platform, Q3. Postgres version is issue #21 and is not interesting.
 
-## Why this is not phase 1 again
+**Patient export, self-service.** Currently a support ticket. Brightsmile and
+Northgate have both asked. Product + Platform, Q3.
 
-Phase 1 was fixed price at €412,000 across a planned fourteen weeks, and closed
-six weeks late at €118,000 over against an €82,400 contingency. The causes are
-in the retro. The commercial lesson is narrower than the delivery lesson: we
-priced a migration off a system we could not inspect until week one.
+**Upgrade testing from the previous store build.** Cheap, and it would have
+caught the 4.2 login problem. Mobile, Q3.
 
-The customs declaration module is the same shape. We have never seen it. Halden's
-own documentation of it is, by their admission, out of date.
+## Competing for the same two people
 
-## Recommended structure
+- Per-clinic branding (#10) — largest customer, asked three quarters running
+- Reminders onto a queue (#12) — two credible positions, unresolved
+- Third sync rewrite (#9) — proposed, not funded
 
-**Time and materials with a cap**, three-week paid discovery first, and the cap
-set after discovery rather than before it.
+These three cannot all happen. H2 planning decides.
 
-## The risk of proposing this
+## Unowned
 
-Halden chose us on phase 1 partly on a fixed price, against a competitor who
-also quoted fixed. Joris has said he prefers the certainty. There is a real
-chance this loses us the work.`,
+**Accessibility audit before the NHS pilot.** WCAG 2.2 AA on everything
+patient-facing, evidenced externally. September date, EUR 6–9k, four to six
+weeks of calendar time. **No name against it.** Issue #20.
+
+## Not doing
+
+Apple Wallet passes (#22). Free tier (#18) — argued, unresolved, and not on
+this list until it is.
+`,
     comments: [
       {
-        content:
-          "Fixed price again on a module we have never seen would be the same mistake with better notes. T&M with a cap, or we walk. I would rather lose phase 2 than run another Halden.",
-        author: "Sam",
+        author: P.elena.name,
+        content: `The accessibility line has been unowned since April. It is a gate on the pilot, not a nice-to-have — a gate does not move because we were busy.`,
         replies: [
-          "Priya: Agreed on structure. But we should be honest with Joris about why the terms changed, and the honest answer involves telling him that a good part of phase 1's overrun was ours. We cannot use \"scope changed\" as the reason for the overrun and then demand T&M because the scope is unknowable.",
-          "Tomas: That is the sharpest version of the problem and I do not have an answer to it. Parking until we have the phase 2 kickoff date.",
+          `${P.luca.name}: Agreed, and I am not the owner: Design can do the internal pass and cannot commission or pass an external audit.`,
+          `${P.sam.name}: Then it is mine until H2 planning. Putting my name on it here so it stops being nobody's.`,
         ],
       },
     ],
   },
   {
-    folder: "Clients/Verity",
-    title: "Verity — Discovery Findings",
-    md: `# Verity — discovery findings
+    folder: "Product",
+    title: "Pricing and Plans",
+    md: `# Pricing and plans
 
-**Engagement:** notification service extraction
-**Discovery:** three weeks, ran to time. Owner: Luca Bianchi.
+Per clinic, per month, billed monthly. Annual is 12% less and is not advertised
+well enough.
 
-Three weeks, as the playbook requires for anything with a migration or an
-extraction in it. This is the first engagement since Halden where discovery was
-not compressed, and the difference is visible in how few surprises this document
-contains.
-
-## The system
-
-Rails monolith, first commit 2011. Notifications are not a module; they are a
-pattern repeated in 34 places, six of which write directly to the delivery
-table without going through the mailer at all.
-
-Counted, not estimated: **34 call sites, 6 direct writers, 11 notification
-types, 2 templating systems.**
-
-## What makes this hard
-
-1. The six direct writers have no tests and one of them is inside a nightly job
-   nobody at Verity currently owns.
-2. Two templating systems, one of which is a fork of a gem abandoned in 2017.
-3. Verity's own team is building a new preferences service against the same
-   tables, concurrently.
-
-## Recommendation
-
-Strangler fig, not a rewrite behind a facade. The nightly job is the deciding
-argument: we cannot safely cut over something nobody owns, so we need the
-ability to run both paths in parallel and compare output for a full billing
-cycle.
-
-This is contested — see issue #16. Karan's position is that the fork makes the
-strangler approach more expensive than it looks.
-
-## Access
-
-Verity restrict access to their production environment to named individuals
-and it took eleven days to add Ana in June. Factor that into any staffing
-change: adding a person is not free and it is not fast.`,
-  },
-
-  // ----------------------------------------------------------------- roadmaps
-  {
-    folder: "Roadmaps",
-    title: "Data and Platform — H2 2026 Roadmap",
-    md: `# Data & Platform — H2 2026
-
-Owner: Tomas Lindqvist. Reviewed with Sam and Priya, 20 June 2026.
-
-This is a capacity plan wearing a roadmap's clothes. The practice is eleven
-people and two of the four items below need the same three.
-
-## Committed
-
-| Q | Item | Client | Confidence |
-|---|---|---|---|
-| Q3 | Halden phase 2 discovery | Halden | Medium — commercials unresolved |
-| Q3 | Verity warehouse foundations | Verity | High |
-| Q4 | Halden phase 2 delivery | Halden | Low — depends on discovery |
-
-## Internal, unfunded
-
-- **Migration tooling as a product.** The reversible tooling built for Halden
-  is the thing clients ask about most in sales conversations and it currently
-  exists as a folder in one engagement repository. Packaging it is maybe four
-  weeks and has been on this roadmap in some form since 2024.
-- **Discovery table-count automation.** The rule that came out of the Halden
-  retro is currently a human counting tables. It should be a script. Half a
-  week, and it keeps being displaced by billable work.
-
-## The September problem
-
-September is oversubscribed on current assumptions and has been flagged since
-May as issue #3. Halden phase 2 delivery and Verity foundations both want Dev
-and Marta. If Halden phase 2 lands on the dates Joris wants, something gives,
-and the honest options are: hire, subcontract, or tell Halden Q4.
-
-Sam's position is that we do not staff an engagement we cannot staff properly,
-which resolves the argument but does not resolve the September.`,
-  },
-  {
-    folder: "Roadmaps",
-    title: "Internal Tooling Roadmap 2026",
-    md: `# Internal tooling — 2026
-
-Owner: Sofia Almeida. This roadmap is funded out of the 8% non-billable
-allocation and slips whenever billable work needs the people, which is most
-quarters. It is stated here rather than pretended away.
-
-## Shipped this year
-
-- **Engagement scaffold.** One command produces the repository, the README with
-  client contact and escalation path, the status template and the retro stub.
-  Adoption is total because the alternative is doing it by hand.
-- **Pre-commit secret scanning**, mandatory on client repositories since March.
-  Written after a credential reached a client's history in 2025.
-
-## In progress
-
-- **Access register automation.** The register in Access and Security is a
-  document maintained by hand and is already wrong in at least one place — the
-  Halden Oracle owner is listed as Elke, and Elke left Halden in April.
-  Target: read the real state from each provider rather than restate it.
-
-## Wanted, unscheduled
-
-- Weekly status assembly from the engagement repository, so that a status is
-  generated from what happened rather than remembered on a Friday afternoon.
-- Utilisation reporting that does not live in a spreadsheet Priya maintains.
-- A search tool that can answer a question across the repository, Drive and
-  mail at once. Currently a person, and usually Priya.`,
-  },
-  {
-    folder: "Roadmaps",
-    title: "Verity Extraction — Phased Plan",
-    md: `# Verity — notification extraction, phased plan
-
-Owner: Luca Bianchi. Version 3, 1 July 2026. Supersedes the version circulated
-in May, which assumed a clean cutover.
-
-## Phase 0 — parallel run harness (3 weeks)
-
-Build the comparison harness before touching anything. Both paths run, output
-is compared for one full billing cycle, differences are logged rather than
-alerted on. Nothing is cut over in this phase and that is deliberate.
-
-## Phase 1 — the 28 clean call sites (5 weeks)
-
-Route through the new service behind a flag, in batches by notification type.
-Reversible per type.
-
-## Phase 2 — the 6 direct writers (6 weeks, low confidence)
-
-The hard part. No tests, one owned by nobody, and the nightly job is the reason
-the whole plan is strangler-fig rather than a rewrite. Estimate is a guess
-until the harness has run for a cycle, and it is labelled a guess on purpose.
-
-## Phase 3 — templating consolidation (unscoped)
-
-Two systems, one a fork of a gem abandoned in 2017. Explicitly out of scope for
-this engagement. Naming it here so that it is not mistaken for something we
-agreed to.
-
-## Dependencies on Verity
-
-| Dependency | Owner | Note |
+| Plan | EUR / clinic / month | Includes |
 |---|---|---|
-| Production access for named individuals | Verity IT | Eleven days for Ana in June. Assume two weeks. |
-| Owner for the nightly job | Verity, unresolved | **Escalation trigger: if unnamed by end of phase 0, phase 2 does not start.** |
-| Preferences service interface freeze | Verity platform | Their team, same tables |
+${FACTS.pricing.tiers.map((t) => `| ${t.name} | ${t.eurPerClinicMonth} | ${t.includes} |`).join("\n")}
 
-That escalation trigger is the Halden lesson written down. A dependency with a
-date and no trigger is simply late.`,
+## Deposits
+
+${FACTS.pricing.depositModel}. Available on Practice and Group.
+
+Whether a percentage is the right model at all is issue #15: a EUR 900 implant
+takes a EUR 90 deposit and that is the one patients ring the practice about.
+Open, unresolved, and dentists and physios want different answers.
+
+## What we do not have
+
+No free tier. Argued regularly, most recently issue #18, and the argument
+always ends at the same place: nobody can produce a conversion number because
+we have never had one.
+
+No per-seat pricing. Clinics have unpredictable staff counts and charging per
+receptionist would punish the practices that share cover.
+
+## Discounts
+
+Annual, 12%. Anything else is Sam.
+`,
+  },
+  {
+    folder: "Product",
+    title: "Feature Request Log",
+    md: `# Feature request log
+
+Counted by number of distinct customers asking, not by how loudly.
+
+| Request | Clinics | Status |
+|---|---|---|
+| Search patients by phone number | 31 | **Shipped**, May 2026 (#6) |
+| Per-clinic branding | 12 | Open (#10), draft PR unmerged |
+| Self-service patient export | 9 | Roadmap H2 |
+| Two-way calendar sync | 8 | Declined — see \`docs/integrations.md\` |
+| Waiting list / auto-fill cancellations | 7 | Not started |
+| Recurring appointments | 6 | Not started |
+| Deposit as a flat fee | 5 | Argued in #15, unresolved |
+| SMS in Portuguese | 4 | Not started |
+| Wallet passes | 0 | Proposed internally (#22). Nobody has asked. |
+
+## How this list is used
+
+Badly, historically. It informs H2 planning and nothing else, and there is no
+route from "twelve clinics asked" to "an engineer is working on it" that does
+not go through a quarterly conversation.
+
+The waiting-list request is the one worth reading twice: seven clinics, all
+independently describing the same thing, and it addresses the no-show rate that
+Brightsmile raise every quarter.
+`,
   },
 
-  // -------------------------------------------------------------- people & hr
+  // ======================================================== People and HR
   {
     folder: "People and HR",
-    title: "HR — Leave Policy 2026",
+    title: "Leave Policy 2026",
     md: `# Leave policy 2026
 
-Owner: Meera Iyer. Effective 1 January 2026. **Supersedes
-\`handbook/leave.md\` in the internal repository, which has not been updated
-and still states the 2024 carry-over rule.**
+**Updated ${FACTS.leave.driveUpdated}. This supersedes the leave section in the
+engineering handbook.**
 
-## Annual leave
+25 days a year plus public holidays for your site, pro rata in your first year.
 
-30 days, plus public holidays in your base location. Leave is not accrued
-monthly; the full entitlement is available from 1 January, or pro rata from
-your start date.
+Book it in the HR system and tell your team lead. There is no approval queue.
 
 ## Carry-over
 
-**Up to 10 days may be carried into the next year, and must be used by 31 March.**
+**Up to ${FACTS.leave.driveCarryOverDays} days may be carried into the next
+year, and carried days must be used by ${FACTS.leave.driveDeadline}.**
 
-This is the number that changed. The old handbook says 5 days with no deadline.
-If you have been planning against 5, you have more than you think; if you have
-been sitting on 12, you will lose 2.
+This changed in January 2026. It was previously five days with no deadline. The
+deadline is the part people miss.
 
-## Unpaid leave and sabbatical
-
-After two years, up to three months unpaid, subject to engagement commitments.
-Discuss with your practice lead before Meera — the constraint is almost always
-staffing rather than policy.
+Anything above ${FACTS.leave.driveCarryOverDays} days is lost at the end of
+December.
 
 ## Sick leave
 
-Not counted and not tracked against a limit. Tell your lead, not People. We have
-never had a problem with this and would rather not create a policy that assumes
-we will.
+Tell your lead, and do not work. No cap, not counted.
 
 ## Parental leave
 
-26 weeks at full pay for the primary carer, 8 weeks for the secondary carer,
-in both locations regardless of statutory minimum. Notify Meera at least eight
-weeks before the intended start where that is possible.`,
+Six months at full pay for the primary carer, twelve weeks for the secondary,
+both sites. Tell People three months ahead where you can.
+
+## On-call
+
+There is no time off in lieu for on-call, and there is no on-call pay. Both have
+been raised (issue #13) and neither has been decided.
+`,
     comments: [
       {
-        content:
-          "The carry-over number here (10 days, expiring 31 March) contradicts handbook/leave.md in the GitHub repo, which still says 5 with no deadline. Both are reachable and neither points at the other. Two people have already planned against the wrong one.",
-        author: "Meera",
+        author: P.nadia.name,
+        content: `The handbook in the repository says five days and no deadline. Which one is right? I have been reading that one since I joined.`,
         replies: [
-          "Ravi: The handbook copy should be deleted rather than updated, otherwise we will be maintaining two. One of them will drift again.",
-          "Priya: Deleting it silently is worse — anyone who has bookmarked it gets a 404 with no explanation. Replace the body with a pointer to this document and the date it moved.",
+          `${P.meera.name}: This one. The handbook page is from 2024 and I did not know it was still there.`,
+          `${P.ravi.name}: It is still there, and it is the first hit if you search the repository for "carry over". Somebody should delete it.`,
+          `${P.meera.name}: Adding it to my list. Nothing has been deleted yet, which is a running theme.`,
         ],
       },
     ],
   },
   {
     folder: "People and HR",
-    title: "HR — Compensation Bands 2026",
+    title: "Compensation Bands 2026",
     md: `# Compensation bands 2026
 
-Owner: Meera Iyer, with Sam Whitfield. Reviewed annually in November, effective
-1 January.
+Bands are global, adjusted by site factor. Reviewed annually in January.
 
-Bands are published internally because the alternative is that people find out
-the shape of the ladder by accident, usually while resigning.
-
-## Bands
-
-| Band | Role | Lisbon (EUR) | Bengaluru (INR lakh) |
+| Band | Role | EUR base (Lisbon) | Site factor, Bengaluru |
 |---|---|---|---|
-| 1 | Consultant | 42,000 – 55,000 | 18 – 26 |
-| 2 | Senior Consultant | 55,000 – 72,000 | 26 – 38 |
-| 3 | Lead / Principal Consultant | 72,000 – 95,000 | 38 – 55 |
-| 4 | Practice Lead | 95,000 – 125,000 | 55 – 75 |
+| 1 | Engineer | 42,000 – 55,000 | 0.55 |
+| 2 | Engineer, senior | 55,000 – 72,000 | 0.55 |
+| 3 | Lead | 70,000 – 88,000 | 0.60 |
+| 4 | Head of / VP | 88,000 – 115,000 | 0.65 |
 
-Location bands reflect local market and cost, not a judgement about the work.
-The ratio is reviewed every year and was widened in 2025 after the Bengaluru
-market moved.
+## Principles
 
-## How movement works
+- The band is set by the role, not by what someone earned before.
+- Nobody is hired below the band minimum, including in their first job.
+- The site factor is a market adjustment and it is uncomfortable. It is written
+  here rather than left implicit, because an unwritten factor is worse.
 
-Band changes happen at the November review, or on promotion at any time. There
-is no separate negotiation cycle and no mechanism by which asking loudly moves
-you faster — that is the point of publishing the bands.
+## Review
 
-## Bonus
-
-There is no individual bonus scheme. A company-wide profit share is paid in
-March when the year allows it, at the same percentage of salary for everyone.
-2026 paid 4%. 2025 paid nothing, because Halden's overrun and one other
-engagement consumed the margin.
+January. Out-of-cycle changes need Sam and are for role changes only, not for
+counter-offers.
 
 ## What is not in a band
 
-Travel, which is reimbursed rather than compensated. Equipment. Conference
-budget, which is €1,500 a year and is not means-tested against your band.`,
+On-call pay, because there isn't any. Equity, which is separate and individual.
+`,
   },
   {
     folder: "People and HR",
-    title: "HR — Performance Review Cycle",
-    md: `# Performance and review
+    title: "Employee Directory",
+    md: `# Directory
 
-Owner: Meera Iyer. Last reviewed 5 May 2026.
+${DEPARTMENTS.map(
+  (d) => `## ${d.name} — ${d.size} ${d.size === 1 ? "person" : "people"}\n\n${
+    STAFF.filter((p) => p.dept === d.name)
+      .map((p) => `- **${p.name}** — ${p.role}, ${p.site}`)
+      .join("\n") || "_No named contacts in this document._"
+  }`,
+).join("\n\n")}
 
-## The cycle
+---
 
-One formal review a year, in November, feeding the January band effective date.
-One lighter check-in in May. Everything else is the ordinary conversation with
-your lead, which is where the actual feedback lives.
+Total headcount ${DEPARTMENTS.reduce((n, d) => n + d.size, 0)} across Bengaluru
+and Lisbon. Full detail, including start dates and reporting lines, is in
+Headcount & Org 2026.
 
-## What is assessed
-
-Three things, weighted equally:
-
-1. **The work.** Did engagements you were on go well, and were you part of why.
-2. **The client.** Would they ask for you by name.
-3. **The company.** Playbooks, retros, onboarding, the parts nobody bills for.
-
-The third one is real and is the most commonly under-claimed. Writing the
-discovery table-count rule into the playbook after Halden counted for more in
-Dev's review than any of the migration work did.
-
-## Who writes it
-
-Your practice lead, with input from every engagement lead you worked under that
-year. You write a self-assessment first and it is genuinely read first.
-
-## Disagreement
-
-Take it to Meera, and it is escalated to Sam if unresolved. This has happened
-twice and the outcome changed once.
-
-## Leaving
-
-Exit conversations are with Meera, not your lead, and what is said is not
-attributed. The offboarding checklist in Access and Security is separate and
-is mandatory — Nomura Park access was still live four months after that
-engagement closed, and that is what the checklist exists to prevent.`,
-  },
-  {
-    folder: "People and HR",
-    title: "Employee Directory 2026",
-    md: `# Directory — 2026
-
-Owner: Meera Iyer. Internal only. Do not share outside Arkind; it is not
-published on the site and half of it is personal contact detail.
-
-Forty-one people. Bengaluru and Lisbon. Started 2019.
-
-## Leadership
-
-| Name | Role | Base | Started |
-|---|---|---|---|
-| Sam Whitfield | Principal, commercials | Lisbon | 2019 |
-| Priya Raghunathan | Delivery Principal | Bengaluru | 2020 |
-| Meera Iyer | Head of People | Bengaluru | 2021 |
-
-## Data & Platform
-
-| Name | Role | Base | Started |
-|---|---|---|---|
-| Tomas Lindqvist | Practice Lead | Lisbon | 2019 |
-| Dev Bhattacharya | Senior Engineer | Bengaluru | 2021 |
-| Ana Ferreira | Consultant | Lisbon | 2023 |
-| Rahul Desai | Senior Consultant | Bengaluru | 2022 |
-| Marta Nowak | Consultant, cutover | Lisbon | 2024 |
-
-## Product Engineering
-
-| Name | Role | Base | Started |
-|---|---|---|---|
-| Luca Bianchi | Practice Lead | Bengaluru | 2020 |
-| Karan Shah | Senior Engineer | Bengaluru | 2021 |
-| Sofia Almeida | Platform and CI | Lisbon | 2022 |
-| Wei Zhang | Engineer, queues | Bengaluru | 2023 |
-| Nadia Okonkwo | Consultant | Lisbon | June 2026 |
-
-## Operations
-
-| Name | Role | Base | Started |
-|---|---|---|---|
-| Ravi Menon | IT and Systems | Bengaluru | 2020 |
-
-## Who to ask for what
-
-Payroll, leave, anything personal — Meera Iyer.
-Access to anything, internal or client — Ravi Menon, via the Access Register.
-Whether we should take a piece of work — Sam Whitfield.
-Whether an engagement is in trouble — Priya Raghunathan, and earlier than feels
-comfortable.`,
+Contact anyone at firstname.lastname@arkind.example. Support requests go to
+support@arkind.example rather than to an individual — a named person on holiday
+is how a clinic waits three days.
+`,
   },
 
-  // ------------------------------------------------------- access and security
+  // ============================================================== Support
   {
-    folder: "Access and Security",
-    title: "Access Register — Systems, Owners and How to Request",
-    md: `# Access register
+    folder: "Support",
+    title: "Refund Policy",
+    md: `# Refund policy
 
-Owner: Ravi Menon. Last reviewed 12 June 2026.
+**Customer-facing. This is the document Support quotes.**
 
-**Requests go through this register, not through Slack.** The register exists so
-that there is a record of who asked, who approved and when it was granted —
-which is the same record we need at offboarding. A Slack message is not a record.
+## Deposits
 
-## How to request
+A patient who cancels more than 24 hours before their appointment is refunded
+automatically. Inside 24 hours it is the clinic's decision, and the clinic can
+refund from the diary with one tap.
 
-1. Find the system below and its approver.
-2. Mail Ravi Menon with the system, the reason, and the engagement it is for.
-   Copy the approver.
-3. The approver replies to that thread. Approval in a thread is the audit trail.
-4. Ravi grants and notes the date here.
+**Refunds arrive within ten working days.** This was previously five. It was
+changed in April 2026 because five was not a promise we met — our payment
+provider pays out on a T+3 to T+5 schedule and the patient's bank adds its own
+time. Ten is slower and true.
 
-Client systems additionally need the client's own approval and that is the part
-that takes time. **Ask on the day you are staffed, not the day you need it.**
+## Subscription fees
 
-## Internal systems
+Charged monthly in advance. No pro-rata refund for a partial month on
+cancellation; notice takes effect at the end of the paid period.
 
-| System | Approver | Typical wait |
-|---|---|---|
-| Google Workspace | Meera Iyer | same day |
-| GitHub org (arkind) | Ravi Menon | same day |
-| AWS sandbox | Ravi Menon | same day |
-| 1Password | Meera Iyer | same day |
-| Datadog | Ravi Menon | same day |
-| Payroll system | Meera Iyer only | not delegated |
+## Outages
 
-## Client systems
+**Service interruptions are not refundable.** Our agreement does not carry a
+service credit clause and we do not offer one.
 
-| System | Arkind approver | Client approver | Observed wait |
-|---|---|---|---|
-| Halden — Oracle read replica | Tomas Lindqvist | Elke Sanders | **9 days** against an agreed date |
-| Halden — AWS eu-west-1 | Tomas Lindqvist | Joris van Dijk | 3 days |
-| Verity — production | Luca Bianchi | Verity IT, named individuals only | **11 days** (Ana, June 2026) |
-| Verity — staging | Luca Bianchi | Verity IT | 2 days |
-| Nomura Park — all | closed engagement | — | revoked June 2026 |
+Where an incident has caused a practice direct loss, that is a conversation with
+their account manager rather than a refund, and it is Sam's decision.
 
-The observed-wait column is real history rather than a service level. It is here
-because engagement plans keep assuming access is instant, and the Halden retro
-has a nine-day dependency slip in it that was entirely foreseeable.
+## Who can authorise what
 
-## Revocation
-
-At engagement close, the lead runs the offboarding checklist within five working
-days. Nomura Park access was live four months after close and was found by
-accident, not by process.`,
+| | Who |
+|---|---|
+| Deposit refund | Any support agent, immediately |
+| Subscription credit | Elena or Sam |
+| Anything described as compensation | Sam |
+`,
     comments: [
       {
-        content:
-          "Elke Sanders left Halden in April 2026 and is still listed as the client approver for the Oracle replica. If anyone follows this register for Halden phase 2 they will mail an address that bounces. This is exactly the failure mode the automation item on the tooling roadmap is meant to remove.",
-        author: "Ravi",
+        author: P.rahul.name,
+        content: `We gave Clearview a full month's credit after March. That is not in this document and it is the kind of thing a practice tells another practice.`,
         replies: [
-          "Tomas: Joris is the approver for everything Halden now. I will confirm the replacement DBA name at the phase 2 kickoff rather than guess it here.",
+          `${P.marta.name}: I authorised it and I would do it again — they had a patient charged twice and heard about it from the patient. But Rahul is right that the document and the behaviour do not match.`,
+          `${P.sam.name}: The document is the boundary and I approved the exception. What we should not do is make the exception quietly and leave the next agent guessing. If we would do it again, it belongs in here.`,
+          `${P.marta.name}: Then it needs a "goodwill" section with who can authorise it. Not written yet.`,
         ],
       },
     ],
   },
   {
-    folder: "Access and Security",
+    folder: "Support",
+    title: "Escalation Playbook",
+    md: `# Escalation playbook
+
+## Before escalating
+
+Reproduce it, or establish that you cannot. Collect the clinic name, the booking
+id, what the customer saw, and when — to the minute if it involves a reminder or
+a payment.
+
+A screenshot of a screenshot is not a report.
+
+## Severity, from the customer's side
+
+**SEV1** — they cannot take bookings, or money is wrong. Page on-call. Tell the
+customer something within 30 minutes.
+**SEV2** — degraded, or a feature is down for them. Working hours, named
+engineer today.
+**SEV3** — one clinic, cosmetic, or has a workaround. Ticket.
+
+Money is always SEV1 even for one patient. It is the only thing we do that a
+practice cannot undo themselves.
+
+## Who
+
+| Area | First |
+|---|---|
+| Booking, availability, diary | ${P.dev.name} |
+| Reminders, SMS | ${P.wei.name} |
+| Payments, deposits, refunds | ${P.ana.name} |
+| Mobile app | ${P.tomas.name} |
+| Access, logins | ${P.ravi.name} |
+
+Then ${P.priya.name} in every case.
+
+## During an incident
+
+Support owns the customer, the incident lead owns the fix. Updates every 30
+minutes even when there is nothing to say, because silence reads as "it is worse
+than they are admitting".
+
+## After
+
+If the customer asks for a written review, Support writes it and Engineering
+signs it off. The customer-facing version says less than the internal one and
+must not say anything untrue. That line is the whole job — see the March review.
+`,
+  },
+
+  // ==================================================== Security and Access
+  {
+    folder: "Security and Access",
+    title: "Access Register",
+    md: `# Access register
+
+Maintained by ${P.ravi.name}. This is the record; if a grant is not here, it did
+not happen.
+
+| System | Owner | Approvers | Standing access |
+|---|---|---|---|
+| Production database | ${P.sofia.name} | Two, one must be a lead | **None.** Time-boxed, 24 hours. |
+| Production servers | ${P.sofia.name} | ${P.priya.name} | Infrastructure only |
+| Payment provider dashboard | ${P.ana.name} | ${P.sam.name} | Payments team |
+| SMS provider | ${P.wei.name} | ${P.priya.name} | Platform team |
+| GitHub organisation | ${P.ravi.name} | Team lead | All engineers |
+| AWS sandbox | ${P.ravi.name} | Team lead | All engineers |
+| HR system | ${P.meera.name} | ${P.meera.name} | People team |
+| Customer accounts (admin view) | ${P.marta.name} | ${P.marta.name} | Support team |
+
+## Rules
+
+Named individuals only. No shared accounts, no service account handed to a
+person, and no standing production access for anyone including leadership.
+
+A production grant is 24 hours and expires by itself. If you need it again, ask
+again — that is deliberate friction.
+
+## Requests
+
+To Ravi, in writing, with the reason. "I need to check something" is not a
+reason. "I am debugging INC-2026-03-17 and need to read payment_events" is.
+
+## Reviews
+
+Quarterly. The last one found four grants outstanding for a customer who left in
+February, which is the reason the retention question (#16) got asked at all.
+`,
+  },
+  {
+    folder: "Security and Access",
     title: "Offboarding Checklist",
-    md: `# Offboarding checklist
+    md: `# Offboarding
 
-Owner: Ravi Menon. Mandatory. Applies to two different events that are often
-confused: **a person leaving Arkind**, and **an engagement closing**. Both leak
-access, and the second one is the one we got wrong.
+Owned jointly by People and IT. Day one means the last working day, not later.
 
-## When an engagement closes
+## Day one
 
-Run by the engagement lead within five working days of the close date.
+- [ ] Google account suspended, not deleted (mail is retained for six months)
+- [ ] GitHub organisation removed
+- [ ] AWS, staging and any production grant revoked
+- [ ] Payment provider and SMS provider, if they had access
+- [ ] Customer admin view removed
+- [ ] Laptop returned or wiped remotely
+- [ ] On-call rota updated — this one gets missed
 
-- [ ] Client production and staging access revoked for every Arkind person
-- [ ] Client VPN and SSO accounts disabled, confirmed **by the client in
-      writing** rather than assumed
-- [ ] Shared credentials rotated, including any the client gave us verbally
-- [ ] Arkind laptops carrying client data wiped of it, confirmed per person
-- [ ] Engagement repository archived, README updated with the close date
-- [ ] Retro filed — both versions
-- [ ] Access Register updated to show the engagement as closed
+## Within a week
 
-Nomura Park closed in February 2026 and our access was still live in June. It
-was found by a member of the team noticing a dashboard still loaded, which is
-not a control. Issue #7 in the internal repository is the write-up.
+- [ ] Access Register updated
+- [ ] Anything they were the only approver for reassigned
+- [ ] Handover doc linked from their team page
 
-## When a person leaves
+## Customer offboarding is a different document
 
-Run by Ravi with Meera, on the last working day.
+When a *customer* leaves, their data is a separate question and we do not
+currently have a good answer to it. See issue #16: no deletion job exists and
+nothing has ever been deleted. Do not quote a retention period to a customer,
+because we do not have one.
+`,
+  },
+];
 
-- [ ] Google Workspace suspended, not deleted, for 90 days
-- [ ] GitHub org membership removed and personal access tokens revoked
-- [ ] 1Password vaults removed and every shared credential they held rotated
-- [ ] AWS access keys deleted, not just deactivated
-- [ ] Client systems: every row in the Access Register naming that person
-- [ ] Laptop returned and wiped
-- [ ] Slack deactivated
+// ----------------------------------------------------------------- sheets
+//
+// Spreadsheets, created through the Drive connection and nothing else.
+//
+// Passing `application/vnd.google-apps.spreadsheet` as the mime type to
+// GOOGLEDRIVE_CREATE_FILE_FROM_TEXT makes Drive convert the CSV on the way in,
+// so these are real Sheets: Drive's full-text index reaches the cells, and
+// GOOGLEDRIVE_EXPORT_GOOGLE_WORKSPACE_FILE reads them back as CSV. Measured
+// 2026-08-17 — declaring `text/csv` instead stores a plain file that export
+// then refuses.
+//
+// There is therefore no `googlesheets` toolkit, no fourth auth config and no
+// fourth connection.
+//
+// Sheets earn their place by answering what prose cannot: numbers compared
+// across rows. "Did tickets spike after 4.2" is a spreadsheet question, and its
+// answer quantifies what issue #17 only asserts.
 
-## The rule underneath both
-
-Revocation is a task with an owner and a date, exactly like a client dependency.
-Anything else and it happens when somebody notices.`,
+export const SHEETS = [
+  {
+    folder: "Product",
+    title: "Release History 2026",
+    csv: `Release,Platform,Planned,Actual,Days late,Store submitted,Store approved,Store review days,Note
+4.0,Android + iOS,2026-01-16,2026-01-16,0,2026-01-13,2026-01-15,2,
+4.0.1,Android + iOS,2026-01-23,2026-01-23,0,2026-01-21,2026-01-22,1,Hotfix — diary crash on tablets
+4.1,Android + iOS,2026-02-27,2026-03-02,3,2026-02-26,2026-02-28,2,Slipped over a weekend
+${R.version},Android,${R.planned},${R.actual},${R.slipDays},${R.appStoreSubmitted},${R.appStoreApproved},${R.appStoreReviewDays},Offline sync — see issue #8
+4.2,iOS,2026-03-06,2026-04-14,39,2026-04-06,2026-04-13,7,Same codebase; iOS review took longer
+4.3,Android + iOS,2026-05-15,2026-05-19,4,2026-05-14,2026-05-16,2,Phone number search
+4.4,Android + iOS,2026-07-10,2026-07-10,0,2026-07-08,2026-07-09,1,
+Median,,,,0,,,2,Store review median across 2026: 2 days
+Note,,,,,,,,4.2 Android was ${R.slipDays} days late of which ${R.appStoreReviewDays} were store review`,
+  },
+  {
+    folder: "Customers",
+    title: "Customer Health and Churn Risk",
+    csv: `Customer,Clinics,Plan,Since,ARR EUR,Jan,Feb,Mar,Apr,May,Jun,Jul,Risk,Note
+${CUSTOMERS.brightsmile.name},${CUSTOMERS.brightsmile.clinics},${CUSTOMERS.brightsmile.plan},${CUSTOMERS.brightsmile.since},42720,84,83,71,68,74,79,81,Medium,Branding asked 3 quarters running
+${CUSTOMERS.clearview.name},${CUSTOMERS.clearview.clinics},${CUSTOMERS.clearview.plan},${CUSTOMERS.clearview.since},${FACTS.clearview.arrEur},78,74,52,44,41,38,,CHURNED,Notice ${FACTS.clearview.noticeGiven} effective ${FACTS.clearview.effective}
+${CUSTOMERS.northgate.name},${CUSTOMERS.northgate.clinics},${CUSTOMERS.northgate.plan},${CUSTOMERS.northgate.since},936,88,86,84,87,89,91,90,Low,
+${CUSTOMERS.meadow.name},${CUSTOMERS.meadow.clinics},${CUSTOMERS.meadow.plan},${CUSTOMERS.meadow.since},3204,81,80,49,66,78,84,86,Low,Dropped in March on the reminder timing bug then recovered
+Riverside Dental,4,Practice,2022-06,4272,79,80,77,75,78,80,79,Low,
+Oakfield Veterinary,2,Starter,2025-08,936,72,74,70,71,73,75,77,Low,
+Note,,,,,,,,,,,,,Health score falls before a customer says anything. Clearview was below 60 in March and nobody acted.`,
+  },
+  {
+    folder: "Support",
+    title: "Support Tickets by Month",
+    csv: `Month,Total,Booking,Reminders,Payments,Login and access,Other,Median first response hours,Note
+2026-01,${FACTS.support.monthlyTickets["2026-01"]},31,22,14,19,32,1.7,
+2026-02,${FACTS.support.monthlyTickets["2026-02"]},34,26,15,17,32,1.8,
+2026-03,${FACTS.support.monthlyTickets["2026-03"]},48,71,66,21,55,3.4,17 March incident — payments and reminders both
+2026-04,${FACTS.support.monthlyTickets["2026-04"]},52,38,29,198,85,4.9,4.2 shipped 10 April — login dominates
+2026-05,${FACTS.support.monthlyTickets["2026-05"]},44,31,22,79,57,2.6,Login tail continues
+2026-06,${FACTS.support.monthlyTickets["2026-06"]},39,28,18,34,57,2.0,
+2026-07,${FACTS.support.monthlyTickets["2026-07"]},37,27,16,25,56,1.9,
+Baseline,121,32,24,15,18,32,1.75,Jan-Feb average
+Note,,,,,,,,,April login tickets were 198 against a baseline of 18. Brightsmile alone opened 11.`,
+  },
+  {
+    folder: "People and HR",
+    title: "Headcount and Org 2026",
+    csv: `Department,Site,Headcount,Open roles,Note
+${DEPARTMENTS.map((d) => {
+  const open =
+    d.name === "Engineering — Mobile" ? 1 : d.name === "Customer Success & Support" ? 1 : 0;
+  const note =
+    d.name === "Engineering — Mobile"
+      ? "Two engineers carrying the app — see issue #19"
+      : d.name === "Engineering — Payments"
+        ? "Three people, one SEV1 category"
+        : d.name === "Customer Success & Support"
+          ? "April cost two people most of a month"
+          : "";
+  return `${d.name},${d.site},${d.size},${open},${note}`;
+}).join("\n")}
+Total,,${DEPARTMENTS.reduce((n, d) => n + d.size, 0)},2,Bengaluru ${DEPARTMENTS.filter((d) => d.site === "Bengaluru").reduce((n, d) => n + d.size, 0)} / Lisbon ${DEPARTMENTS.filter((d) => d.site === "Lisbon").reduce((n, d) => n + d.size, 0)} / split ${DEPARTMENTS.filter((d) => d.site === "both").reduce((n, d) => n + d.size, 0)}`,
+  },
+  {
+    folder: "Product",
+    title: "Pricing Tiers",
+    csv: `Plan,EUR per clinic per month,Annual EUR per clinic,Online booking,SMS reminders,Deposits,Reporting,Multi-site,API,Support
+${FACTS.pricing.tiers
+  .map(
+    (t) =>
+      `${t.name},${t.eurPerClinicMonth},${Math.round(t.eurPerClinicMonth * 12 * 0.88)},Yes,${
+        t.name === "Starter" ? "Email only" : "Yes"
+      },${t.name === "Starter" ? "No" : "Yes"},${t.name === "Starter" ? "No" : "Yes"},${
+        t.name === "Group" ? "Yes" : "No"
+      },${t.name === "Group" ? "Yes" : "No"},${t.name === "Group" ? "Priority" : "Standard"}`,
+  )
+  .join("\n")}
+Free,0,0,-,-,-,-,-,-,-
+Note,,,,,,,,,No free tier exists. The row above is the proposal argued in issue #18 and not agreed.
+Deposit model,,,,,,,,,${FACTS.pricing.depositModel} — issue #15 asks whether a percentage is right at all`,
+  },
+  {
+    folder: "People and HR",
+    title: "On-call Rota Q3 2026",
+    csv: `Week starting,Engineer,Site,Local hours,Pages received,Note
+2026-07-06,${P.dev.name},Bengaluru,11:30-02:30,3,
+2026-07-13,${P.sofia.name},Lisbon,06:00-21:00,1,
+2026-07-20,${P.wei.name},Bengaluru,11:30-02:30,4,Two after midnight local
+2026-07-27,${P.karan.name},Bengaluru,11:30-02:30,2,
+2026-08-03,${P.tomas.name},Bengaluru,11:30-02:30,0,
+2026-08-10,${P.ana.name},Lisbon,06:00-21:00,2,
+2026-08-17,${P.dev.name},Bengaluru,11:30-02:30,,Current
+2026-08-24,${P.ravi.name},Bengaluru,11:30-02:30,,
+2026-08-31,${P.sofia.name},Lisbon,06:00-21:00,,
+2026-09-07,${P.wei.name},Bengaluru,11:30-02:30,,
+2026-09-14,${P.karan.name},Bengaluru,11:30-02:30,,
+2026-09-21,${P.tomas.name},Bengaluru,11:30-02:30,,
+2026-09-28,${P.ana.name},Lisbon,06:00-21:00,,
+Summary,,,,,8 of 13 weeks fall to Bengaluru engineers whose window ends at 02:30 local. Issue #13.`,
   },
 ];
