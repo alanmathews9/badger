@@ -17,8 +17,8 @@ four fifths of the grade.
 
 # START HERE — state as of 2026-08-18, evening
 
-**The corpus rewrite is done. All three sources are seeded and verified against
-the live APIs. The next job is accuracy — build the eval set.**
+**The corpus is seeded, the eval set exists, search has been rebuilt, and
+production is eight commits behind. Deploy is the next job.**
 
 Badger searches GitHub, Gmail and Drive, merges the results on one locally
 computed score, and answers with citations it verifies. The corpus it searches
@@ -37,10 +37,64 @@ Alan before the re-seed.
 
 ## The task in front of you — read this first
 
-**The eval set.** See "After the corpus" below. The inventory the corpus was
-built from, approved by Alan on 2026-08-18, is still the reference for what each
-artefact is *for*:
+**Two things, in this order.**
+
+**1. Deploy.** Production is **eight commits behind** and shows none of the work
+below — it still says "Demo session", still marks Drive and Gmail "not
+connected" behind a "coming soon" tooltip, still suggests "Why did the Halden
+engagement slip?", and still runs the agent on every search. Alan has asked that
+deployments be **conserved**, so batch whatever else is coming and deploy once.
+Registry is at 258MB of the 500MB free tier — about four deploys of headroom this
+week. The exact command is under "Also outstanding".
+
+**2. Whether the agent belongs in search at all — Alan wants this taken up in a
+fresh session.** It is now *off* the search path, which was done to make the
+question askable rather than to answer it. The options as they stand: never
+(search is a search box, Chat is where you ask); on demand (results instantly,
+plus a "summarise these" button); or conditionally by question shape (sounds
+clever, will misfire invisibly). Alan's instruction was "let's refine search
+first, and then move from there."
+
+The inventory the corpus was built from, approved by Alan on 2026-08-18, is
+still the reference for what each artefact is *for*:
 <https://claude.ai/code/artifact/68231172-f636-4e69-a593-aa7ec4a98408>
+
+### What changed on 2026-08-18, after the corpus landed
+
+- **Search is retrieval only.** A Dig used to fire the agent and the retrieval
+  pass together, so every search — including a lookup — spent a model call and a
+  slot from the 250/day answer budget, and a thin answer made good retrieval look
+  broken. `/api/search` now touches no model: `claimAskSlot` is reached only from
+  `/api/ask`, the budget reads 0/250 after a search, and nothing on the path
+  imports the runtime. It is not free of everything — one search is ~17
+  third-party API calls and ~4.8s, mostly Drive body fetches and GitHub comment
+  lookups, which is the lever if search needs to *feel* faster.
+- **Ranking actually ranks.** `tools/scripts/_rank.mjs` is now the one
+  implementation, shared by the agent's tools and the web search (`app/server/
+  rank.mjs` re-exports it — it lived under `app/` before, where the agent is
+  forbidden from importing it, so "shared" was a fiction). Three fixes: all three
+  tools **over-fetch, rank, then cut**, because re-sorting the ten rows an engine
+  returned cannot surface the one it ranked eleventh; `weightsOver` computes a
+  document frequency across the candidate pool, so a term in every row stops
+  deciding the order; and `termPattern` allows an inflection but requires a
+  boundary, so "app" no longer matches "Apple" while "weeks" still finds "week".
+- **Drive is scored on names only**, deliberately. Bodies are fetched for the
+  top few files, and scoring those on their text while scoring the rest on their
+  name let fetch order leak into relevance.
+- **Titles are marked server-side** (`markTerms`). The browser had a third regex
+  with no boundary and marked the "app" inside "happened".
+- **The UI stopped calling itself a demo** and now names the account behind each
+  source. The Manage pane is deleted; the endpoints remain.
+- **`npm run eval`** — fifteen questions, deterministic grading, ~5c a run,
+  non-zero exit on failure. Baseline 13–14/15; the model is non-deterministic so
+  a single run is a sample, not a score.
+
+**A pattern worth carrying:** four separate indicators were hardcoded to a happy
+value — Drive and Gmail reading "not connected" while being searched, a "coming
+soon" tooltip on two shipped integrations, a green dot that could not turn any
+other colour, and a citation verifier that could not fail because it read a
+field that does not exist. Each was written before the thing behind it existed
+and never revisited. Distrust any status display that has never been seen wrong.
 
 **Arkind is now a SaaS company: appointment booking for small clinics.** Dentists,
 physios and vets use it so patients can book online, get a reminder and leave a
@@ -296,14 +350,23 @@ call a blocked builtin, and check whether the denial comes from the SDK layer or
 the hook. Until then, do not repeat the claim that `allowedTools` alone removes
 them from the model's schema — this run is evidence against it.
 
-**The first accuracy task is an eval set, not a fix.** Ten to fifteen questions
-with known-correct answers and known-correct sources, run as a script. Without
-it every change is guesswork. The cross-source questions in the artifact are the
-starting list. Build it against the *new* corpus.
+**✅ The eval set exists** — `evals/questions.mjs`, run with `npm run eval`.
+Fifteen questions, deterministic grading (`mustCite` against tool output,
+`mustSay`, `mustNotSay`), non-zero exit on failure, about five cents a run.
+Baseline 13–14/15. It found four defects on its first run and has caught two
+more since, including two bugs in itself — read the header comment before
+changing it, particularly the note on why grading is not model-judged.
 
-**Worth starting early, because it has a waiting period:** request Vertex
-preview access for Gemini 2.5 Pro. Flash is in use because Pro is locked out,
-not by choice, and some of the sharpness problem may simply be the model tier.
+**Two known failures, both answer completeness rather than retrieval.** Asked
+for the refund policy the agent gives the policy but not always the exception
+Marta made; asked why Clearview left it names the outage but not always that the
+customer explicitly ruled out price. Both are seams where half the answer is the
+interesting half. That is the next accuracy work if it is wanted.
+
+**Vertex Pro access is dropped**, on Alan's call 2026-08-18: "I don't think it's
+ever going to happen. We need to build the agent in a better way to get the
+tasks done." Treat Flash as the ceiling and spend the effort on tool design and
+what tools return — which is where every win so far has actually come from.
 
 ### Also outstanding
 

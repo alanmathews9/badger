@@ -773,3 +773,43 @@ to avoid.
 
 `scripts/badger-sdk.mjs` exits non-zero on an unverified citation, so it can
 gate a demo or CI.
+
+## §10e. The runtime orders every agent to call `task_tracker`, and you cannot switch it off
+
+`dist/loader.js:250` pushes a **"# Task Learning & Skill Discovery"** block into
+the system prompt of every agent the runtime starts. It is unconditional — no
+manifest key, no config, no gate — and it says, in capitals:
+
+    1. FIRST: Call `task_tracker` action "begin" with your objective
+    IMPORTANT: Do NOT skip step 1. Even for tasks that seem simple, always
+    check for skills first.
+
+Both tools it names write. `task_tracker` persists `tasks.json`
+(`dist/tools/task-tracker.js` opens with `writeFile`/`mkdir`); `skill_learner`
+writes new skills into `skills/`. Neither belongs in a read-only agent's
+allowlist, so `allowedTools` removes both from the model's schema (§10b).
+
+**The result is an agent ordered in capitals to call a tool it cannot see, and
+Gemini obeys.** It calls `task_tracker`, receives "Tool task_tracker not found",
+and treats that as a blocked task rather than a missing tool. Observed in
+production on the flagship question: the answer opened with "I cannot access
+`task_tracker`", narrated a search plan it never carried out, and reported no
+citations — while the retrieval pass beside it had already returned the right
+issue first. Three eval questions failed outright the same way.
+
+A `RULES.md` rule is not enough on its own; it is one instruction arguing with
+another, and the runtime's arrives inside the same system prompt.
+
+**The lever is `options.systemPromptSuffix`.** `dist/sdk.js:122` appends it after
+everything else, so it is the last thing the model reads. `app/server/
+system-suffix.mjs` uses it to name the injected section, say it does not apply,
+and forbid telling a user that a tool is missing. All three SDK callers pass it —
+the CLI wrapper, the eval runner and the server — and `RULES.md` keeps the same
+instruction for the CLI path, which never goes through the SDK.
+
+Two things worth carrying forward from this. **Read the shipped system prompt,
+not just the shipped tool list** — the runtime injects several blocks the docs do
+not mention, including the workspace-directory advice that is dead for a
+read-only agent. And **"the model is being unhelpful" is worth one look at the
+prompt before it is worth any prompt engineering**; this looked like Flash being
+timid for two days and was a hardcoded instruction the whole time.
