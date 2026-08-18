@@ -11,9 +11,10 @@ retrieved.
 sent with the submission, not committed here.
 
 ```
-./scripts/badger.sh -p "Who knows about payments integrations?"   # CLI
-npm run ask "Why did the Halden engagement slip?"                 # SDK, with verification
-npm run serve                                                     # web UI on :4000
+./scripts/badger.sh -p "Who knows about payments?"          # CLI
+npm run ask "Why was the Android app five weeks late?"      # SDK, with verification
+npm run serve                                               # web UI on :4000
+npm run eval                                                # 15 questions with known answers
 ```
 
 ---
@@ -23,24 +24,36 @@ npm run serve                                                     # web UI on :4
 Every company has a version of this problem: the answer exists, but not where
 you would look, and no single system holds all of it.
 
-The demo corpus is a fictional consultancy, Arkind, and the worked example is
-an engagement that ran six weeks late. Ask **"why did Halden slip?"** and three
-sources answer differently:
+Arkind sells appointment booking to small clinics — dentists, physios and vets,
+so patients can book online, get a reminder and leave a deposit. Forty people,
+Bengaluru and Lisbon. The worked example is an Android release that shipped five
+weeks late. Ask **"why was the app five weeks late?"** and three sources answer
+differently:
 
 | Source | What it says |
 |---|---|
-| **Drive** — the client-facing retro | "Scope changed mid-engagement." |
-| **GitHub** — the internal retro issue | Roughly four of the six weeks were self-inflicted: discovery was compressed, and a change was absorbed without pricing it. |
-| **Gmail** — the February thread | The client raised that change at kickoff. Nobody chased it. He was later told it was a scope change. |
+| **Drive** — the customer-facing release notes | "Delayed by App Store review." |
+| **GitHub** — issue #8 | Review took 4 of the 35 days. The rest was a sync layer written twice — and PR #30 sits closed and unmerged as proof of the first attempt. |
+| **Gmail** — the April thread | The team chose that wording deliberately, over an objection, and agreed to keep the real arithmetic in an internal issue. |
 
 None of those is a lie. The Drive document is the one that gets forwarded, and
 it is the one that teaches the wrong lesson.
 
-Then ask **"did we ever actually tell Halden about the reconciliation
-module?"** — which is answerable only by crossing mail with the repository.
-Neither source has it alone. That is the thing a single-source tool cannot do,
-and it is why the demo has three sources rather than one with more content in
-it.
+Then ask **"did we tell Brightsmile the app would be ready in March?"** — which
+mail answers and nothing else records. Tomas wrote "early March" to the customer
+on 4 February, sixteen days before telling his own VP the date would not hold.
+No document knows this happened. That is the thing a single-source tool cannot
+do, and it is why the demo has three sources rather than one with more content
+in it.
+
+**Why a clinic booking company and not a consultancy.** The first corpus was a
+consultancy, and it had to be thrown away. Consultancy work is abstract — scope,
+weeks, billing — so every answer needed a glossary and a reader could not tell a
+good answer from a bad one. "Why did the engagement slip?" was answered with
+compressed discovery and unpriced change requests, and nobody can judge that. A
+reminder text arriving at 3am is wrong in a way anyone can judge in one second.
+Legibility was the point; sharper retrieval was a side effect of documents that
+no longer all describe the same abstraction.
 
 ---
 
@@ -68,9 +81,26 @@ by their own scores is guesswork wearing a sort's clothing.
 
 So every row from every source is re-scored locally on term coverage, title
 hits weighted above body hits, and each engine's opinion is discarded at the
-door (`app/server/rank.mjs`).
+door (`tools/scripts/_rank.mjs`, which `app/server/rank.mjs` re-exports).
 
-There is no IDF, so "Halden" counts the same as "engagement". That is the main
+**Ranking alone is not enough, and finding that out cost an answer.** Asked
+whether a customer had been told the app would ship in March — a question one
+mail thread exists to answer — Badger searched, got ten results, opened none and
+said it could not find it. Two faults sat behind that. The scoring function was
+only ever called by the web search, because it lived under `app/` and the agent
+is forbidden from importing from `app/`; a shared function on the wrong side of
+a boundary is a private one. And re-sorting the ten rows an engine returned
+cannot surface the row it ranked eleventh — for an OR'd query Gmail's order is
+effectively newest-first, so a February promise lost to July account noise. All
+three tools now **over-fetch, rank, then cut**. The correct thread went from
+absent from the top ten to rank 1.
+
+Drive's ranking is deliberately weaker, and the code says so: Drive returns no
+body text, so a file can only be scored on its name. `fullText contains` is what
+got it into the list, so every row matched *somewhere* — what can be ordered on
+is whether the match is in the title.
+
+There is no IDF, so "Brightsmile" counts the same as "app". That is the main
 thing wrong with this ranking, and the index below is what fixes it.
 
 ### Query planning, shared by all three
@@ -79,10 +109,14 @@ A search box shaped like Google's invites sentences, and all three engines AND
 their terms — so the more the user types, the less they find:
 
 ```
-"Halden engagement slip"                          →  0 hits
-"Halden engagement slip in:title,body,comments"   →  0 hits
-"halden OR engagement OR slip"                    →  20 hits
+"why did the android release slip"                        →   0 hits
+"why did the android release slip in:title,body,comments" →   0 hits
+"android OR release OR slip"                              →   6 hits
 ```
+
+Measured against the demo repository, and reproducible. The `in:` qualifier is
+in there because it is the fix GitHub's own tooling suggests and it does not
+help: the failure is AND semantics, not search mode.
 
 Queries are stripped to keywords and OR'd. The planner is shared between the
 agent's tools and the web search, because they drifted apart once and the drift
@@ -218,6 +252,13 @@ where a misspelling lands near the right word in embedding space. And Google's
 "did you mean" is learned from query logs at planetary scale, which one demo
 user cannot produce.
 
+**What this looks like in practice.** Type `ofboarding` into the search box and
+you get nothing; type `offboarding` and the Offboarding Checklist comes back
+first. Ask the *agent* about "our ofboarding process" and it answers correctly,
+because the model silently fixes the spelling before it searches. So the
+missing tolerance is confined to the one path that deliberately has no model on
+it, which is the path that has to stay fast.
+
 **So phase 2 is one index, not four hacks.** Postgres with `tsvector` +
 `pgvector` + `pg_trgm` buys semantic matching, real BM25 with IDF, comparable
 cross-source ranking *and* typo tolerance in a single step. Bolting any of them
@@ -254,6 +295,50 @@ a different check and it is not built.
 
 ---
 
+## Measuring whether the answers are right
+
+Citation verification proves Badger retrieved what it cites. It says nothing
+about whether the answer is *correct*, and for a long time nothing did — every
+accuracy judgement was "ask a question, read the answer", which is exactly as
+reliable as it sounds.
+
+`evals/questions.mjs` is fifteen questions whose correct answer is known, and
+known from where. `npm run eval` runs them and exits non-zero on any failure, so
+it can gate a deploy the way the citation check already gates a demo. A run
+costs about five cents — the property that matters, because an eval set too
+expensive to re-run becomes a document rather than a test.
+
+**Grading is deterministic, not model-judged.** The obvious design is to ask a
+model whether the answer is right; it is also the one that cannot be trusted
+here, because the grader would be the same Flash model being graded, on the same
+corpus, and a grader that hallucinates agreement is indistinguishable from a
+system that works. So each question carries `mustCite` (what had to be
+retrieved — checked against tool output, not against the answer), `mustSay`
+(facts, written as alternations so "five weeks" and "35 days" both pass), and
+`mustNotSay` — the known wrong answer, which is the half that catches an answer
+citing issue #8 while still blaming App Store review.
+
+Separating "did it find the material" from "did it describe it well" is the
+distinction the set is built on. An agent that found the right thing and wrote
+it up badly has a writing problem; one that never found it has a retrieval
+problem. Conflating them is how you spend a day tuning a prompt to fix a search
+bug.
+
+**It found four defects on its first run**, none of which was visible from
+asking questions by hand — including that Gemini invents a `task_tracker` tool,
+gets "not found" from the runtime, and then announces what it is about to search
+and stops; and that the citation verifier was producing *false* unverified
+findings on correctly-cited documents, because it only understood canonical
+`[text](url)` and the model also writes `[text] (url)`. A verifier that cries
+wolf on correct answers is worse than no verifier: it teaches the reader to
+ignore the badge.
+
+Current baseline is 14/15. The model is non-deterministic, so which question
+fails varies between runs — a single run is a sample, not a score, and the set
+says so rather than implying a precision it does not have.
+
+---
+
 ## Guardrails go in tool output, not prompts
 
 The house lesson from this project, learned four times. Behaviours that prose
@@ -276,24 +361,44 @@ model reads:
 ## The corpus, and why it is shaped this way
 
 A private GitHub repository, a seeded Gmail mailbox and a seeded Drive, all for
-one fictional consultancy:
+one company that does not exist:
 
 | Source | Contents |
 |---|---|
-| **GitHub** | 18 files, 20 issues, 5 PRs. Files hold the official answer; issues hold the real one. |
-| **Drive** | 21 documents and 5 spreadsheets across 9 folders — onboarding, team pages, HR policy, the access register, roadmaps, client-facing retros. Comments carry the disagreement. |
-| **Gmail** | 8 threads, 30 messages, January to July 2026, with real dates. |
+| **GitHub** | 27 files, 22 issues with 91 comments, 8 pull requests, 13 review comments, 34 commits spread over 16 days. Files hold the official answer; issues hold the real one. |
+| **Drive** | 23 documents and 6 spreadsheets across 10 folders — onboarding, team pages, HR policy, the access register, roadmaps, customer-facing reviews. Comments carry the disagreement. |
+| **Gmail** | 15 threads, 52 messages, January to July 2026, with real dates. Five are customer support threads, because that is the most common shape of mail in a real company and it puts a customer's words next to the engineering issue that shares no vocabulary with them. |
 
-Two seams are deliberate, and both exist in every real company. The Halden
-retro contradicts its own internal version. And the Drive leave policy gives a
-carry-over of 10 days expiring in March where the repository handbook still
-says 5 with no deadline — both reachable, neither pointing at the other. A
-search tool that returns one and not the other is lying by omission.
+Three seams are deliberate, and all three exist in every real company. The
+release notes contradict issue #8. The Drive churn review says Clearview left
+over price, and Clearview's own notice says explicitly that it was not price.
+And the Drive leave policy gives a carry-over of 10 days expiring in March where
+the repository handbook still says 5 with no deadline — both reachable, neither
+pointing at the other. A search tool that returns one and not the other is lying
+by omission.
 
-Seeding runs from `scripts/seed-google.mjs`, whose write tools appear nowhere
-in the agent's allowlist. `GMAIL_IMPORT_MESSAGE` places mail in a mailbox
-**without sending it**, which is what allows an inbox to hold mail from people
-whose addresses we do not own.
+**The corpus is source code, not a thing someone clicked into existence.**
+`scripts/seed/company.mjs` holds the cast, the customers and `FACTS` — every
+date and number the three sources are built to disagree about. Every corpus
+module imports from it and restates nothing, which is what keeps the authored
+contradictions authored rather than accidental. `npm run seed:github` rebuilds
+the repository from scratch in about five minutes; `scripts/seed-google.mjs`
+does Drive and Gmail. A corpus that is the ground truth for an eval set has to
+be reproducible, reviewable as a diff, and correctable without a browser.
+
+Two things the seeders had to work around, both measured rather than assumed.
+GitHub will not let `created_at` be backdated on an issue or a pull request at
+all, so every date that matters lives in body text and the README says so rather
+than hiding it — only **commits** can be backdated, via the Git Data API, which
+is why history spans sixteen real days. And addresses are on RFC 2606 reserved
+domains (`@arkind.example`, `@brightsmile.example`): `brightsmile.com` is a real
+registered domain, checked, and the first corpus would have shown a real company
+being misled about a delivery date.
+
+Seeding runs from write-capable scripts whose tools appear nowhere in the
+agent's allowlist. `GMAIL_IMPORT_MESSAGE` places mail in a mailbox **without
+sending it**, which is what allows an inbox to hold mail from people whose
+addresses we do not own. Nothing is ever sent.
 
 ---
 
@@ -346,7 +451,8 @@ node scripts/google-connect.mjs   # connect Gmail, Drive and Docs
 npm run composio:status           # what the agent can reach, and what it cannot
 
 npm run check:agent               # the agent still stands alone
-npm run ask "why did Halden slip?"
+npm run eval                      # fifteen questions with known answers
+npm run ask "why was the app five weeks late?"
 npm run serve                     # web UI on :4000
 ```
 
@@ -365,7 +471,8 @@ tools/*.yaml            ten tools; scripts in tools/scripts/
 hooks/allowed-tools.txt the allowlist, and the single source of truth for it
 app/server/             the two passes, the gate, ranking, verification
 app/web/                Vite + React + Tailwind + shadcn
-scripts/                dev tooling, corpus seeding, probes
+scripts/                dev tooling, corpus seeding, the eval runner
+evals/                  fifteen questions with known answers and known sources
 ```
 
 **Where the research lives.** `RESEARCH-GAP-IDIOM.md` is how the framework's
@@ -386,7 +493,15 @@ Stated here rather than left to be discovered:
   tokens beneath them could write.
 - **Chat history is not persisted.** There is no database; "recent digs" is
   `localStorage`.
-- **Citation verification proves retrieval, not accuracy.**
+- **Citation verification proves retrieval, not accuracy.** The eval set is
+  what covers accuracy, and it covers fifteen questions rather than every
+  question.
+- **Answers are not deterministic.** The same question can produce a materially
+  different answer between runs, which is why the eval baseline is quoted as a
+  sample rather than a score.
+- **Typos work in chat and not in search.** The model corrects spelling before
+  it searches; the search box has no model on it by design. `ofboarding`
+  returns nothing there.
 - **GitHub code search does not work on private repositories** — for any token
   class, measured. Retrieval into private repos goes through issue search, file
   reads on known paths, and commit history. This shaped the corpus: searchable

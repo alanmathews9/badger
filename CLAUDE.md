@@ -309,12 +309,18 @@ not by choice, and some of the sharpness problem may simply be the model tier.
 
 - **Production is stale.** The deployed service predates Gmail, Drive,
   cross-source search and the README. One `gcloud run deploy` picks all of it up.
-- **The passphrase rotation** is agreed but not done. Alan sets it himself:
-  `read -rs -p "New: " P && printf '%s' "$P" | gcloud secrets versions add
-  badger-passphrase --data-file=- && unset P`. **`printf '%s'` matters** —
-  `auth.mjs` compares exactly with no trimming, so a trailing newline from
-  `echo` silently refuses every login. Needs a redeploy to take effect, since
-  the secret is mounted as `:latest` and resolved at instance start.
+- **The passphrase rotation** is agreed but not done. Alan sets it himself, and
+  **his shell is zsh**, where `read -p` means "read from a coprocess" and the
+  bash form fails with `read: -p: no coprocess`. In zsh the prompt attaches to
+  the variable name:
+
+      read -rs 'P?New: ' && printf '%s' "$P" |
+        gcloud secrets versions add badger-passphrase --data-file=- && unset P
+
+  **`printf '%s'` matters** — `auth.mjs` compares exactly with no trimming, so a
+  trailing newline from `echo` silently refuses every login. Needs a redeploy to
+  take effect, since the secret is mounted as `:latest` and resolved at instance
+  start.
 - Billing budget alert still unset (console job). Chat history not persisted.
 
 ---
