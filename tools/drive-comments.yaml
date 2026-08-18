@@ -1,7 +1,7 @@
 name: drive_comments
 description: >
   Read the comments on a Drive document. This is where disagreement with the
-  document lives — a client-facing retro may say one thing while the comment
+  document lives — a customer-facing document may say one thing while the comment
   underneath it says another. Whenever a document answers a contested question,
   check its comments before concluding, and say so if they disagree.
 input_schema:

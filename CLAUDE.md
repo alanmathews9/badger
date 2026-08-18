@@ -15,18 +15,31 @@ four fifths of the grade.
 
 ---
 
-# START HERE — state as of 2026-08-18
+# START HERE — state as of 2026-08-18, evening
 
-**All three sources work. The next job is replacing the corpus.**
+**The corpus rewrite is done. All three sources are seeded and verified against
+the live APIs. The next job is accuracy — build the eval set.**
 
 Badger searches GitHub, Gmail and Drive, merges the results on one locally
-computed score, and answers with citations it verifies. The README exists. What
-is wrong is the *content*: the Arkind-the-consultancy corpus is too abstract to
-demo with, and replacing it is the current task.
+computed score, and answers with citations it verifies. The corpus it searches
+is now Arkind-the-clinic-booking-company, in all three places at once:
+
+| source | what landed | verified |
+|---|---|---|
+| GitHub | 21 files, 22 issues / 91 comments, 8 PRs, 13 review comments, 34 commits over 16 days | yes |
+| Drive | 23 documents, 6 spreadsheets, 6 comment threads, 10 folders | yes |
+| Gmail | 15 threads, 52 messages, 2026-01-28 → 2026-07-09 | yes |
+
+Every one of those numbers was read back from the API after seeding, never from
+a seeder's exit code. The retired Halden mail is in Trash (30 days), the old
+Drive corpus was removed by Alan by hand, and the old repository was deleted by
+Alan before the re-seed.
 
 ## The task in front of you — read this first
 
-**Build the new corpus.** Full inventory, approved by Alan on 2026-08-18:
+**The eval set.** See "After the corpus" below. The inventory the corpus was
+built from, approved by Alan on 2026-08-18, is still the reference for what each
+artefact is *for*:
 <https://claude.ai/code/artifact/68231172-f636-4e69-a593-aa7ec4a98408>
 
 **Arkind is now a SaaS company: appointment booking for small clinics.** Dentists,
@@ -72,25 +85,95 @@ closed and unmerged as hard evidence of the first rewrite.
   what policy says, and supplies the ordinary traffic retrieval must
   discriminate against.
 
-### Order of work
+### Order of work — status as of 2026-08-18, late afternoon
 
-1. `scripts/seed/company.mjs` — cast, customers, departments, shared facts.
-2. `scripts/seed-github.mjs` + `scripts/seed/corpus-github.mjs`. **This does not
-   exist yet** — the old repo was built by hand, which is why it cannot be
-   reproduced. All the write tools needed are confirmed present:
-   `GITHUB_CREATE_A_REPOSITORY_FOR_THE_AUTHENTICATED_USER`,
-   `CREATE_OR_UPDATE_FILE_CONTENTS` (has `author__date`, so commits can be
-   backdated), `CREATE_AN_ISSUE`, `CREATE_AN_ISSUE_COMMENT`,
-   `CREATE_A_REFERENCE`, `CREATE_A_PULL_REQUEST`, `MERGE_A_PULL_REQUEST`,
-   `UPDATE_AN_ISSUE`, `CREATE_A_REVIEW_COMMENT_FOR_A_PULL_REQUEST`. The seeder
-   creates the repo itself, private, named `arkind`.
-3. Rewrite `scripts/seed/corpus-drive.mjs` and `corpus-gmail.mjs`.
-4. Seed and verify all three.
-5. **Only then** remove the old corpus, and disconnect `alanmathews9` from the
-   demo user so one GitHub account remains.
-6. Update README, this file, and the skills — all reference Halden and
-   Arkind-the-consultancy by name.
+1. ✅ `scripts/seed/company.mjs` — the cast (15 named of 40, 9 departments), 4
+   customers with contacts, and `FACTS`: every date and number the three sources
+   are built to disagree about. **Every corpus module imports from here and
+   restates nothing**, which is what keeps the authored contradictions authored.
+   It replaced `scripts/seed/people.mjs`, which is now deleted — every corpus
+   module reads the cast from here.
+2. ✅ `scripts/seed-github.mjs` (`npm run seed:github`, `--dry-run`, `--force`)
+   plus `corpus-github.mjs` and its three parts: 21 files, 22 issues with 91
+   comments, 8 PRs with 16 branch commits, 23 conversation and 13 review
+   comments. ~321 write calls, ~5 minutes.
+3. ✅ `corpus-drive.mjs` rewritten **and seeded** on 2026-08-18, after Alan
+   emptied the Drive account by hand: 23 documents, 6 spreadsheets, 6 comment
+   threads, 10 folders, all verified live. `node scripts/seed-google.mjs
+   --drive`, exit 0, ~2 minutes. Drive was genuinely empty first — checked with
+   `GOOGLEDRIVE_FIND_FILE`, not taken on trust — because the new root folder is
+   also called "Arkind" and two of them would have returned both the clinic and
+   the consultancy story to every search.
+4. ✅ `corpus-gmail.mjs` **rewritten and seeded** on 2026-08-18: 15 threads,
+   52 messages, January to July 2026. `scripts/seed-google.mjs` is repointed at
+   `company.mjs` and `people.mjs` is deleted. Verified live — 52 messages in 15
+   threads, and the date range Gmail reports is 2026-01-28 → 2026-07-09, which
+   is the corpus's own span, so `internal_date_source: "dateHeader"` held and
+   the timeline did not collapse into today.
+5. ✅ Old corpus removed. The Halden mail was trashed with
+   `node scripts/seed-google.mjs --reset-gmail arkind.dev haldenlogistics.nl`
+   **after** the new corpus was seeded and verified, never before — the new mail
+   is reproducible from source and the old was not. `--reset-gmail` now trashes
+   the domains you name *instead of* the current corpus rather than as well as
+   it, so pointing it at a retired corpus cannot take the live one with it.
+   ⏳ `alanmathews9` is already disconnected; nothing left to do there.
+6. Update README, this file, and the skills.
 7. Then the eval set (below).
+
+#### Where the GitHub corpus actually stands — read before touching it
+
+**Re-seeded from scratch on 2026-08-18 after Alan deleted the repository, and
+this run is the good one.** `alan-arkind/arkind` holds 21 files, 22 issues with
+91 comments, and 8 pull requests: #23–#27 merged, #28 and #29 open, #30 closed
+and unmerged. Verified against the live API rather than the seeder's exit code —
+34 commits on `main` spread over **16 distinct days from 2024-11-19 to
+2026-08-18** and authored by nine members of the cast, 13 review comments
+attached, `handbook/leave.md` stale against Drive as designed, and
+`"App Store review"` returning exactly #8.
+
+The date spread is the whole point of the rewrite: the previous run stamped all
+29 commits inside one 16-minute window, which made every time-bounded question
+and the `activity-digest` skill meaningless. Commits now go through
+`CREATE_A_BLOB`/`CREATE_A_TREE`/`CREATE_A_COMMIT`/`UPDATE_A_REFERENCE` and merge
+with **rebase, not squash**, so the authored dates survive onto `main`. The
+`.probe-a`/`.probe-b` droppings are gone with the old repository.
+
+One cosmetic blemish left, not worth rewriting history for: the root commit is
+`auto_init`'s "Initial commit", authored by `alan-arkind` and dated today, while
+everything above it is correctly backdated.
+
+Two bugs found in the rewritten seeder by running it, both now fixed and
+commented in place:
+
+- **`reviewAnchors()` was called and never defined.** It would have thrown a
+  `ReferenceError` at PR #23, roughly 250 calls into the run. It now reads
+  `GITHUB_LIST_PULL_REQUESTS_FILES` (payload under `details`) and parses the
+  first `+` line out of each file's own diff hunk.
+- **`GITHUB_UPDATE_A_REFERENCE` wants `heads/main`, not `refs/heads/main`** —
+  despite its schema saying "fully qualified" and giving `refs/heads/main` as
+  the example. Composio drops the value straight into the URL path, so the
+  qualified form requests `git/refs/refs/heads/main` and answers 422 "Reference
+  does not exist". This cost the first run. `GITHUB_CREATE_A_REFERENCE` is the
+  opposite and does want `refs/heads/...`, because there the ref travels in the
+  body. **Rule: a ref in the path is unqualified, a ref in the body is
+  qualified.**
+
+Because the failure landed after the repository was created, the recovery was
+`--force` rather than a fourth deletion request.
+
+Measured while building this, and all three cost a failed run:
+
+- Composio rejects GitHub's own `subject_type: "file"` on review comments and
+  demands a line. The seeder reads the first added line out of the PR's own
+  diff rather than guessing one.
+- **Every Composio GitHub tool returns its payload under a different key** —
+  `details` for PR files, `commits`, `comments`, `content`. Print the keys
+  before parsing.
+- Issue and PR numbers share one sequence, so all 22 issues must be created
+  before the first PR for the corpus's own cross-references to resolve. The
+  seeder asserts every number it is given.
+- `created_at` on issues and PRs cannot be backdated at all. Only commits can.
+  Every date that matters therefore lives in body text.
 
 **Connection state as of 2026-08-18, verified.** One connection per toolkit on
 `badger-demo-alan`:
@@ -157,11 +240,61 @@ nothing is broken there today.
 ### After the corpus: accuracy, then UI
 
 Alan's three remaining goals, in the order agreed: **accuracy**, then **UI**,
-then possibly indexing. Indexing is deliberately last — today's evidence says
-retrieval is not what fails. Every test returned the right material; what went
-wrong was the model choosing and characterising it. Two real defects observed:
-a September capacity thread cited for a "why did it slip" question, and "three
-weeks" reported as "two weeks".
+then possibly indexing. Indexing is still last, but the claim that retrieval is
+not what fails **turned out to be wrong** — see the defect fixed below, which
+was retrieval and nothing else.
+
+#### Fixed 2026-08-18 — no agent search tool ranked its results
+
+Asked *"Did we tell Brightsmile the app would be ready in March?"* — the
+question the whole `brightsmile-when` thread exists to answer — Badger searched
+Gmail, got ten results, opened none, and said it could not find it. The thread
+was there and so were the words.
+
+Two faults, and the second is the one that mattered.
+
+1. **`app/server/rank.mjs` was called "shared by every source" and was used by
+   the web search alone.** All three agent tools returned their engine's
+   ordering untouched. `drive-search.mjs` even carried a comment claiming it
+   ranked locally; it only excerpted. The scoring could not be shared, because
+   it lived under `app/` and **the agent may not import from `app/`** — the
+   boundary `npm run check:agent` enforces. It now lives in
+   `tools/scripts/_rank.mjs` and `app/server/rank.mjs` re-exports it, which is
+   the only direction that boundary allows.
+2. **Ranking alone would have fixed nothing.** The engine caps the pool before
+   we ever see it: asking Gmail for ten and re-sorting those ten still misses a
+   February message that was never in Gmail's ten, because for an OR'd query
+   Gmail's order is effectively newest-first. All three tools now **over-fetch,
+   rank, then cut** — Gmail 4x the requested limit, GitHub and Drive 3x.
+
+Measured after: the correct thread went from *absent from the top ten* to rank
+1, and the agent answers the question with three verified citations, opening two
+threads where it previously opened none.
+
+Drive's ranking is deliberately weaker than the other two and the code says so:
+Drive returns no body text, so a file can only be scored on its name.
+`fullText contains` is what got it into the list, so every row matched
+somewhere; what we can order on is whether the match is in the title.
+
+**This does not retire the eval set — it is the argument for it.** The defect
+was found by asking one question by hand, on the first try, after the corpus had
+been declared verified. Nobody knows what the other fourteen questions do.
+
+#### Open question, seen while measuring the above — verify before trusting it
+
+A run on 2026-08-18 reported calling `task_tracker` and `skill_learner`. Neither
+is in `hooks/allowed-tools.txt`, which states plainly that they are "absent and
+therefore blocked". **Nothing was written** — the working tree after the run held
+only edits made by hand — so the enforcement appears to have held somewhere.
+
+What is not established is *where*. The likely reading is that the SDK's
+`allowedTools` filters declarative and MCP tools while the runtime injects its
+own builtins regardless, and that `hooks/allow-read-only.sh` then denied the
+call — defence in depth working as designed, with the transcript logging the
+attempt rather than a success. That is a guess. It needs one deliberate probe:
+call a blocked builtin, and check whether the denial comes from the SDK layer or
+the hook. Until then, do not repeat the claim that `allowedTools` alone removes
+them from the model's schema — this run is evidence against it.
 
 **The first accuracy task is an eval set, not a fix.** Ten to fifteen questions
 with known-correct answers and known-correct sources, run as a script. Without

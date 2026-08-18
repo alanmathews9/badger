@@ -66,7 +66,7 @@ if [ -e "$SANDBOX/app" ]; then
   fail "app/ leaked into the agent-only copy"
 fi
 
-OUT=$(echo '{"query":"halden","kind":"issue","limit":1}' | node "$SANDBOX/tools/scripts/search.mjs" 2>&1) || true
+OUT=$(echo '{"query":"reminders","kind":"issue","limit":1}' | node "$SANDBOX/tools/scripts/search.mjs" 2>&1) || true
 
 case "$OUT" in
   *"match(es)"*)

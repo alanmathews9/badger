@@ -2,7 +2,7 @@ name: drive_search
 description: >
   Search Google Drive documents and spreadsheets by their contents. Drive
   holds the written-down version of things — policies, onboarding, team pages,
-  client-facing retros, roadmaps, directories and trackers. Spreadsheet cells
+  customer-facing reviews, roadmaps, directories and trackers. Spreadsheet cells
   are searched too, so questions about numbers, allocations and dates land
   here. Returns files with an id, a kind and an excerpt of what matched.
 input_schema:

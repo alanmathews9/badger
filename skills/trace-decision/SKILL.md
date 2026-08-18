@@ -20,9 +20,8 @@ metadata:
 ## When to Use
 
 The question is about a choice the organisation made, or about the reasoning
-behind something. "Why do migrations get three weeks of discovery?" "What did
-we decide about Halden phase 2 pricing?" "Are we still refusing EU-region
-commitments for new clients?"
+behind something. "Why was the Android app five weeks late?" "Did we decide to
+rewrite the sync layer again?" "What is our refund policy for an outage?"
 
 Not for locating a document (that is a plain lookup) and not for who-knows-what
 (use **find-expert**).
@@ -38,12 +37,14 @@ knows about the others.**
 | **GitHub** | The argument. Issues and PR threads where the team worked out what they actually thought. |
 | **Gmail** | What was said to whom, and when. What a client was actually told, and what was said internally about telling them. |
 
-The Halden overrun is the worked example. The Drive retro says the engagement
-slipped because *scope changed mid-engagement*. GitHub issue #2 has the team
-concluding roughly four of the six weeks were self-inflicted. The February mail
-thread shows the client raising the reconciliation module as something he had
-mentioned at kickoff — which makes "scope changed" contestable in a way neither
-document admits.
+The five-week slip on Android 4.2 is the worked example. The Drive release
+notes say the release was *delayed by App Store review*. GitHub issue #8 does
+the arithmetic and finds review took four of the thirty-five days, the rest
+being a sync layer written twice — and PR #30 sits closed and unmerged as
+evidence of the first attempt. The April mail thread shows the team choosing
+that wording deliberately, over an objection. A February thread shows the
+customer being told "early March" while the team already expected April, which
+no document records at all.
 
 When sources disagree, **that gap is the answer.** Report all of them, named.
 Never silently pick one, and never average them into a summary that flattens
@@ -74,9 +75,10 @@ said what.
 ### 2a. Check the margin of every document you rely on
 
 `drive_comments` on any Drive document that answers a contested question. The
-client-facing Halden retro carries a comment from Priya saying exactly what the
-document omits, and a reply from Sam refusing to change it. A document read
-without its comments will produce a confidently wrong answer.
+customer-facing release notes carry a comment naming exactly what the document
+omits, and the Clearview churn review carries a comment disputing the reason it
+gives. A document read without its comments will produce a confidently wrong
+answer.
 
 ### 3. Establish whether it is settled
 

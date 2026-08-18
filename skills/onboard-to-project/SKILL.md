@@ -40,13 +40,13 @@ Each source contributes a different half of an orientation:
 
 | Source | What it gives a newcomer |
 |---|---|
-| **Drive** | The onboarding pack, the team page, the access register, the client-facing history. Where to start, who to ask, what was officially concluded. |
+| **Drive** | The onboarding pack, the team page, the access register, the customer-facing history. Where to start, who to ask, what was officially concluded. |
 | **GitHub** | What the team argued about, and what remains open. |
 | **Gmail** | The live relationship — what the client is currently expecting, and what was promised. |
 
 The Drive onboarding documents are genuinely useful and should be found rather
 than paraphrased: there is a first-week checklist, an engineering setup page,
-a document specifically about joining an engagement mid-flight, and an access
+a document specifically about joining a team mid-flight, and an access
 register naming who approves what. Point the person at them by name.
 
 Access is the part that bites. It has real, measured lead times — nine days for
@@ -60,7 +60,7 @@ Work these in order. Stop early only if the subject turns out not to exist.
 ### 1. Establish the subject exists, and find its home
 
 `github_search` the name. In parallel, `github_file` with `path: ""` to list the
-root and find the directory that holds it — client engagements, handbook pages
+root and find the directory that holds it — customer folders, handbook pages
 and playbooks all live in predictable places.
 
 If nothing matches, say so and stop. Do not brief on a guess.

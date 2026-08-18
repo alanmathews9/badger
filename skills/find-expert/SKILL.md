@@ -19,7 +19,7 @@ metadata:
 ## When to Use
 
 Someone needs a person, not a document. "Who knows payments integrations?"
-"Who owns the reconciliation module?" "Who should review this?" "Do we have
+"Who owns the payment webhook?" "Who should review this?" "Do we have
 real depth in Oracle migrations?"
 
 ## Why this needs a procedure

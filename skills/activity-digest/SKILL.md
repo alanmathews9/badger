@@ -20,8 +20,8 @@ metadata:
 ## When to Use
 
 The question is bounded by **time** rather than by topic: what shipped last
-week, what has moved on Halden this month, what someone worked on, catching up
-after leave. Also the basis for a scheduled digest.
+week, what has moved on the mobile app this month, what someone worked on,
+catching up after leave. Also the basis for a scheduled digest.
 
 ## Why this needs a procedure
 
@@ -54,7 +54,7 @@ silently produces a digest of the wrong period.
 
 Drive is mostly out of scope for a digest: documents do not announce
 themselves, and a modified date rarely means anything happened. The exception
-is a document created in the period, which usually marks an engagement closing
+is a document created in the period, which usually marks a release going out
 or a policy changing.
 
 ## Procedure

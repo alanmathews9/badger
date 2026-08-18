@@ -19,7 +19,7 @@ input_schema:
         "quoted phrase" is searched exactly as written instead of being reduced.
     from:
       type: string
-      description: Restrict to mail from a person or domain, e.g. "joris" or "haldenlogistics.nl".
+      description: Restrict to mail from a person or domain, e.g. "joris" or "brightsmile.example".
     since_days:
       type: integer
       description: >
