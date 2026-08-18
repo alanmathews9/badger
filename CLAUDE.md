@@ -42,6 +42,12 @@ Alan before the re-seed.
 
 ## The task in front of you — read this first
 
+**Start with `PLAN-SEARCH-INDEX.md`: the agreed next build is the local
+search index (typo tolerance, BM25, speed), planned with Alan on 2026-08-18
+in the session that also worked through the Fable review below — items 1–3
+of that review are done (memory is live, audit covers the SDK paths, the
+enforcement question is settled and recorded further down this file).**
+
 **Four things, in this order. The first one gates the rest.**
 
 **1. Get the Fable review from Alan, and work it into a list.** Alan
