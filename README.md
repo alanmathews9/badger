@@ -63,10 +63,12 @@ Two passes, which is the split [Glean](https://www.glean.com/) and
 [Onyx](https://github.com/onyx-dot-app/onyx) both use — read from Onyx's source
 rather than its docs.
 
-**Pass one — retrieval, no model.** `POST /api/search` queries all three
-sources concurrently and returns a merged list. No LLM is on this path at all,
-so results appear while the answer is still being written. Measured: 32 rows in
-4.4 seconds across 17 API calls.
+**Pass one — retrieval, no model.** `POST /api/search` answers from a small
+local index when one exists — single-digit milliseconds, zero API calls, typo
+correction — and falls back to querying all three sources live when it does
+not. No LLM is on this path either way, so results appear while the answer is
+still being written. Measured on the same query, same minute: 3ms from the
+index against 5.4 seconds and 10 API calls live.
 
 **Pass two — the agent.** `GET /api/ask` streams the agent over SSE, forwarding
 each tool call as it happens. Watching it search *is* the demo: you can see
@@ -261,48 +263,71 @@ so the boundary is stated as a choice.
 
 ---
 
-## Retrieval: what this is, and what it structurally cannot do
+## Retrieval: live search, plus a local index — and why the design reversed
 
-Search is: strip stopwords → OR the terms → one API call per source → re-score
-locally → highlight locally. **No index, no crawler, no copy of your data.**
+Badger began fully federated: strip stopwords → OR the terms → one API call
+per source → re-score locally. **No index, no crawler, no copy of your data.**
+This section used to explain why that made fuzzy matching and real ranking
+unavailable *by construction* — both need the text, and federation holds
+nothing. That analysis was correct, and it is exactly why the design now
+holds a little text: search runs on a **local, refreshable index**, with the
+live federated path kept as the fallback.
 
-That is the main departure from Glean, and it is a real trade rather than a
-shortcut:
+**What the index is.** `npm run index` crawls everything the connected
+sources hold — through the *same* allowlisted read-only Composio operations
+the agent's tools use, so it needs no new permissions and works for any
+Composio key — into one JSON file under `.gitagent/index/`. ~178 documents,
+~200KB, 173 read calls, under a minute on the demo corpus. It is a cache,
+not a database: delete the directory and the copy is gone. Counts are
+verified against what the live APIs report during the crawl; a mismatch
+fails the build rather than leaving a quietly partial index. `npm run index
+status` reports age and contents.
 
-**What federation buys.** No crawler to run, no index to go stale, and
-permissions enforced at the source — Badger sees exactly what the connected
-account sees, and never more. Nothing is copied anywhere.
+**What holding the text buys, measured:**
 
-**What it costs.** Fuzzy matching compares a query against the corpus
-vocabulary. Semantic search compares embeddings of it. Both require *holding
-the text*. Federation means we hold nothing, so both are unavailable **by
-construction** — not skipped, not deferred, unavailable.
+- **Typo tolerance, visibly.** A query term absent from the corpus
+  vocabulary is replaced by the nearest vocabulary term by trigram
+  similarity, and the UI says so — "Showing results for *payments* (you
+  typed 'paymnets')". Never silently: a term nothing is close to is reported
+  as matching nothing. This follows Onyx's measurement rather than fighting
+  it — they found query-engine fuzziness (fuzziness AUTO) made recall
+  *worse* and rejected it; correction against the real vocabulary, before
+  the search, is a different mechanism.
+- **Real ranking.** BM25 with actual IDF, so "Brightsmile" finally outweighs
+  "app". The candidate-pool weighting in `_rank.mjs` was the honest
+  approximation available without the text; the index retires the need for
+  it on this path.
+- **Speed.** 3ms instead of ~5s, because the ~17 third-party calls per
+  search became zero.
+- **Files and commits in results.** GitHub code search does not serve
+  private repositories at all, so the live path could never return a file.
+  The index enumerates them by path, so now it can.
 
-Onyx settles the fuzzy-matching question in a comment in their own source
-(`backend/onyx/document_index/opensearch/search.py`, under "Options
-considered and rejected"):
-they tried fuzziness AUTO and found it made recall slightly worse, because the
-analyzer already stems and tokenises. There is no "did you mean" anywhere in
-Onyx either — typo tolerance comes from the *vector half* of hybrid search,
-where a misspelling lands near the right word in embedding space. And Google's
-"did you mean" is learned from query logs at planetary scale, which one demo
-user cannot produce.
+**The fallback is a fallback, never a wall.** A fresh clone works before its
+first `npm run index`: a missing or stale (>24h) index routes the search to
+the live federated path unchanged, and the server starts one background
+build (which is how Cloud Run's ephemeral disk gets its index — lazily, on
+first use). Every response says which path answered and how old the copy
+is, because index and live *will* disagree between refreshes, and a status
+display that cannot be seen wrong is a lie waiting to be found.
 
-**What this looks like in practice.** Type `ofboarding` into the search box and
-you get nothing; type `offboarding` and the Offboarding Checklist comes back
-first. Ask the *agent* about "our ofboarding process" and it answers correctly,
-because the model silently fixes the spelling before it searches. So the
-missing tolerance is confined to the one path that deliberately has no model on
-it, which is the path that has to stay fast.
+**What stays federated.** The agent's own search tools still query the
+sources live — freshness at ask-time, permissions enforced at the source —
+and the index inherits the read-only story wholesale: it is built by the
+same eight-name allowlist everything else goes through.
 
-**So phase 2 is one index, not four hacks.** Postgres with `tsvector` +
-`pgvector` + `pg_trgm` buys semantic matching, real BM25 with IDF, comparable
-cross-source ranking *and* typo tolerance in a single step. Bolting any of them
-onto the federated design would be redundant a week later, and by Onyx's
-measurements the cheapest one makes things worse.
+**What is still deferred: embeddings.** Onyx's typo tolerance comes from the
+vector half of its hybrid search, but vectors require an embedding-model key
+from every user, which would break the property that Badger's hands work
+with only a Composio key. Trigram matching covers typos without one. Every
+indexed document carries a reserved `vector` field (null today) so
+embeddings can arrive as a column, not a rebuild. The semantic gap
+("holiday" → "leave policy") stays owned by the agent, which already
+rephrases.
 
-That reverses the federated decision, and the reversal is owned here rather
-than left for a reviewer to notice.
+The federated decision is reversed, and the reversal is owned here rather
+than left for a reviewer to notice: the earlier analysis priced the trade
+correctly, and the index is the payment.
 
 ---
 
@@ -553,8 +578,9 @@ the working state and the decision log.
 
 Stated here rather than left to be discovered:
 
-- **No index**, so no semantic search, no fuzzy matching, no IDF. See above —
-  this is structural, and phase 2 is the fix.
+- **No semantic search.** The index buys typo tolerance and real BM25, but
+  embeddings are deferred (see above) — "holiday" does not find "leave
+  policy" on the search path; the agent covers that gap by rephrasing.
 - **The credentials are not read-only.** Four software layers enforce it; the
   tokens beneath them could write.
 - **Chat history is not persisted.** There is no database; "recent digs" is
@@ -565,9 +591,10 @@ Stated here rather than left to be discovered:
 - **Answers are not deterministic.** The same question can produce a materially
   different answer between runs, which is why the eval baseline is quoted as a
   sample rather than a score.
-- **Typos work in chat and not in search.** The model corrects spelling before
-  it searches; the search box has no model on it by design. `ofboarding`
-  returns nothing there.
+- **Typo correction needs the index.** `ofboarding` finds the Offboarding
+  Checklist on the index path and says it corrected; on the live fallback
+  there is no vocabulary to correct against, so it returns nothing. Chat is
+  covered either way — the model fixes spelling before it searches.
 - **GitHub code search does not work on private repositories** — for any token
   class, measured. Retrieval into private repos goes through issue search, file
   reads on known paths, and commit history. This shaped the corpus: searchable

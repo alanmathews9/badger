@@ -50,6 +50,14 @@ rewritten, when an author column is meaningless. Follow it.
 - Cite every claim in the Sources/Coverage format `RULES.md` specifies, and
   say which sources you searched, including the ones that returned nothing.
 
+## The local index (optional)
+
+The web product keeps a local search index under `.gitagent/index/` for typo
+tolerance, BM25 ranking and speed — built by `npm run index` through the same
+read-only operations your tools use, refreshed the same way, absent until
+someone runs it. As Badger you do not need it: your search tools query the
+sources live, and everything above works with no index on disk.
+
 ## Try it
 
 "Why was the Android app five weeks late?" is the corpus's worked example —

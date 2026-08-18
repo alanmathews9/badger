@@ -42,11 +42,23 @@ Alan before the re-seed.
 
 ## The task in front of you — read this first
 
-**Start with `PLAN-SEARCH-INDEX.md`: the agreed next build is the local
-search index (typo tolerance, BM25, speed), planned with Alan on 2026-08-18
-in the session that also worked through the Fable review below — items 1–3
-of that review are done (memory is live, audit covers the SDK paths, the
-enforcement question is settled and recorded further down this file).**
+**The local search index is BUILT — `PLAN-SEARCH-INDEX.md` steps 1–5 are
+done as of 2026-08-18 night (plan agreed with Alan that day; items 1–3 of
+the Fable review were already done — memory live, audit covering the SDK
+paths, enforcement settled below).** What landed: `npm run index` crawls all
+three sources through the existing read-only allowlists into
+`.gitagent/index/` (178 docs, 173 calls, ~40s, counts verified against the
+live APIs); `createSearcher` in `tools/scripts/_index.mjs` answers with BM25
++ real IDF and visible typo correction ("paymnets" → payments,
+"brigthsmile" → brightsmile, both measured); `/api/search` is index-first —
+3ms and 0 API calls against 5.4s and 10 calls live, same query same minute —
+with the live path as fallback when the index is missing or >24h old, one
+lazy background build (verified end-to-end against the running server), and
+`path` + index age in every response. Files and commits now appear in search
+results, which live GitHub search structurally cannot do. `npm run
+test:index` is nine deterministic cases needing no key. The agent's own
+tools stay live-only in this arc, by plan — wiring them onto the index is a
+follow-up decision that wants eval evidence.**
 
 **Four things, in this order. The first one gates the rest.**
 
@@ -469,7 +481,8 @@ what tools return — which is where every win so far has actually come from.
 
 ### Also outstanding
 
-- ⚠️ **Production is NINE commits behind as of 2026-08-18 night.** What
+- ⚠️ **Production is THIRTEEN commits behind as of 2026-08-18 night** —
+  the nine below plus the four index commits. What
   follows describes the last deploy, which is revision `badger-00003-zfh` —
   accurate about that revision, and no longer a description of `main`.
   Revision `badger-00003-zfh`,

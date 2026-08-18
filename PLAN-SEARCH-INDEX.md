@@ -1,6 +1,11 @@
 # Plan: the local search index
 
 Agreed with Alan on 2026-08-18. Build in a fresh session, in the order below.
+
+> **Status, 2026-08-18 night: steps 1–5 are built and verified; step 6's
+> gates run next, and the deploy waits for Alan (deploys are rationed).**
+> Current state lives in CLAUDE.md — this file stays as the plan of record.
+
 The goal in one sentence: **searches with typos must still find the right
 results, Google-style, for any user of the agent** — and the way there is a
 small local index, because typo correction requires holding the vocabulary
