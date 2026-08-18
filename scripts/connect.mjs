@@ -27,8 +27,11 @@
 // that can read a private repository: the credential cannot enforce read-only,
 // so the tool layer has to. Seeding uses the same grant, with write tools
 // enabled in a session the agent's allowlist never names.
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { Composio } from "@composio/core";
 import { loadEnvFile } from "../tools/scripts/_env.mjs";
+import { indexStatus } from "../tools/scripts/_index.mjs";
 
 loadEnvFile(new URL("../.env", import.meta.url));
 
@@ -86,9 +89,12 @@ async function activeAccount(slug) {
 
 console.log(`user: ${USER_ID}\n`);
 
+const connected = [];
+
 for (const slug of TOOLKITS) {
   const existing = await activeAccount(slug);
   if (existing) {
+    connected.push({ slug, createdAt: Date.parse(existing.createdAt ?? "") || null });
     // Report the Tool Router flag alongside the connection, because an ACTIVE
     // connection under an unexposed auth config fails every call while looking
     // perfectly healthy here.
@@ -117,4 +123,35 @@ if (!statusOnly) {
   console.log("\nOpen each link and authorise with the account whose data Badger");
   console.log("should search, then confirm with:");
   console.log("  npm run connect status");
+} else {
+  // Connection-triggered indexing, Onyx's shape sized down: Onyx starts a
+  // crawl within seconds of a connector being added (its beat scheduler picks
+  // up the trigger); here, the moment `status` confirms a searchable source
+  // is authorised is the first moment a build can succeed, so it runs right
+  // here — and again whenever a source was connected AFTER the index was
+  // built, because a copy that predates a connection cannot contain it.
+  // The web server needs no telling: it watches the index file's mtime and
+  // picks up a new build on the next search. The boot-time lazy build stays
+  // as Cloud Run's safety net, `npm run index` as the manual override.
+  const searchable = connected.filter((c) => ["github", "gmail", "googledrive"].includes(c.slug));
+  const idx = indexStatus();
+  const newestConnection = Math.max(0, ...searchable.map((c) => c.createdAt ?? 0));
+  const needsBuild =
+    searchable.length > 0 &&
+    (!idx.exists || (newestConnection && Date.parse(idx.builtAt) < newestConnection));
+
+  if (needsBuild) {
+    console.log(
+      idx.exists
+        ? "\nA source was connected after the index was built — rebuilding it now…"
+        : "\nBuilding the local search index from the connected sources…",
+    );
+    const script = fileURLToPath(new URL("./index-build.mjs", import.meta.url));
+    const result = spawnSync(process.execPath, [script], { stdio: "inherit" });
+    if (result.status !== 0) {
+      console.log("Index build failed — search runs live until `npm run index` succeeds.");
+    }
+  } else if (searchable.length) {
+    console.log(`\nindex: current (built ${idx.builtAt}) — \`npm run index\` rebuilds it.`);
+  }
 }

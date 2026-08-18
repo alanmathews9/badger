@@ -303,11 +303,18 @@ status` reports age and contents.
   private repositories at all, so the live path could never return a file.
   The index enumerates them by path, so now it can.
 
+**When it builds.** Onyx starts a crawl within seconds of a connector being
+added (its beat scheduler picks up the trigger); Badger does the sized-down
+equivalent: `npm run connect status` — the step that confirms OAuth
+completed — builds the index the moment a searchable source is connected,
+and rebuilds it when a source is connected after the last build. The server
+also builds lazily at boot when the disk holds no index (which is how Cloud
+Run's ephemeral disk gets its copy), and `npm run index` is the manual
+override.
+
 **The fallback is a fallback, never a wall.** A fresh clone works before its
-first `npm run index`: a missing or stale (>24h) index routes the search to
-the live federated path unchanged, and the server starts one background
-build (which is how Cloud Run's ephemeral disk gets its index — lazily, on
-first use). Every response says which path answered and how old the copy
+first build: a missing or stale (>24h) index routes the search to the live
+federated path unchanged while a background build runs. Every response says which path answered and how old the copy
 is, because index and live *will* disagree between refreshes, and a status
 display that cannot be seen wrong is a lie waiting to be found.
 
