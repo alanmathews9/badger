@@ -18,7 +18,6 @@ input_schema:
         exactly as written instead of being reduced.
     kind:
       type: string
-      enum: [issue, pr, any]
       description: Restrict to issues, to pull requests, or neither. Default any.
     limit:
       type: integer
@@ -31,7 +30,6 @@ input_schema:
         because you do not reliably know today's date.
     date_field:
       type: string
-      enum: [created, merged, closed, updated]
       description: Which date since_days applies to. Default created.
   required: [query]
 implementation:

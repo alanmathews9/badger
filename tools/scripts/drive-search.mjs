@@ -27,10 +27,26 @@ run(async (args) => {
 
   const { userId } = contextFrom(args);
 
+  // `kind` is normalised rather than validated, and the schema no longer
+  // constrains it. The enum that used to be there turned a near-miss into a
+  // dead end: asked for the leave policy the model passed kind:"documents",
+  // the runtime rejected it against the enum, and the model gave up and
+  // reported the validation error to the user as the answer — with the correct
+  // document one call away. Measured by the eval set, 2026-08-18.
+  //
+  // The house rule applies: fix it in the tool, not in a prompt telling the
+  // model to be more careful. An unrecognised value now searches everything,
+  // which is the same result as omitting the filter and can never dead-end.
+  const KINDS = {
+    doc: "document", docs: "document", document: "document", documents: "document",
+    sheet: "spreadsheet", sheets: "spreadsheet", spreadsheet: "spreadsheet",
+    spreadsheets: "spreadsheet", table: "spreadsheet", tables: "spreadsheet",
+    folder: "folder", folders: "folder", dir: "folder", directory: "folder",
+  };
+  const want = KINDS[String(kind ?? "").trim().toLowerCase()];
+
   const extra = [];
-  if (kind === "doc") extra.push("mimeType = 'application/vnd.google-apps.document'");
-  if (kind === "sheet") extra.push("mimeType = 'application/vnd.google-apps.spreadsheet'");
-  if (kind === "folder") extra.push("mimeType = 'application/vnd.google-apps.folder'");
+  if (want) extra.push(`mimeType = 'application/vnd.google-apps.${want}'`);
 
   const plan = planQuery(query, { max: MAX_TERMS_GOOGLE });
   const q = buildDriveQuery(query, plan, { extra });

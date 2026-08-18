@@ -20,9 +20,16 @@ run(async (args) => {
   // Whose GitHub, and which repo. Injected per request by the server.
   const { userId, slug: REPO_SLUG, owner: OWNER, repo: REPO } = contextFrom(args);
 
+  // Normalised, not validated — see the note in drive-search.mjs. Anything
+  // unrecognised searches both kinds rather than failing.
+  const KINDS = {
+    issue: "is:issue", issues: "is:issue",
+    pr: "is:pr", prs: "is:pr", pull: "is:pr", pulls: "is:pr",
+    "pull request": "is:pr", "pull requests": "is:pr", pullrequest: "is:pr",
+  };
   const extra = [];
-  if (kind === "issue") extra.push("is:issue");
-  if (kind === "pr") extra.push("is:pr");
+  const wantKind = KINDS[String(kind ?? "").trim().toLowerCase()];
+  if (wantKind) extra.push(wantKind);
 
   // Date windows are computed here, never by the model. Asked "what shipped
   // last week" it produced created:>=2024-05-17 — two years wrong — because it

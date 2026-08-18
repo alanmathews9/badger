@@ -74,8 +74,30 @@ function extractSourceLines(s) {
   return { mail, documents };
 }
 
-/** Citations may be written as markdown links; compare the visible text. */
-const stripLink = (s) => s.replace(/^\[(.*)\]\([^)]*\)$/, "$1").replace(/^\*\*|\*\*$/g, "").trim();
+/**
+ * Citations may be written as markdown links; compare the visible text.
+ *
+ * Tolerant of the ways a model actually writes a link, which are not always the
+ * way the spec does. Gemini emits `[Title] (url)` with a space, and
+ * `[Title]((id))` with doubled parentheses, often enough that a strict
+ * `^\[(.*)\]\([^)]*\)$` left the whole string — brackets, URL and all — as
+ * the "title", which then matched nothing.
+ *
+ * That produced a **false** `unretrieved-document` on a document the agent had
+ * genuinely opened, and the UI stamps those `[UNVERIFIED]`. A verifier that
+ * cries wolf on correct answers is worse than no verifier: it teaches the
+ * reader to ignore the badge, which is the one thing the badge cannot survive.
+ * Found by the eval set, 2026-08-18.
+ *
+ * Being generous here does not weaken the check. What is verified is the
+ * extracted *title*, and it still has to appear in something a tool returned;
+ * all this does is extract the title correctly in the first place.
+ */
+const stripLink = (s) =>
+  String(s)
+    .replace(/^\[(.*?)\]\s*\(+[^)]*\)+$/, "$1")
+    .replace(/^\*\*|\*\*$/g, "")
+    .trim();
 
 /**
  * Loose containment: collapse whitespace, ignore case, and ignore a leading

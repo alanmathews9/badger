@@ -15,11 +15,12 @@ input_schema:
         matched against file names and full contents.
     kind:
       type: string
-      enum: [doc, sheet, folder, any]
       description: >
         Restrict to documents, spreadsheets or folders. Default any. Use
         "sheet" when the question is about numbers, utilisation, dates or
-        anything tabular.
+        anything tabular. Plurals and synonyms are understood — "documents",
+        "spreadsheet", "sheets" all work — and anything unrecognised searches
+        everything rather than failing.
     limit:
       type: integer
       description: Maximum files, 1-25. Default 10.
