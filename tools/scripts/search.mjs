@@ -11,6 +11,7 @@
 // _search-query.mjs for the measurements and for why Onyx never hits this.
 import { exec, run, clip, asList, contextFrom } from "./_github.mjs";
 import { buildQuery, planQuery, CROSS_SOURCE } from "./_search-query.mjs";
+import { matchedIn, rankBy, score } from "./_rank.mjs";
 
 run(async (args) => {
   const { query, kind, limit, since_days, date_field } = args;
@@ -40,7 +41,11 @@ run(async (args) => {
   const q = buildQuery(query, plan, { repoSlug: REPO_SLUG, extra });
 
   const per_page = Math.min(Math.max(Number(limit) || 10, 1), 30);
-  const data = await exec("GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS", { q, per_page }, userId);
+  // Over-fetch, rank, then cut — see the note in gmail-search.mjs. Re-sorting
+  // only the rows the engine chose to show cannot surface the one it ranked
+  // eleventh, which is usually the interesting one.
+  const pool = Math.min(per_page * 3, 60);
+  const data = await exec("GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS", { q, per_page: pool }, userId);
 
   const items = asList(data);
   const total = data.total_count ?? items.length;
@@ -63,7 +68,25 @@ run(async (args) => {
     );
   }
 
-  const lines = items.map((i) => {
+  // Re-scored locally rather than trusting GitHub's relevance order, by the
+  // same function the web search and the other two tools use. A term that
+  // matched neither title nor body matched in the comments, which the search
+  // API will not tell us — scored as a weak hit rather than as zero, so a
+  // thread GitHub found for a good reason does not sink to the bottom.
+  const terms = plan.passthrough ? [] : plan.terms;
+  const ranked = rankBy(items, (i) => {
+    const inTitle = matchedIn(i.title, terms);
+    const inBody = matchedIn(i.body, terms);
+    return score({
+      terms,
+      matchedInTitle: inTitle,
+      matchedInBody: inBody,
+      matchedInDiscussionOnly: terms.length > 0 && !inTitle.length && !inBody.length,
+      comments: i.comments ?? 0,
+    });
+  }).slice(0, per_page);
+
+  const lines = ranked.map((i) => {
     const type = i.pull_request ? "PR" : "issue";
     const when = (i.updated_at ?? i.created_at ?? "").slice(0, 10);
     const who = i.user?.login ?? "unknown";
@@ -79,7 +102,7 @@ run(async (args) => {
   return (
     `${planNote}${droppedNote}\n` +
     `today: ${todayStr} — use this date, do not recall one\n` +
-    `${items.length} shown of ${total} total match(es) in ${OWNER}/${REPO}\n\n` +
+    `${ranked.length} shown of ${total} total match(es) in ${OWNER}/${REPO}, most relevant first\n\n` +
     lines.join("\n") +
     `\nTo read a full thread including comments, call github_issue with its number.\n` +
     CROSS_SOURCE

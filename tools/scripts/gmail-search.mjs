@@ -7,6 +7,7 @@
 // cannot drift, which they did once already.
 import { exec, run, clip, contextFrom, CROSS_SOURCE } from "./_google.mjs";
 import { planQuery, buildGmailQuery, MAX_TERMS_GOOGLE } from "./_search-query.mjs";
+import { matchedIn, rankBy, score } from "./_rank.mjs";
 
 run(async (args) => {
   const { query, from, since_days, limit } = args;
@@ -32,9 +33,16 @@ run(async (args) => {
   const q = buildGmailQuery(query, plan, { extra });
   const max = Math.min(Math.max(Number(limit) || 10, 1), 25);
 
+  // Fetch a wider pool than we show, because ranking can only reorder what the
+  // engine already handed over. Asking Gmail for ten and re-sorting those ten
+  // fixes nothing: for an OR'd query its ten are the ten most recent, and the
+  // February message that answers the question was never in them. Over-fetch,
+  // rank, then cut. Measured 2026-08-18 — see _rank.mjs.
+  const pool = Math.min(max * 4, 50);
+
   const data = await exec(
     "GMAIL_FETCH_EMAILS",
-    { query: q, max_results: max, include_payload: true, user_id: "me" },
+    { query: q, max_results: pool, include_payload: true, user_id: "me" },
     userId,
   );
   const messages = data.messages ?? [];
@@ -52,7 +60,22 @@ run(async (args) => {
     );
   }
 
-  const lines = messages.map((m, i) => {
+  // Re-rank locally. Gmail's own order for an OR'd query is effectively
+  // newest-first, which is the wrong answer to almost every question worth
+  // asking: "did we promise them March?" is answered by a message from
+  // February, and it was losing to July account noise until this existed.
+  // Measured 2026-08-18 — see _rank.mjs.
+  const terms = plan.passthrough ? [] : plan.terms;
+  const ranked = rankBy(messages, (m) => {
+    const body = String(m.messageText ?? m.preview?.body ?? "");
+    return score({
+      terms,
+      matchedInTitle: matchedIn(m.subject, terms),
+      matchedInBody: matchedIn(body, terms),
+    });
+  }).slice(0, max);
+
+  const lines = ranked.map((m, i) => {
     const when = String(m.messageTimestamp ?? "").slice(0, 10);
     const body = String(m.messageText ?? m.preview?.body ?? "").replace(/\s+/g, " ").trim();
     return (
@@ -66,7 +89,7 @@ run(async (args) => {
   return (
     `${planNote}\n` +
     `today: ${today.toISOString().slice(0, 10)} — use this date, do not recall one\n` +
-    `${messages.length} message(s)\n\n` +
+    `${ranked.length} message(s) of ${messages.length} considered, most relevant first\n\n` +
     lines.join("\n") +
     `\nA single message is rarely the answer. Call gmail_thread with a thread id to read the whole exchange, ` +
     `which is where the disagreement and the decision usually are.\n` +

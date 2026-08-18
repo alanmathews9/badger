@@ -6,11 +6,20 @@
 // name, the description and the content — including the cells of a Sheet, so
 // spreadsheets take part in ordinary search rather than sitting in a silo.
 //
-// Drive returns no relevance score and no snippet, only a filtered list. So
-// ranking and excerpting happen locally, the same way the web search ranks
-// GitHub's rows.
+// Drive returns no relevance score and no snippet, only a filtered list — so
+// ranking and excerpting both happen locally, by the same function every other
+// search path uses (_rank.mjs).
+//
+// The ranking here is weaker than Gmail's or GitHub's and the reason is worth
+// stating: Drive will not give us the text, so a file can only be scored on its
+// name. `fullText contains` is what got it into the list at all, so every row
+// matched *somewhere*; what we can order on is whether the match is in the
+// title. That is enough to put "Leave Policy 2026" above a document that
+// mentions leave once, and not enough to order the rest. Excerpts are then
+// fetched for the top few, which is the only place the body text ever exists.
 import { exec, run, clip, contextFrom, kindOf, isWorkspaceFile, exportText, CROSS_SOURCE } from "./_google.mjs";
 import { planQuery, buildDriveQuery, MAX_TERMS_GOOGLE } from "./_search-query.mjs";
+import { matchedIn, rankBy, score } from "./_rank.mjs";
 
 run(async (args) => {
   const { query, kind, limit } = args;
@@ -27,14 +36,16 @@ run(async (args) => {
   const q = buildDriveQuery(query, plan, { extra });
   const max = Math.min(Math.max(Number(limit) || 10, 1), 25);
 
-  const data = await exec("GOOGLEDRIVE_FIND_FILE", { query: q, page_size: max }, userId);
-  const files = data.files ?? [];
+  // Over-fetch, rank, then cut — see the note in gmail-search.mjs.
+  const pool = Math.min(max * 3, 50);
+  const data = await exec("GOOGLEDRIVE_FIND_FILE", { query: q, page_size: pool }, userId);
+  const found = data.files ?? [];
 
   const planNote = plan.passthrough
     ? `query: ${q}`
     : `query: ${q}\n(your words were reduced to keywords — Drive matches whole terms against file contents)`;
 
-  if (!files.length) {
+  if (!found.length) {
     return (
       `No files matched: ${q}\n` +
       `This is a real "nothing found", not an error.\n` +
@@ -48,6 +59,9 @@ run(async (args) => {
   // returns a signed URL, not the file), and an unbounded fan-out here would
   // cost more than the answer is worth.
   const terms = plan.passthrough ? [] : plan.terms;
+  const files = rankBy(found, (f) =>
+    score({ terms, matchedInTitle: matchedIn(f.name, terms), matchedInBody: [] }),
+  ).slice(0, max);
   const excerptable = files.filter((f) => isWorkspaceFile(f.mimeType)).slice(0, 4);
   const excerpts = new Map();
   if (terms.length) {
@@ -75,7 +89,7 @@ run(async (args) => {
 
   return (
     `${planNote}\n` +
-    `${files.length} file(s)\n\n` +
+    `${files.length} file(s) of ${found.length} considered, most relevant first\n\n` +
     lines.join("\n") +
     `\nCall drive_file with an id to read one in full. Documents here often carry comments that ` +
     `disagree with the document — call drive_comments with the same id, because the margin is ` +

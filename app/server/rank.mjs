@@ -1,58 +1,16 @@
-// Local ranking, shared by every source.
+// Ranking for the web search — the scoring itself lives under the agent.
 //
-// This is the piece that makes a federated search across three systems
-// coherent. GitHub keyword-ANDs and returns its own relevance order; Gmail has
-// its own syntax and its own opinion; Drive returns a filtered list with no
-// score at all. Those three numbers are not comparable, and merging three
-// ranked lists by their own scores is guesswork dressed as ranking.
+// `score`, `matchedIn`, `rankBy` and the regex helpers moved to
+// `tools/scripts/_rank.mjs` so that the agent's own search tools can use them.
+// The dependency only runs one way — `app/` may reach up into `tools/`, never
+// the reverse — so a function shared by both has to live on the agent's side.
+// See the note in that file for what it cost to discover this.
 //
-// So every row from every source is re-scored here by one term-coverage
-// function, and each engine's opinion is discarded. Cheap, honest, and it works
-// without an index. The alternative is a real BM25 with IDF, which needs the
-// text — that is phase 2, and it arrives with the index or not at all.
-//
-// There is no IDF, so "Halden" counts the same as "engagement". Stated plainly
-// because it is the main thing wrong with this ranking.
+// What stays here is `highlight`, which is presentation for the web UI. The
+// agent has no use for <hi> markers; it reads the text.
+export { escapeRe, matcher, matchedIn, score, rankBy } from "../../tools/scripts/_rank.mjs";
 
-export const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-export const matcher = (term) => new RegExp(`\\b${escapeRe(term)}`, "i");
-
-/**
- * Rank a row by how much of the query it covers.
- *
- * A title hit counts for more than a body hit — a document called "Halden
- * retro" answering "halden" should beat one that mentions Halden in passing.
- *
- * @param {object} o
- * @param {string[]} o.terms              the planned query terms
- * @param {string[]} o.matchedInTitle
- * @param {string[]} o.matchedInBody
- * @param {boolean}  [o.matchedInDiscussionOnly]  matched, but we cannot say where
- * @param {number}   [o.comments]         thread size, used only as a tiebreak
- */
-export function score({
-  terms,
-  matchedInTitle,
-  matchedInBody,
-  matchedInDiscussionOnly = false,
-  comments = 0,
-}) {
-  if (!terms.length) return 0;
-  const titleWeight = 3;
-  const bodyWeight = 1;
-  // A discussion-only match is a real match, just an unlocatable one. Score it
-  // as a weak body hit rather than zero, or the engine's own hits sort to the
-  // bottom of our list for no reason the user can see.
-  const discussionWeight = matchedInDiscussionOnly ? 0.5 : 0;
-  const max = terms.length * (titleWeight + bodyWeight);
-  const earned =
-    matchedInTitle.length * titleWeight + matchedInBody.length * bodyWeight + discussionWeight;
-
-  // A thread with argument in it is usually the better answer on this corpus.
-  // Deliberately tiny — a tiebreak, never enough to outrank a real term hit.
-  const discussion = Math.min(comments, 10) * 0.01;
-  return Number((earned / max + discussion).toFixed(4));
-}
+import { escapeRe } from "../../tools/scripts/_rank.mjs";
 
 /**
  * Excerpts of the body around each match, with matched words wrapped in
@@ -81,6 +39,3 @@ export function highlight(body, terms, { window = 160, max = 2 } = {}) {
   }
   return excerpts;
 }
-
-/** Which of `terms` appear in this text. */
-export const matchedIn = (text, terms) => terms.filter((t) => matcher(t).test(String(text ?? "")));
