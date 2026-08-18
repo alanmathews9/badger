@@ -122,6 +122,7 @@ export default function App() {
     <SidebarProvider>
       <AppSidebar
         mode={mode}
+        sources={sources}
         onModeChange={setMode}
         digs={digs}
         onPickDig={(q) => {

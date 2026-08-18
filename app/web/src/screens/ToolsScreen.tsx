@@ -16,9 +16,13 @@ import { cn } from "@/lib/utils";
  * one that says nothing: it teaches you to stop reading it.
  *
  * **The account is the useful line, not the connection state.** "Connected"
- * does not tell you whether Badger is reading the right mailbox, and a
- * repository slug is not an identity — one account reaches many repositories.
- * So each card names the account, and GitHub names the repository under it.
+ * does not tell you whether Badger is reading the right mailbox. So each card
+ * names the account it is connected as, and nothing else: a repository slug is
+ * a scope rather than an identity, and one account reaches many repositories.
+ *
+ * GitHub logins are prefixed with @ because that is how GitHub writes them
+ * everywhere else; the Google addresses are already unambiguous and are left
+ * alone. Both come from /api/sources — nothing here is hard-coded.
  *
  * There is no Manage pane. Connecting your own accounts is a real capability
  * and the endpoints are still there, but this build searches a seeded corpus by
@@ -68,15 +72,16 @@ export function ToolsScreen({ sources }: { sources: SourcesResponse }) {
                   {tool.description}
                 </p>
 
-                <div className="mt-4 space-y-0.5 border-t border-stone-100 pt-3">
+                <div className="mt-4 border-t border-stone-100 pt-3">
                   <div className="truncate font-mono text-[10.5px] text-stone-600">
-                    {source?.account ?? (connected ? "connected" : "not connected")}
+                    {source?.account
+                      ? tool.id === "github"
+                        ? `@${source.account}`
+                        : source.account
+                      : connected
+                        ? "connected"
+                        : "not connected"}
                   </div>
-                  {source?.repo && (
-                    <div className="truncate font-mono text-[10.5px] text-stone-400">
-                      {source.repo}
-                    </div>
-                  )}
                 </div>
               </div>
             );

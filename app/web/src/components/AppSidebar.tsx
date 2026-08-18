@@ -1,5 +1,6 @@
 import { MessagesSquare, Search, Wrench } from "lucide-react";
 import { BadgerBadge } from "./BadgerMark";
+import { BRAND_LOGOS } from "./BrandLogos";
 import {
   Sidebar,
   SidebarTrigger,
@@ -15,8 +16,13 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar";
 import type { Dig } from "@/lib/recentDigs";
+import type { SourcesResponse } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 export type Mode = "search" | "chat" | "tools";
+
+/** Fixed order, so the marks do not reshuffle when a source reconnects. */
+const SOURCE_ORDER = ["github", "drive", "gmail"] as const;
 
 /**
  * The left rail.
@@ -36,7 +42,9 @@ export function AppSidebar({
   digs,
   onPickDig,
   budget,
+  sources,
 }: {
+  sources?: SourcesResponse;
   mode: Mode;
   onModeChange: (next: Mode) => void;
   digs: Dig[];
@@ -90,8 +98,35 @@ export function AppSidebar({
                 >
                   <Wrench />
                   <span>Tools</span>
-                  <span className="ml-auto shrink-0 group-data-[collapsible=icon]:hidden">
-                    <span className="inline-block size-1.5 rounded-full bg-emerald-500" />
+                  {/*
+                    The three marks, rather than a status dot.
+                
+                    A dot says "something is connected" and this one said it
+                    unconditionally — it was a hard-coded emerald circle that
+                    stayed green whether or not anything was reachable. The marks
+                    say *which* sources, which is the thing worth knowing at a
+                    glance, and they are driven by /api/sources so a source that
+                    drops out fades instead of lying.
+                
+                    Kept deliberately quiet: 13px, dimmed, and behind the label.
+                    This is a status indicator that happens to be legible, not a
+                    row of logos competing with the navigation.
+                  */}
+                  <span className="ml-auto flex shrink-0 items-center gap-1 group-data-[collapsible=icon]:hidden">
+                    {SOURCE_ORDER.map((id) => {
+                      const Logo = BRAND_LOGOS[id];
+                      const live = sources?.sources.find((s) => s.id === id)?.connected ?? false;
+                      return (
+                        <Logo
+                          key={id}
+                          size={13}
+                          className={cn(
+                            "transition-opacity",
+                            live ? "opacity-60" : "opacity-20 grayscale",
+                          )}
+                        />
+                      );
+                    })}
                   </span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
