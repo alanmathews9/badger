@@ -419,21 +419,26 @@ somewhere; what we can order on is whether the match is in the title.
 was found by asking one question by hand, on the first try, after the corpus had
 been declared verified. Nobody knows what the other fourteen questions do.
 
-#### Open question, seen while measuring the above — verify before trusting it
+#### Settled 2026-08-18 — where tool enforcement actually happens, per path
 
-A run on 2026-08-18 reported calling `task_tracker` and `skill_learner`. Neither
-is in `hooks/allowed-tools.txt`, which states plainly that they are "absent and
-therefore blocked". **Nothing was written** — the working tree after the run held
-only edits made by hand — so the enforcement appears to have held somewhere.
+A run on 2026-08-18 reported calling `task_tracker` and `skill_learner`,
+neither of which is in `hooks/allowed-tools.txt`. Resolved by reading the
+shipped code rather than probing:
 
-What is not established is *where*. The likely reading is that the SDK's
-`allowedTools` filters declarative and MCP tools while the runtime injects its
-own builtins regardless, and that `hooks/allow-read-only.sh` then denied the
-call — defence in depth working as designed, with the transcript logging the
-attempt rather than a success. That is a guess. It needs one deliberate probe:
-call a blocked builtin, and check whether the denial comes from the SDK layer or
-the hook. Until then, do not repeat the claim that `allowedTools` alone removes
-them from the model's schema — this run is evidence against it.
+- **On the SDK path, `allowedTools` removes builtins from the model's schema.**
+  `sdk.js` assembles one list — builtins first (`createBuiltinTools`: cli,
+  read, write, memory, task_tracker, skill_learner), then declarative, plugin
+  and MCP tools — and filters *all of it* (sdk.js:175). The earlier guess that
+  "the runtime injects its own builtins regardless" was wrong.
+- **The transcript showed a hallucinated request, not an execution.** A call to
+  an unregistered tool is answered by the agent loop itself with an error
+  result — `pi-agent-core/dist/agent-loop.js:326`, `Tool <name> not found`.
+  The hook never saw it: a filtered tool does not exist to be wrapped.
+- **Script hooks do run on the SDK path** (sdk.js:184-187 wraps every
+  registered tool), so `allow-read-only.sh` still gates everything that
+  exists. On the **CLI path** there is no `allowedTools`, builtins like `cli`
+  and `write` are registered, and the hook is the only refusal. Defence in
+  depth is real, but different layers do the work on different paths.
 
 **✅ The eval set exists** — `evals/questions.mjs`, run with `npm run eval`.
 Fifteen questions, deterministic grading (`mustCite` against tool output,

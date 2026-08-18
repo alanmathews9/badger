@@ -163,6 +163,42 @@ Adding Gmail did not add a skill. It added tools, and changed what
 answer, threads hold the real one", and with three sources that became a
 procedure for crossing them.
 
+### The rest of the framework surface — used or declined, never silent
+
+Badger uses more of GAP than the tree above shows. `memory/` is live:
+`MEMORY.md` holds vocabulary and where answers to recurring questions turned
+out to live — pointers, never content, so memory cannot become an index by the
+back door. Two of its entries came from measured eval misses, which is the
+learning loop doing real work. On the SDK paths the file is injected into the
+prompt as data, because a prose "load memory first" rule was watched being
+skipped on its first live run. `examples/` carries one calibration example on
+a deliberately fictional subject, teaching the answer shape the eval caught
+Badger missing: a policy answer is incomplete until the exceptions granted sit
+next to the rule. And the compliance block's `audit_logging: true` is honoured
+on every path — the runtime writes `.gitagent/audit.jsonl` only from its CLI
+entry point, so `app/server/audit.mjs` keeps the same log in the same format
+on the SDK paths, and in production each entry also goes to stdout, where
+Cloud Logging's default 30-day retention is what makes the declared
+`retention_days: 30` true.
+
+The rest of the surface is declined, each for a reason rather than by
+omission:
+
+- **`workflows/`** — deterministic multi-step orchestration. Badger's
+  procedures branch on what retrieval returns: which thread to open is a
+  judgment call, so they are skills the model steers, not step sequences.
+- **`agents/` (sub-agents)** — delegation adds a model round-trip to a path
+  that already spends ~5s on API fan-out, and with Flash as the ceiling there
+  is no cheaper tier to delegate down to.
+- **`plugins/`** — the packaging story for reuse across agents. One agent, no
+  second consumer; the Composio wiring would gain a manifest and lose nothing
+  it has today.
+- **`knowledge/`** — a static knowledge base of a live corpus would drift by
+  design. What it would hold lives in `memory/`, where the agent can append
+  to it and git records when it did.
+- **`config/`, `extends:`** — one environment, no parent agent to inherit
+  from.
+
 ---
 
 ## Read-only, and the honest limit

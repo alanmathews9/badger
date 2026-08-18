@@ -42,9 +42,14 @@ Two earlier plans were retired:
 
 ## Where things live
 
-Per-source mechanics live in the tools (`tools/*.yaml`), not in skills. As more
-sources are connected they go in `skills/<name>/references/<source>.md` — the
-authors' own pattern for a skill spanning several backends.
+Per-source mechanics live in the tools (`tools/*.yaml`), not in skills. When
+Gmail and Drive were connected, the plan here said per-source notes would go in
+`skills/<name>/references/<source>.md` — the authors' own pattern for a skill
+spanning several backends. It turned out not to be needed: at three sources
+the per-source knowledge fits in each `SKILL.md` body (trace-decision's
+source table is the shape), and a references file would have been one
+indirection wrapping one paragraph. Reach for that pattern when a source
+needs genuine per-source procedure, not before.
 
 Shared discipline — citation format, the search budget, rate-limit handling,
 proposal-versus-decision — lives in `RULES.md` under Output Constraints and
