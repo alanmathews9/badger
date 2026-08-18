@@ -8,9 +8,9 @@
 //
 // What stays here is `highlight`, which is presentation for the web UI. The
 // agent has no use for <hi> markers; it reads the text.
-export { escapeRe, matcher, matchedIn, score, rankBy } from "../../tools/scripts/_rank.mjs";
+export { escapeRe, matcher, matchedIn, score, rankBy, weightsOver, termPattern, anyTerm } from "../../tools/scripts/_rank.mjs";
 
-import { escapeRe } from "../../tools/scripts/_rank.mjs";
+import { anyTerm } from "../../tools/scripts/_rank.mjs";
 
 /**
  * Excerpts of the body around each match, with matched words wrapped in
@@ -19,7 +19,14 @@ import { escapeRe } from "../../tools/scripts/_rank.mjs";
  */
 export function highlight(body, terms, { window = 160, max = 2 } = {}) {
   if (!body || !terms.length) return [];
-  const re = new RegExp(`(${terms.map(escapeRe).join("|")})`, "gi");
+  // `\b` to agree with `matcher()` in _rank.mjs, which is what decides whether
+  // a row matched at all. Without it the highlighter marked any substring, so a
+  // search for "app" struck through "h[app]ened" and "[App]le" — results that
+  // had scored correctly looked broken, and a reader could not tell which of
+  // the highlights was the reason the row was there.
+  // One shared pattern with the scorer, so a highlight always marks the thing
+  // that actually earned the row its place. See termPattern in _rank.mjs.
+  const re = anyTerm(terms);
 
   const excerpts = [];
   const used = [];
@@ -33,7 +40,7 @@ export function highlight(body, terms, { window = 160, max = 2 } = {}) {
     const end = Math.min(body.length, at + window);
     excerpts.push(
       (start > 0 ? "…" : "") +
-        body.slice(start, end).replace(new RegExp(`(${terms.map(escapeRe).join("|")})`, "gi"), "<hi>$1</hi>") +
+        body.slice(start, end).replace(anyTerm(terms), "<hi>$1</hi>") +
         (end < body.length ? "…" : ""),
     );
   }

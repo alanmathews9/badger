@@ -34,7 +34,7 @@ import { searchDrive, searchGmail } from "./search-google.mjs";
 // Ranking lives in rank.mjs so that every source is scored by the same
 // function. It used to live here, which was fine while GitHub was the only
 // source and wrong the moment there were three.
-import { highlight, matchedIn, matcher, score } from "./rank.mjs";
+import { highlight, matchedIn, matcher, score, weightsOver} from "./rank.mjs";
 
 /**
  * One result row, shaped after Onyx's SearchDoc so the UI has the same fields
@@ -79,7 +79,10 @@ export async function search(query, { limit = 20, userId, repo, account } = {}) 
   const tookMs = Date.now() - startedAt;
 
   const items = asList(data);
-  const rows = items.map((item) => toRow(item, terms));
+  // One pass over the candidates to learn which terms actually separate them,
+  // then score. A term present in every row this query returned cannot rank it.
+  const weights = weightsOver(items, terms, (i) => `${i.title ?? ""} ${i.body ?? ""}`);
+  const rows = items.map((item) => toRow(item, terms, weights));
 
   // Only re-rank when we have terms to rank by. A passthrough query scores
   // every row zero, and sorting on that would throw away GitHub's own
@@ -176,7 +179,7 @@ async function runSearch(q, perPage, userId, account) {
 }
 
 /** Map GitHub's search item onto the row the UI renders, and score it. */
-function toRow(item, terms) {
+function toRow(item, terms, weights) {
   const isPr = Boolean(item.pull_request);
   const title = item.title ?? "";
   const body = String(item.body ?? "").replace(/\s+/g, " ").trim();
@@ -210,7 +213,14 @@ function toRow(item, terms) {
     matchedInDiscussionOnly,
     // Filled in later by attachDiscussionMatches, for the top few such rows.
     discussion: null,
-    score: score({ terms, matchedInTitle, matchedInBody, matchedInDiscussionOnly, comments: item.comments ?? 0 }),
+    score: score({
+      terms,
+      matchedInTitle,
+      matchedInBody,
+      matchedInDiscussionOnly,
+      comments: item.comments ?? 0,
+      weights,
+    }),
   };
 }
 

@@ -10,7 +10,7 @@
 // rank.mjs, so the merge in search.mjs is a sort rather than a negotiation.
 import { exec, exportText, kindOf, isWorkspaceFile } from "../../tools/scripts/_google.mjs";
 import { planQuery, buildGmailQuery, buildDriveQuery, MAX_TERMS_GOOGLE } from "../../tools/scripts/_search-query.mjs";
-import { highlight, matchedIn, score } from "./rank.mjs";
+import { highlight, matchedIn, score, weightsOver } from "./rank.mjs";
 
 /**
  * Search the connected mailbox.
@@ -29,7 +29,14 @@ export async function searchGmail(query, { limit = 10, userId } = {}) {
     userId,
   );
 
-  const rows = (data.messages ?? []).map((m) => {
+  const messages = data.messages ?? [];
+  const weights = weightsOver(
+    messages,
+    terms,
+    (m) => `${m.subject ?? ""} ${String(m.messageText ?? "")}`,
+  );
+
+  const rows = messages.map((m) => {
     const title = m.subject || "(no subject)";
     const body = String(m.messageText ?? "").replace(/\s+/g, " ").trim();
     const matchedInTitle = matchedIn(title, terms);
@@ -54,7 +61,7 @@ export async function searchGmail(query, { limit = 10, userId } = {}) {
       matchedTerms: [...new Set([...matchedInTitle, ...matchedInBody])],
       matchedInDiscussionOnly: false,
       discussion: null,
-      score: score({ terms, matchedInTitle, matchedInBody }),
+      score: score({ terms, matchedInTitle, matchedInBody, weights }),
     };
   });
 
@@ -99,15 +106,33 @@ export async function searchDrive(query, { limit = 10, userId, excerpt = 5 } = {
     }
   });
 
+  // **Scored on the name alone, deliberately.**
+  //
+  // Drive gives no body text, so only the first few files have theirs fetched —
+  // and scoring those on their text while scoring the rest on their name only
+  // means a row ranks higher because we happened to read it. That is fetch
+  // order leaking into relevance, and it showed: for "why was the Android app
+  // five weeks late", "First Week Checklist" and "Team — Mobile" both outranked
+  // "Android 4.2 — Release Notes", because their text had been fetched and its
+  // had not.
+  //
+  // Every Drive row is now judged on the same information. A file whose name
+  // says nothing still counts as a match — Drive's fullText found it somewhere —
+  // through the unlocatable path below, which is the same honest half-credit a
+  // GitHub comment-only hit gets. Bodies are still fetched, and are still what
+  // the excerpt is built from; they just no longer decide the order.
+  //
+  // This also matches what the agent's own drive_search does, so the two paths
+  // cannot disagree about which document is the best answer.
+  const weights = weightsOver(files, terms, (f) => f.name ?? "");
+
   const rows = files.map((f) => {
     const title = f.name ?? "(unnamed)";
     const body = bodyOf.get(f.id) ?? "";
     const matchedInTitle = matchedIn(title, terms);
-    const matchedInBody = matchedIn(body, terms);
+    const matchedInBody = [];
 
-    // Drive said this file matched. If we did not fetch its text we cannot say
-    // where, which is the same honest state as a GitHub discussion-only hit.
-    const unlocatable = terms.length > 0 && !body && matchedInTitle.length === 0;
+    const unlocatable = terms.length > 0 && matchedInTitle.length === 0;
 
     return {
       id: `drive-${f.id}`,
@@ -123,10 +148,10 @@ export async function searchDrive(query, { limit = 10, userId, excerpt = 5 } = {
       fileId: f.id,
       snippet: body.slice(0, 240),
       matchHighlights: highlight(body, terms),
-      matchedTerms: [...new Set([...matchedInTitle, ...matchedInBody])],
+      matchedTerms: [...new Set([...matchedInTitle, ...matchedIn(body, terms)])],
       matchedInDiscussionOnly: unlocatable,
       discussion: null,
-      score: score({ terms, matchedInTitle, matchedInBody, matchedInDiscussionOnly: unlocatable }),
+      score: score({ terms, matchedInTitle, matchedInBody, matchedInDiscussionOnly: unlocatable, weights }),
     };
   });
 

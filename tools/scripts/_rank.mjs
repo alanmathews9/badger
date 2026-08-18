@@ -35,10 +35,88 @@
 // ---------------------------------------------------------------------------
 
 export const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-export const matcher = (term) => new RegExp(`\\b${escapeRe(term)}`, "i");
+
+/**
+ * The regex source for one term — the single definition of "this row matched".
+ *
+ * A bare `\bterm` prefix match is too generous, and the cost was visible in the
+ * product: searching "why was the Android app five weeks late" made `\bapp`
+ * match **Apple** and **appointments**, so "Apple Wallet passes for
+ * appointments?" scored as a hit on a question with nothing to do with it, and
+ * the highlighter struck through the "App" in "Apple" as though that were the
+ * reason.
+ *
+ * A bare whole-word match is too strict the other way — it would stop
+ * "reminder" finding "reminders", which is the stemming that makes plain-English
+ * questions work at all.
+ *
+ * So: match the term, optionally followed by a common English inflection, and
+ * then require a word boundary. `app` matches "app" and "apps" but not "Apple";
+ * `remind` matches "reminder"? No — and that is the accepted limit. This is
+ * suffix tolerance, not a stemmer, and pretending otherwise would be the kind of
+ * half-measure Onyx measured making recall worse.
+ *
+ * A trailing "s" is stripped from the term itself so the tolerance works in both
+ * directions: a user typing "weeks" still finds "week". Only above three
+ * characters, so "is" and "as" are left alone.
+ *
+ * Exported and used by both the scorer and the highlighter. They had separate
+ * regexes once and disagreed — the highlighter had no boundary at all, so it
+ * marked "h[app]ened" on rows that had scored correctly.
+ */
+export function termPattern(term) {
+  const raw = String(term);
+  const stem = raw.length > 3 && /s$/i.test(raw) ? raw.slice(0, -1) : raw;
+  return `\\b${escapeRe(stem)}(?:s|es|ed|d|ing|ly)?\\b`;
+}
+
+export const matcher = (term) => new RegExp(termPattern(term), "i");
+
+/** One regex matching any of `terms`, for highlighting. */
+export const anyTerm = (terms, flags = "gi") =>
+  new RegExp(`(${terms.map(termPattern).join("|")})`, flags);
 
 /** Which of `terms` appear in this text. */
 export const matchedIn = (text, terms) => terms.filter((t) => matcher(t).test(String(text ?? "")));
+
+/**
+ * How much each term should count, judged across the rows actually retrieved.
+ *
+ * There is no corpus-wide IDF and there cannot be one while we hold no index —
+ * but a document frequency computed over the *candidate pool* is free, and it
+ * discriminates in exactly the place ranking happens.
+ *
+ * The problem it solves was visible in the product. Asked "why was the Android
+ * app five weeks late", the planner produces `android OR app OR late`; `\bapp`
+ * then matches "Apple" and "appointments", and with every term weighted
+ * equally, "Apple Wallet passes for appointments?" ranked third on a question
+ * that has nothing to do with it. "app" appeared in nearly every candidate, so
+ * it separated nothing, while "android" appeared in a third and separated a
+ * great deal.
+ *
+ * Weight is `log(1 + n/df)`: a term in every row scores ~0.69, a term in one row
+ * of thirty scores ~3.4. Bounded, cheap, and it needs nothing we do not already
+ * have in memory. It is not real IDF — the pool is what one query returned, not
+ * the corpus — and it goes away in favour of the real thing if an index ever
+ * lands.
+ *
+ * @param {T[]} rows
+ * @param {string[]} terms
+ * @param {(row: T) => string} textOf   all searchable text for a row
+ * @returns {Map<string, number>}
+ * @template T
+ */
+export function weightsOver(rows, terms, textOf) {
+  const n = rows.length || 1;
+  const weights = new Map();
+  for (const term of terms) {
+    const re = matcher(term);
+    let df = 0;
+    for (const row of rows) if (re.test(String(textOf(row) ?? ""))) df += 1;
+    weights.set(term, Math.log(1 + n / Math.max(df, 1)));
+  }
+  return weights;
+}
 
 /**
  * Rank a row by how much of the query it covers.
@@ -53,6 +131,7 @@ export const matchedIn = (text, terms) => terms.filter((t) => matcher(t).test(St
  * @param {string[]} o.matchedInBody
  * @param {boolean}  [o.matchedInDiscussionOnly]  matched, but we cannot say where
  * @param {number}   [o.comments]         thread size, used only as a tiebreak
+ * @param {Map<string, number>} [o.weights]  from weightsOver; equal if omitted
  */
 export function score({
   terms,
@@ -60,22 +139,28 @@ export function score({
   matchedInBody,
   matchedInDiscussionOnly = false,
   comments = 0,
+  weights,
 }) {
   if (!terms.length) return 0;
   const titleWeight = 3;
   const bodyWeight = 1;
+  const w = (t) => weights?.get(t) ?? 1;
+  const sum = (list) => list.reduce((n, t) => n + w(t), 0);
+
   // A discussion-only match is a real match, just an unlocatable one. Score it
   // as a weak body hit rather than zero, or the engine's own hits sort to the
   // bottom of our list for no reason the user can see.
-  const discussionWeight = matchedInDiscussionOnly ? 0.5 : 0;
-  const max = terms.length * (titleWeight + bodyWeight);
+  const discussionWeight = matchedInDiscussionOnly ? 0.5 * (sum(terms) / terms.length) : 0;
+  // Normalised against every term mattering everywhere, so the result stays a
+  // 0-1 coverage figure whether or not weights are supplied.
+  const max = sum(terms) * (titleWeight + bodyWeight);
   const earned =
-    matchedInTitle.length * titleWeight + matchedInBody.length * bodyWeight + discussionWeight;
+    sum(matchedInTitle) * titleWeight + sum(matchedInBody) * bodyWeight + discussionWeight;
 
   // A thread with argument in it is usually the better answer on this corpus.
   // Deliberately tiny — a tiebreak, never enough to outrank a real term hit.
   const discussion = Math.min(comments, 10) * 0.01;
-  return Number((earned / max + discussion).toFixed(4));
+  return Number(((max ? earned / max : 0) + discussion).toFixed(4));
 }
 
 /**

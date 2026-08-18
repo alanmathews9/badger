@@ -7,7 +7,7 @@
 // cannot drift, which they did once already.
 import { exec, run, clip, contextFrom, CROSS_SOURCE } from "./_google.mjs";
 import { planQuery, buildGmailQuery, MAX_TERMS_GOOGLE } from "./_search-query.mjs";
-import { matchedIn, rankBy, score } from "./_rank.mjs";
+import { matchedIn, rankBy, score, weightsOver } from "./_rank.mjs";
 
 run(async (args) => {
   const { query, from, since_days, limit } = args;
@@ -66,12 +66,15 @@ run(async (args) => {
   // February, and it was losing to July account noise until this existed.
   // Measured 2026-08-18 — see _rank.mjs.
   const terms = plan.passthrough ? [] : plan.terms;
+  const bodyOf = (m) => String(m.messageText ?? m.preview?.body ?? "");
+  const weights = weightsOver(messages, terms, (m) => `${m.subject ?? ""} ${bodyOf(m)}`);
   const ranked = rankBy(messages, (m) => {
-    const body = String(m.messageText ?? m.preview?.body ?? "");
+    const body = bodyOf(m);
     return score({
       terms,
       matchedInTitle: matchedIn(m.subject, terms),
       matchedInBody: matchedIn(body, terms),
+      weights,
     });
   }).slice(0, max);
 

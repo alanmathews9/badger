@@ -11,7 +11,7 @@
 // _search-query.mjs for the measurements and for why Onyx never hits this.
 import { exec, run, clip, asList, contextFrom } from "./_github.mjs";
 import { buildQuery, planQuery, CROSS_SOURCE } from "./_search-query.mjs";
-import { matchedIn, rankBy, score } from "./_rank.mjs";
+import { matchedIn, rankBy, score, weightsOver } from "./_rank.mjs";
 
 run(async (args) => {
   const { query, kind, limit, since_days, date_field } = args;
@@ -81,6 +81,9 @@ run(async (args) => {
   // API will not tell us — scored as a weak hit rather than as zero, so a
   // thread GitHub found for a good reason does not sink to the bottom.
   const terms = plan.passthrough ? [] : plan.terms;
+  // Term weights from the candidate pool, so a word that appears in everything
+  // this query returned stops deciding the order — see weightsOver.
+  const weights = weightsOver(items, terms, (i) => `${i.title ?? ""} ${i.body ?? ""}`);
   const ranked = rankBy(items, (i) => {
     const inTitle = matchedIn(i.title, terms);
     const inBody = matchedIn(i.body, terms);
@@ -90,6 +93,7 @@ run(async (args) => {
       matchedInBody: inBody,
       matchedInDiscussionOnly: terms.length > 0 && !inTitle.length && !inBody.length,
       comments: i.comments ?? 0,
+      weights,
     });
   }).slice(0, per_page);
 

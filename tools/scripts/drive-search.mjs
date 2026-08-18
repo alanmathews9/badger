@@ -19,7 +19,7 @@
 // fetched for the top few, which is the only place the body text ever exists.
 import { exec, run, clip, contextFrom, kindOf, isWorkspaceFile, exportText, CROSS_SOURCE } from "./_google.mjs";
 import { planQuery, buildDriveQuery, MAX_TERMS_GOOGLE } from "./_search-query.mjs";
-import { matchedIn, rankBy, score } from "./_rank.mjs";
+import { matchedIn, rankBy, score, weightsOver } from "./_rank.mjs";
 
 run(async (args) => {
   const { query, kind, limit } = args;
@@ -75,8 +75,9 @@ run(async (args) => {
   // returns a signed URL, not the file), and an unbounded fan-out here would
   // cost more than the answer is worth.
   const terms = plan.passthrough ? [] : plan.terms;
+  const weights = weightsOver(found, terms, (f) => f.name ?? "");
   const files = rankBy(found, (f) =>
-    score({ terms, matchedInTitle: matchedIn(f.name, terms), matchedInBody: [] }),
+    score({ terms, matchedInTitle: matchedIn(f.name, terms), matchedInBody: [], weights }),
   ).slice(0, max);
   const excerptable = files.filter((f) => isWorkspaceFile(f.mimeType)).slice(0, 4);
   const excerpts = new Map();
