@@ -132,7 +132,7 @@ export default function App() {
       />
       <SidebarInset>
         {mode === "tools" ? (
-          <ToolsScreen sources={sources} onRefresh={refreshSources} />
+          <ToolsScreen sources={sources} />
         ) : mode === "search" ? (
           <SearchScreen
             query={query}

@@ -33,6 +33,7 @@ import {
   githubLogin,
   listConnections,
   listRepositories,
+  accountFor,
   resolveContext,
 } from "./connections.mjs";
 import { budgetStatus, claimAskSlot, clientIp, rateLimit } from "./limits.mjs";
@@ -188,23 +189,24 @@ async function handleSources(req, res) {
   return json(res, 200, {
     mode: ctx.mode,
     repo: ctx.repo,
-    sources: TOOLKITS.map((id) => {
-      const connected = Boolean(state[id]) && (id !== "github" || githubReachable);
-      return {
-        id: id === "googledrive" ? "drive" : id,
-        label: TOOLKIT_LABELS[id],
-        connected,
-        own: ctx.mode === "own",
-        detail:
-          id === "github"
-            ? connected
-              ? (ctx.repo ?? "no repository chosen")
-              : "not connected"
-            : connected
-              ? "connected"
-              : "not connected",
-      };
-    }),
+    sources: await Promise.all(
+      TOOLKITS.map(async (id) => {
+        const connected = Boolean(state[id]) && (id !== "github" || githubReachable);
+        // Whose account, not just whether there is one. For GitHub the repo is
+        // reported separately: a slug is not an identity, and the account can
+        // reach more than one repository.
+        const account = connected ? await accountFor(ctx.userId, id) : null;
+        return {
+          id: id === "googledrive" ? "drive" : id,
+          label: TOOLKIT_LABELS[id],
+          connected,
+          own: ctx.mode === "own",
+          account,
+          repo: id === "github" ? (connected ? (ctx.repo ?? null) : null) : null,
+          detail: connected ? (account ?? "connected") : "not connected",
+        };
+      }),
+    ),
   });
 }
 

@@ -60,8 +60,11 @@ export type Source = {
   id: string;
   label: string;
   connected: boolean;
-  /** True when this is the visitor's own connection, not the shared demo. */
   own: boolean;
+  /** Whose account: a GitHub login, or the Google address behind Gmail/Drive. */
+  account: string | null;
+  /** GitHub only — the repository searches are scoped to. */
+  repo: string | null;
   detail: string;
 };
 

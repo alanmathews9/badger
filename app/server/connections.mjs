@@ -98,30 +98,67 @@ export async function connectionFor(userId, toolkit) {
 }
 
 /**
- * Which GitHub account this user is connected as.
+ * Whose account each source is connected as — a GitHub login, or the Google
+ * address behind Gmail and Drive.
  *
- * One call, cached for the process. This used to run once per account and was
- * therefore meaningless with more than one: every call returns whichever
- * connection Composio resolved, so two accounts got the same label.
+ * This is the question the Tools page is actually asking. "Connected" alone
+ * does not tell you whether you are searching the right mailbox, and with more
+ * than one repository reachable, a repository slug does not tell you which
+ * account can reach it.
+ *
+ * One call per toolkit, cached for the process, because /api/sources is
+ * requested on every screen change and none of these answers moves. The cache
+ * is cleared on disconnect, which is the only way the answer changes without a
+ * restart.
+ *
+ * Composio carries none of this in its connected-account metadata — measured,
+ * so it has to be asked of each provider. These three tools are server-side
+ * identity lookups and appear in no agent allowlist: the agent has no business
+ * knowing whose mailbox it is reading, only what is in it.
  */
-export async function githubLogin(userId) {
-  if (loginCache.has(userId)) return loginCache.get(userId);
-  if (!(await connectionFor(userId, "github"))) return null;
+const IDENTITY = {
+  github: {
+    tool: "GITHUB_GET_THE_AUTHENTICATED_USER",
+    args: {},
+    read: (d) => d?.login ?? d?.details?.login ?? null,
+  },
+  gmail: {
+    tool: "GMAIL_GET_PROFILE",
+    args: { user_id: "me" },
+    read: (d) => d?.emailAddress ?? null,
+  },
+  googledrive: {
+    tool: "GOOGLEDRIVE_GET_ABOUT",
+    args: { fields: "user" },
+    read: (d) => d?.user?.emailAddress ?? null,
+  },
+};
+
+export async function accountFor(userId, toolkit) {
+  const spec = IDENTITY[toolkit];
+  if (!spec) return null;
+
+  const key = `${userId}:${toolkit}`;
+  if (loginCache.has(key)) return loginCache.get(key);
+  if (!(await connectionFor(userId, toolkit))) return null;
 
   try {
     const session = await client().create(userId, {
-      toolkits: ["github"],
-      tools: { github: { enable: ["GITHUB_GET_THE_AUTHENTICATED_USER"] } },
+      toolkits: [toolkit],
+      tools: { [toolkit]: { enable: [spec.tool] } },
     });
-    const res = await session.execute("GITHUB_GET_THE_AUTHENTICATED_USER", {});
-    const login = res?.data?.login ?? res?.data?.details?.login ?? null;
-    if (login) loginCache.set(userId, login);
-    return login;
+    const res = await session.execute(spec.tool, spec.args);
+    const value = spec.read(res?.data);
+    if (value) loginCache.set(key, value);
+    return value;
   } catch (err) {
-    console.error("[connections] login lookup failed", err?.message);
+    console.error(`[connections] ${toolkit} identity lookup failed`, err?.message);
     return null;
   }
 }
+
+/** Which GitHub account this user is connected as. */
+export const githubLogin = (userId) => accountFor(userId, "github");
 
 /**
  * Resolve the identity a request's searches should run as.
@@ -216,7 +253,10 @@ export async function disconnectSource(userId, toolkit) {
 
   await client().connectedAccounts.delete(connection.id);
   if (toolkit === "github") {
-    loginCache.delete(userId);
+    // Keyed by `${userId}:${toolkit}` since identity is looked up per source.
+    for (const key of loginCache.keys()) {
+      if (key.startsWith(`${userId}:`)) loginCache.delete(key);
+    }
     repoChoice.delete(userId);
   }
   return true;
