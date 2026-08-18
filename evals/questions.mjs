@@ -73,8 +73,10 @@ export const QUESTIONS = [
     // Matched loosely on purpose. FACTS records the goodwill as "one month's
     // credit" and a correct answer said "a month's credit" — the article is not
     // the fact under test, and a regex that fails on it is testing transcription
-    // rather than retrieval.
-    mustSay: [/not refundable|excluded|does not cover|no refund/i, /(a|one)\s+month'?s?\s+credit/i],
+    // rather than retrieval. Same lesson a second time on 2026-08-18: a correct
+    // answer wrote "a one-month credit" and the \s+ between the words failed
+    // it, hence [\s-]+.
+    mustSay: [/not refundable|excluded|does not cover|no refund/i, /(a|one)[\s-]+month'?s?[\s-]+credit/i],
   },
   {
     id: "clearview-why",
