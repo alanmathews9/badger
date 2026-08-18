@@ -85,3 +85,193 @@ export function indexStatus() {
     buildMs: idx.buildMs,
   };
 }
+
+// ── Search over the index ─────────────────────────────────────────────────
+//
+// BM25 with real IDF — the thing _rank.mjs plainly states it cannot be while
+// we hold no text. Terms are matched with the same suffix tolerance as
+// _rank.termPattern, so "weeks" finds "week" and "app" still refuses to match
+// "Apple"; the two paths must not disagree about what a match is.
+//
+// The typo layer is vocabulary lookup, not query-engine fuzziness — Onyx
+// measured fuzziness AUTO making recall worse and rejected it, and this design
+// follows the measurement. A query term absent from the corpus vocabulary is
+// replaced by the nearest vocabulary term by trigram similarity (pg_trgm-style
+// padded trigrams), and the replacement is REPORTED in the result, never
+// silent. A term nothing clears the threshold for is reported unmatched.
+
+import { planQuery } from "./_search-query.mjs";
+import { termPattern } from "./_rank.mjs";
+
+const tokenize = (text) => {
+  const out = [];
+  for (const word of String(text ?? "").toLowerCase().split(/[^\p{L}\p{N}_-]+/u)) {
+    const t = word.replace(/^[-_]+|[-_]+$/g, "");
+    if (t.length >= 2) out.push(t);
+  }
+  return out;
+};
+
+const countInto = (map, tokens) => {
+  for (const t of tokens) map.set(t, (map.get(t) ?? 0) + 1);
+  return map;
+};
+
+/** pg_trgm-style trigrams: two spaces padded front, one behind, so the word's
+ *  prefix weighs in — "paymnets" and "payments" share their opening. */
+function trigrams(word) {
+  const w = `  ${word} `;
+  const grams = new Set();
+  for (let i = 0; i + 3 <= w.length; i++) grams.add(w.slice(i, i + 3));
+  return grams;
+}
+
+function similarity(aGrams, bGrams) {
+  let shared = 0;
+  for (const g of aGrams) if (bGrams.has(g)) shared += 1;
+  return (2 * shared) / (aGrams.size + bGrams.size);
+}
+
+/** Below this, a correction is a guess, and guesses are reported as
+ *  "matched nothing", never applied. 0.5 keeps one-transposition typos
+ *  ("brigthsmile") and rejects noise ("xqzvwk" peaks around 0.15). */
+const CORRECTION_THRESHOLD = 0.5;
+/** Too short to correct reliably — "teh" is one edit from half of English. */
+const MIN_CORRECTABLE = 4;
+
+const BM25_K1 = 1.2;
+const BM25_B = 0.75;
+const TITLE_BOOST = 3; // same weight the live path gives a title hit
+
+/**
+ * Build a searcher over one loaded index. Construction tokenises every doc
+ * once (~178 docs, milliseconds); each search is then pure lookup — no model,
+ * no network, nothing non-deterministic.
+ */
+export function createSearcher(index) {
+  const docs = index.docs;
+  const N = docs.length || 1;
+
+  const fields = docs.map((d) => {
+    const title = countInto(new Map(), tokenize(d.title));
+    const body = countInto(new Map(), tokenize(d.body));
+    let len = 0;
+    for (const n of title.values()) len += n;
+    for (const n of body.values()) len += n;
+    return { title, body, len };
+  });
+  const avgLen = fields.reduce((a, f) => a + f.len, 0) / N || 1;
+
+  // The corpus vocabulary: token -> document frequency. This is both BM25's
+  // IDF input and the typo layer's dictionary — the whole reason typo
+  // tolerance needs an index is that this map cannot exist federated.
+  const vocab = new Map();
+  const vocabGrams = new Map();
+  for (const f of fields) {
+    const seen = new Set([...f.title.keys(), ...f.body.keys()]);
+    for (const t of seen) vocab.set(t, (vocab.get(t) ?? 0) + 1);
+  }
+  for (const t of vocab.keys()) vocabGrams.set(t, trigrams(t));
+
+  /** Vocabulary tokens a query term reaches under the suffix rule. */
+  function expansions(term) {
+    const re = new RegExp(termPattern(term), "i");
+    const hits = [];
+    for (const t of vocab.keys()) if (re.test(t)) hits.push(t);
+    return hits;
+  }
+
+  /** Nearest vocabulary term by trigram similarity, or null. Deterministic
+   *  tie-break: similarity, then document frequency, then alphabet. */
+  function nearest(term) {
+    if (term.length < MIN_CORRECTABLE) return null;
+    const grams = trigrams(term);
+    let best = null;
+    for (const [t, tGrams] of vocabGrams) {
+      const s = similarity(grams, tGrams);
+      if (s < CORRECTION_THRESHOLD) continue;
+      if (
+        !best ||
+        s > best.s ||
+        (s === best.s && (vocab.get(t) > vocab.get(best.t) || (vocab.get(t) === vocab.get(best.t) && t < best.t)))
+      ) {
+        best = { t, s };
+      }
+    }
+    return best?.t ?? null;
+  }
+
+  function search(query, { limit = 20 } = {}) {
+    const plan = planQuery(query, { max: 10 });
+    const corrections = [];
+    const unmatched = [];
+
+    // The typo pass runs BEFORE scoring: a term the vocabulary knows is used
+    // as typed; one it does not know is corrected visibly or declared
+    // unmatched visibly. There is no silent third path.
+    const terms = [];
+    for (const term of plan.terms) {
+      if (expansions(term).length) {
+        terms.push(term);
+        continue;
+      }
+      const fixed = nearest(term);
+      if (fixed) {
+        corrections.push({ from: term, to: fixed });
+        terms.push(fixed);
+      } else {
+        unmatched.push(term);
+      }
+    }
+
+    const rows = [];
+    if (terms.length) {
+      // Per term: which tokens it reaches, and in how many docs any of them
+      // appear. That df feeds a standard BM25 idf.
+      const reach = terms.map((term) => {
+        const tokens = expansions(term);
+        let df = 0;
+        for (const f of fields) {
+          if (tokens.some((t) => f.title.has(t) || f.body.has(t))) df += 1;
+        }
+        return { term, tokens, idf: Math.log(1 + (N - df + 0.5) / (df + 0.5)) };
+      });
+
+      docs.forEach((doc, i) => {
+        const f = fields[i];
+        let score = 0;
+        const matchedTerms = [];
+        const matchedInTitle = [];
+        for (const { term, tokens, idf } of reach) {
+          let tfTitle = 0;
+          let tfBody = 0;
+          for (const t of tokens) {
+            tfTitle += f.title.get(t) ?? 0;
+            tfBody += f.body.get(t) ?? 0;
+          }
+          const tf = tfBody + TITLE_BOOST * tfTitle;
+          if (!tf) continue;
+          matchedTerms.push(term);
+          if (tfTitle) matchedInTitle.push(term);
+          score += (idf * (tf * (BM25_K1 + 1))) / (tf + BM25_K1 * (1 - BM25_B + (BM25_B * f.len) / avgLen));
+        }
+        if (score > 0) rows.push({ ...doc, score: Number(score.toFixed(4)), matchedTerms, matchedInTitle });
+      });
+
+      // Stable: ties keep index order, which is source order — "no opinion"
+      // must not shuffle.
+      rows.sort((a, b) => b.score - a.score || String(b.date).localeCompare(String(a.date)));
+    }
+
+    return {
+      terms,
+      droppedTerms: plan.droppedTerms,
+      corrections,
+      unmatched,
+      total: rows.length,
+      rows: rows.slice(0, limit),
+    };
+  }
+
+  return { search, vocabSize: vocab.size };
+}
