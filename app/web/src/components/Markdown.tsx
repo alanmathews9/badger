@@ -15,15 +15,7 @@ import { Fragment, type ReactNode } from "react";
 /** A source the answer cites, and the number its card carries. */
 export type Citation = { token: string; index: number };
 
-export function Markdown({
-  text,
-  tone = "light",
-  citations = [],
-}: {
-  text: string;
-  tone?: "light" | "dark";
-  citations?: Citation[];
-}) {
+export function Markdown({ text, citations = [] }: { text: string; citations?: Citation[] }) {
   const blocks = String(text ?? "").split(/\n{2,}/);
 
   return (
@@ -36,7 +28,7 @@ export function Markdown({
           return (
             <ul key={i} className="mt-2 flex list-disc flex-col gap-1.5 pl-5">
               {lines.map((line, j) => (
-                <li key={j}>{inline(line.replace(/^\s*[*-]\s+/, ""), tone, citations)}</li>
+                <li key={j}>{inline(line.replace(/^\s*[*-]\s+/, ""), citations)}</li>
               ))}
             </ul>
           );
@@ -46,14 +38,14 @@ export function Markdown({
         if (heading) {
           return (
             <p key={i} className="mt-4 font-semibold first:mt-0">
-              {inline(heading[2], tone, citations)}
+              {inline(heading[2], citations)}
             </p>
           );
         }
 
         return (
           <p key={i} className="mt-3 first:mt-0">
-            {inline(block, tone, citations)}
+            {inline(block, citations)}
           </p>
         );
       })}
@@ -62,7 +54,7 @@ export function Markdown({
 }
 
 /** Bold, inline code, links and citation markers, in one pass. */
-function inline(text: string, tone: "light" | "dark", citations: Citation[] = []): ReactNode {
+function inline(text: string, citations: Citation[] = []): ReactNode {
   // Citation tokens are matched last in the alternation, so a "#2" inside a
   // code span or a link is consumed by those branches first and never gets a
   // marker attached to it.
@@ -109,9 +101,7 @@ function inline(text: string, tone: "light" | "dark", citations: Citation[] = []
           className={
             unverified
               ? "rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5 font-mono text-[11px] font-medium text-amber-900"
-              : tone === "dark"
-                ? "rounded bg-stone-800 px-1.5 py-0.5 font-mono text-[12px] text-amber-400"
-                : "rounded bg-stone-100 px-1.5 py-0.5 font-mono text-[12px] text-stone-800"
+              : "rounded bg-stone-100 px-1.5 py-0.5 font-mono text-[12px] text-stone-800"
           }
         >
           {body}
@@ -127,7 +117,7 @@ function inline(text: string, tone: "light" | "dark", citations: Citation[] = []
           href={link[2]}
           target="_blank"
           rel="noreferrer"
-          className={tone === "dark" ? "text-amber-400 underline" : "text-amber-700 underline"}
+          className="text-amber-700 underline"
         >
           {link[1]}
         </a>

@@ -1,6 +1,7 @@
-/** What a tool call opened, so the answer can be measured against it. */
+/** What a tool call opened or the answer cited, across all three sources. */
 export type OpenedItem = {
-  kind: "issue" | "pr" | "file";
+  kind: "issue" | "pr" | "file" | "mail" | "doc";
+  /** An id for GitHub; the subject or document name for mail and Drive. */
   ref: string;
   label: string;
   /** "issue #12, open" — recovered from tool output, absent for plain opens. */
@@ -125,12 +126,23 @@ export function splitAnswer(text: string): { body: string; coverage: string | nu
   return { body: body || source.trim(), coverage };
 }
 
-/** Turn a tool call into the line the user reads while waiting. */
+/**
+ * Turn a tool call into the line the user reads while waiting.
+ *
+ * All ten tools, not the five GitHub ones. The five Google tools fell through
+ * to `default`, so while Badger searched the mailbox the status line read the
+ * literal slug `gmail_search`.
+ *
+ * Mail and Drive are opened by opaque id, so there is nothing readable to name
+ * — the line says what is being done rather than showing a raw id.
+ */
 export function describeTool(name: string, args: Record<string, unknown>): string {
   const q = typeof args.query === "string" ? args.query.replace(/\s*in:[\w,]+/g, "").trim() : "";
+  const searching = (where: string) => (q ? `Searching ${where} for “${q}”` : `Searching ${where}`);
+
   switch (name) {
     case "github_search":
-      return q ? `Searching for “${q}”` : "Searching";
+      return searching("GitHub");
     case "github_issue":
       return `Reading issue #${args.number} and its comments`;
     case "github_pr":
@@ -139,6 +151,16 @@ export function describeTool(name: string, args: Record<string, unknown>): strin
       return `Opening ${args.path}`;
     case "github_commits":
       return "Reading recent commits";
+    case "gmail_search":
+      return searching("Gmail");
+    case "gmail_thread":
+      return "Reading a mail thread";
+    case "drive_search":
+      return searching("Drive");
+    case "drive_file":
+      return "Reading a document";
+    case "drive_comments":
+      return "Reading the comments on a document";
     default:
       return name;
   }

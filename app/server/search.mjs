@@ -28,7 +28,7 @@
 // One API call per search. The search endpoint is capped at 30 requests per
 // minute and returns 403 rather than an empty list when you cross it, so
 // per-term fan-out would have been the expensive way to get the same rows.
-import { exec, asList, clip, OWNER, REPO, REPO_SLUG } from "../../tools/scripts/_github.mjs";
+import { exec, asList, clip, REPO_SLUG } from "../../tools/scripts/_github.mjs";
 import { buildQuery, planQuery } from "../../tools/scripts/_search-query.mjs";
 import { searchDrive, searchGmail } from "./search-google.mjs";
 // Ranking lives in rank.mjs so that every source is scored by the same
@@ -44,6 +44,7 @@ import { highlight, matchedIn, matcher, score, weightsOver, markTerms} from "./r
  * @typedef {object} SearchRow
  * @property {string}  id
  * @property {"issue"|"pr"} kind
+ * @property {"github"|"gmail"|"drive"} source
  * @property {number}  number
  * @property {string}  title
  * @property {string}  state             open | closed
@@ -64,7 +65,7 @@ import { highlight, matchedIn, matcher, score, weightsOver, markTerms} from "./r
  * @param {string} query
  * @param {{limit?: number}} [opts]
  */
-export async function search(query, { limit = 20, userId, repo, account } = {}) {
+export async function search(query, { limit = 20, userId, repo } = {}) {
   const raw = String(query ?? "").trim();
   if (!raw) throw new SearchError("empty query", 400);
 
@@ -75,7 +76,7 @@ export async function search(query, { limit = 20, userId, repo, account } = {}) 
   const perPage = Math.min(Math.max(Number(limit) || 20, 1), 30);
 
   const startedAt = Date.now();
-  const data = await runSearch(resolved, perPage, userId, account);
+  const data = await runSearch(resolved, perPage, userId);
   const tookMs = Date.now() - startedAt;
 
   const items = asList(data);
@@ -91,7 +92,7 @@ export async function search(query, { limit = 20, userId, repo, account } = {}) 
     rows.sort((a, b) => b.score - a.score || b.updatedAt.localeCompare(a.updatedAt));
   }
 
-  const commentCalls = await attachDiscussionMatches(rows, terms, { slug, userId, account });
+  const commentCalls = await attachDiscussionMatches(rows, terms, { slug, userId });
 
   return {
     query: raw,
@@ -121,7 +122,7 @@ export async function search(query, { limit = 20, userId, repo, account } = {}) 
  * hidden. Rows past the cap keep their honest "matched in the discussion"
  * label with no quote.
  */
-async function attachDiscussionMatches(rows, terms, { max = 4, slug, userId, account } = {}) {
+async function attachDiscussionMatches(rows, terms, { max = 4, slug, userId } = {}) {
   if (!terms.length) return 0;
   const targets = rows.filter((r) => r.matchedInDiscussionOnly).slice(0, max);
   if (!targets.length) return 0;
@@ -132,7 +133,6 @@ async function attachDiscussionMatches(rows, terms, { max = 4, slug, userId, acc
         "GITHUB_LIST_ISSUE_COMMENTS",
         { owner: (slug ?? REPO_SLUG).split("/")[0], repo: (slug ?? REPO_SLUG).split("/")[1], issue_number: row.number },
         userId,
-        account,
       ),
     ),
   );
@@ -161,9 +161,9 @@ async function attachDiscussionMatches(rows, terms, { max = 4, slug, userId, acc
   return targets.length;
 }
 
-async function runSearch(q, perPage, userId, account) {
+async function runSearch(q, perPage, userId) {
   try {
-    return await exec("GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS", { q, per_page: perPage }, userId, account);
+    return await exec("GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS", { q, per_page: perPage }, userId);
   } catch (err) {
     const msg = err?.message ?? String(err);
     // A rate limit must never reach the UI looking like "no results" — that is
@@ -242,7 +242,7 @@ function toRow(item, terms, weights) {
  * are computed differently, on different corpora, and comparing them would be
  * guesswork. See rank.mjs.
  */
-export async function searchAll(query, { limit = 20, userId, repo, account } = {}) {
+export async function searchAll(query, { limit = 20, userId, repo } = {}) {
   const raw = String(query ?? "").trim();
   if (!raw) throw new SearchError("empty query", 400);
 
@@ -250,7 +250,7 @@ export async function searchAll(query, { limit = 20, userId, repo, account } = {
   const startedAt = Date.now();
 
   const settled = await Promise.allSettled([
-    search(raw, { limit, userId, repo, account }),
+    search(raw, { limit, userId, repo }),
     searchGmail(raw, { limit: Math.ceil(limit / 2), userId }),
     searchDrive(raw, { limit: Math.ceil(limit / 2), userId }),
   ]);

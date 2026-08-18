@@ -1,6 +1,5 @@
 import { AlertTriangle } from "lucide-react";
-import { GitHubMark } from "./octicons";
-import { DriveLogo, GmailLogo } from "./BrandLogos";
+import { BRAND_LOGOS } from "./BrandLogos";
 import type { SearchResponse, SourceId } from "@/lib/api";
 
 const ORDER: { id: SourceId; label: string }[] = [
@@ -29,7 +28,7 @@ export function SourceCoverage({ sources }: { sources: SearchResponse["sources"]
     <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 font-mono text-[11px] text-stone-500">
       {present.map(({ id, label }) => {
         const outcome = sources[id]!;
-        const Mark = id === "gmail" ? GmailLogo : id === "drive" ? DriveLogo : GitHubMark;
+        const Mark = BRAND_LOGOS[id];
         return (
           <span
             key={id}

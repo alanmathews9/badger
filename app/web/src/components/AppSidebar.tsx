@@ -16,13 +16,13 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar";
 import type { Dig } from "@/lib/recentDigs";
-import type { SourcesResponse } from "@/lib/api";
+import type { SourceId, SourcesResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 export type Mode = "search" | "chat" | "tools";
 
 /** Fixed order, so the marks do not reshuffle when a source reconnects. */
-const SOURCE_ORDER = ["github", "drive", "gmail"] as const;
+const SOURCE_ORDER: SourceId[] = ["github", "drive", "gmail"];
 
 /**
  * The left rail.

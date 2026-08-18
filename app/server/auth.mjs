@@ -55,11 +55,12 @@ export function passphraseMatches(candidate) {
 /**
  * `<uid>.<expiry>.<hmac>` — stateless, tamper-evident, and it expires.
  *
- * The uid is an opaque random per-browser identifier, minted at sign-in. It is
- * what makes per-user connections possible without accounts: it becomes the
- * Composio end-user id, so each visitor's connected sources are their own. No
- * email, no signup, nothing the visitor has to provide — and because it is
- * inside the signed cookie, it cannot be forged or swapped for someone else's.
+ * The uid is an opaque random per-browser identifier, minted at sign-in. It
+ * existed to be the Composio end-user id, so each visitor's connected sources
+ * were their own; per-user connect was removed when the seeded corpus became
+ * the product, and nothing reads it today. It stays because it is what any
+ * future per-browser state would key on, and because dropping a field from the
+ * signed payload would invalidate every live session for nothing.
  */
 function sign(uid, expiresAt) {
   const mac = createHmac("sha256", SECRET).update(`${uid}.${expiresAt}`).digest("hex");
@@ -75,7 +76,7 @@ export function issueSessionCookie(uid = randomBytes(9).toString("hex")) {
     "HttpOnly", // unreadable from JavaScript, so an XSS cannot exfiltrate it
     "SameSite=Lax", // not sent on cross-site POSTs
     `Max-Age=${Math.floor(TTL_MS / 1000)}`,
-    // Secure is set behind the tunnel, where everything is HTTPS. Setting it
+    // Cloud Run is HTTPS-only, so Secure is right in production. Setting it
     // unconditionally would break plain-http localhost development.
     process.env.BADGER_SECURE_COOKIE === "0" ? null : "Secure",
   ]
@@ -88,13 +89,10 @@ export function clearSessionCookie() {
 }
 
 /**
- * Read the session, or null.
- *
- * Returns the uid so callers can scope work to this browser. Verifying before
- * returning it is the whole point: an unsigned uid would let anyone address
- * another visitor's connected accounts by editing a cookie.
+ * Read the session, or null. Verified before it is returned — an unsigned uid
+ * would be attacker-chosen, which is the whole reason the cookie is signed.
  */
-export function readSession(req) {
+function readSession(req) {
   const raw = parseCookies(req.headers.cookie).get(COOKIE);
   if (!raw) return null;
 
@@ -116,18 +114,6 @@ export function readSession(req) {
 export function hasValidSession(req) {
   if (!authEnabled) return true;
   return readSession(req) !== null;
-}
-
-/**
- * The Composio end-user id for this request.
- *
- * With the gate off (local development) there is no cookie, so everything
- * shares one id — which is correct for one developer on one laptop and wrong
- * for anything else, hence the gate being required before the server will bind
- * to a public interface.
- */
-export function userIdFor(req) {
-  return readSession(req)?.uid ?? "badger-local-dev";
 }
 
 function parseCookies(header) {

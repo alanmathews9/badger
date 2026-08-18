@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type Dig = {
-  query: string;
-  found: number;
-  at: number;
-};
+export type Dig = { query: string; at: number };
 
 const KEY = "badger.recentDigs";
 const MAX = 5;
@@ -24,10 +20,10 @@ export function useRecentDigs() {
     setDigs(read());
   }, []);
 
-  const record = useCallback((query: string, found: number) => {
+  const record = useCallback((query: string) => {
     setDigs((current) => {
       const next = [
-        { query, found, at: Date.now() },
+        { query, at: Date.now() },
         ...current.filter((d) => d.query.toLowerCase() !== query.toLowerCase()),
       ].slice(0, MAX);
       try {
@@ -50,15 +46,4 @@ function read(): Dig[] {
   } catch {
     return [];
   }
-}
-
-/** "2h ago", "yesterday" — the mono timestamps from the design. */
-export function relativeTime(at: number): string {
-  const mins = Math.max(0, Math.round((Date.now() - at) / 60000));
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  return days === 1 ? "yesterday" : `${days}d ago`;
 }

@@ -13,7 +13,6 @@ export function DigInput({
   value,
   onChange,
   onSubmit,
-  onClear,
   size = "large",
   busy = false,
   autoFocus = false,
@@ -21,7 +20,6 @@ export function DigInput({
   value: string;
   onChange: (next: string) => void;
   onSubmit: () => void;
-  onClear?: () => void;
   size?: "large" | "compact";
   busy?: boolean;
   autoFocus?: boolean;
@@ -76,7 +74,7 @@ export function DigInput({
 
       {!large && value && (
         <button
-          onClick={() => (onClear ? onClear() : onChange(""))}
+          onClick={() => onChange("")}
           aria-label="Clear search"
           className="shrink-0 text-stone-400 hover:text-stone-900"
         >

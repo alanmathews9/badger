@@ -10,6 +10,8 @@
  * cdn.jsdelivr.net/gh/gilbarbara/logos/logos/<name>.svg if one goes stale.
  */
 
+import type { SourceId } from "@/lib/api";
+
 type Props = { size?: number; className?: string };
 
 export function GitHubLogo({ size = 24, className }: Props) {
@@ -36,7 +38,8 @@ export function GmailLogo({ size = 24, className }: Props) {
   );
 }
 
-export const BRAND_LOGOS: Record<string, (p: Props) => React.ReactElement> = {
+/** The one place a source's mark is chosen. Every surface indexes this. */
+export const BRAND_LOGOS: Record<SourceId, (p: Props) => React.ReactElement> = {
   github: GitHubLogo,
   drive: DriveLogo,
   gmail: GmailLogo,

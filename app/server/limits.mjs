@@ -12,7 +12,9 @@
 //                      empty list, which is why a search burst is worse than
 //                      it looks.
 //
-// In-memory on purpose: one process, one VM. A restart resets the counters,
+// In-memory on purpose, and correct only because the service runs with
+// --max-instances 1: these counters are per process, so a second instance
+// would silently double every limit. A restart resets them,
 // which is the right failure direction for a demo — it re-opens rather than
 // locking everyone out.
 
@@ -39,10 +41,11 @@ function today() {
 }
 
 /**
- * The client's address. Behind Cloudflare Tunnel the socket address is always
- * the tunnel, so the forwarded header is the only real signal — and it is only
- * trustworthy because nothing else can reach this port. If the server were
- * ever exposed directly, this header would be attacker-controlled.
+ * The client's address. On Cloud Run the socket address is always the front
+ * end, so `x-forwarded-for` is the only real signal — and it is trustworthy
+ * only because Cloud Run sets it itself and strips any client-supplied copy.
+ * If this server were ever exposed directly, the header would be
+ * attacker-controlled and these limits would be trivially bypassed.
  */
 export function clientIp(req) {
   const forwarded = req.headers["cf-connecting-ip"] ?? req.headers["x-forwarded-for"];
@@ -85,7 +88,7 @@ export function claimAskSlot() {
   if (dailyAsks.count >= DAILY_ASK_LIMIT) {
     return {
       error:
-        "Badger has used its answer budget for today. Search still works — results below are live from GitHub, they just have no written answer above them.",
+        "Badger has used its answer budget for today. Search still works — results are live from GitHub, Gmail and Drive, they just have no written answer above them.",
     };
   }
   if (liveAsks >= MAX_CONCURRENT_ASKS) {

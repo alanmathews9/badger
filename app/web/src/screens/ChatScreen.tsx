@@ -2,7 +2,8 @@ import { useState } from "react";
 import { ArrowUp, Loader2, MessageSquare } from "lucide-react";
 import { BadgerMark } from "@/components/BadgerMark";
 import { Markdown, type Citation } from "@/components/Markdown";
-import { SourceGlyph } from "@/components/SourceGlyph";
+import { BRAND_LOGOS } from "@/components/BrandLogos";
+import type { SourceId } from "@/lib/api";
 import { VerificationBadge } from "@/components/AnswerCard";
 import type { AnswerState } from "@/components/AnswerCard";
 import { splitAnswer, type OpenedItem } from "@/lib/ask";
@@ -32,8 +33,11 @@ export function ChatScreen({
   const cited = result?.cited ?? [];
   const uncited = result?.uncited ?? [];
   const { body, coverage } = splitAnswer(answer.text);
+  // The token is the literal string the answer contains, so the superscript
+  // can be attached to it. GitHub items are cited by number, everything else
+  // by the name it was cited under.
   const citations: Citation[] = cited.map((item, i) => ({
-    token: item.kind === "file" ? item.ref : `#${item.ref}`,
+    token: item.kind === "issue" || item.kind === "pr" ? `#${item.ref}` : item.ref,
     index: i + 1,
   }));
 
@@ -202,6 +206,28 @@ export function ChatScreen({
   );
 }
 
+/** The brand mark for one source, so every surface names it the same way. */
+function SourceMark({ id, size }: { id: SourceId; size: number }) {
+  const Logo = BRAND_LOGOS[id];
+  return <Logo size={size} />;
+}
+
+/** Which system an item came from. GitHub is the default, not the only one. */
+const SOURCE_OF: Record<OpenedItem["kind"], SourceId> = {
+  issue: "github",
+  pr: "github",
+  file: "github",
+  mail: "gmail",
+  doc: "drive",
+};
+
+/**
+ * One cited source.
+ *
+ * The glyph used to be the literal string "github" for every card, written
+ * when GitHub was the only source and left in place after Gmail and Drive were
+ * wired up — so a mail thread and a Drive document both displayed as GitHub.
+ */
 function SourceCard({ item, index }: { item: OpenedItem; index: number }) {
   return (
     <div
@@ -211,11 +237,11 @@ function SourceCard({ item, index }: { item: OpenedItem; index: number }) {
       <span className="size-[19px] shrink-0 rounded-[5px] bg-amber-700 text-center font-mono text-[10px]/[19px] font-semibold text-white">
         {index}
       </span>
-      <SourceGlyph id="github" size={13} />
+      <SourceMark id={SOURCE_OF[item.kind]} size={13} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-[12.5px] font-medium">{item.label}</div>
         <div className="mt-0.5 truncate font-mono text-[10.5px] text-stone-500">
-          {item.detail ?? (item.kind === "file" ? "file" : `${item.kind} ${item.ref}`)}
+          {item.detail ?? item.kind}
         </div>
       </div>
     </div>

@@ -48,27 +48,16 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [answer, setAnswer] = useState<AnswerState>(IDLE);
-  const [sources, setSources] = useState<SourcesResponse>({ mode: "none", repo: null, sources: [] });
+  const [sources, setSources] = useState<SourcesResponse>({ mode: "none", sources: [] });
   const [budget, setBudget] = useState<Budget | null>(null);
   const { digs, record } = useRecentDigs();
 
   const cancelAsk = useRef<(() => void) | null>(null);
 
-  const refreshSources = useCallback(() => {
-    fetchSources().then(setSources).catch(() => {});
-  }, []);
-
   useEffect(() => {
-    refreshSources();
+    fetchSources().then(setSources).catch(() => {});
     fetchBudget().then(setBudget).catch(() => {});
-    // Returning from the Composio handshake lands here with ?connected=<source>.
-    // The parameter is not trusted — it only tells us to go and re-read the
-    // real state — and it is stripped so a reload does not repeat the dance.
-    if (new URLSearchParams(window.location.search).has("connected")) {
-      setMode("tools");
-      window.history.replaceState({}, "", window.location.pathname);
-    }
-  }, [refreshSources]);
+  }, []);
 
   const startAsk = useCallback((question: string, context?: string) => {
     cancelAsk.current?.();
@@ -105,7 +94,7 @@ export default function App() {
       try {
         const response = await search(q);
         setData(response);
-        record(q, response.total);
+        record(q);
       } catch (err) {
         setError(err instanceof Error ? err.message : "search failed");
       } finally {

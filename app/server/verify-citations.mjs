@@ -105,7 +105,7 @@ const stripLink = (s) =>
  * retrieved from. Deliberately forgiving — the target is invention, not
  * transcription.
  */
-function mentions(corpus, value) {
+export function mentions(corpus, value) {
   const norm = (t) =>
     String(t)
       .toLowerCase()

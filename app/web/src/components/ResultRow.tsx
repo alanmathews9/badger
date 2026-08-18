@@ -1,6 +1,6 @@
 import { Highlight } from "./Highlight";
-import { GitHubMark, StateIcon } from "./octicons";
-import { DriveLogo, GmailLogo } from "./BrandLogos";
+import { StateIcon } from "./octicons";
+import { BRAND_LOGOS } from "./BrandLogos";
 import type { SearchRow } from "@/lib/api";
 
 /**
@@ -22,7 +22,7 @@ import type { SearchRow } from "@/lib/api";
 export function ResultRow({ row }: { row: SearchRow }) {
   return (
     <li className="flex gap-3 border-t border-stone-100 py-3 first:border-t-0">
-      <span className="mt-0.5 shrink-0 text-stone-900">
+      <span className="mt-0.5 shrink-0">
         <SourceMark source={row.source} />
       </span>
 
@@ -73,9 +73,8 @@ export function ResultRow({ row }: { row: SearchRow }) {
 }
 
 function SourceMark({ source }: { source: SearchRow["source"] }) {
-  if (source === "gmail") return <GmailLogo size={16} />;
-  if (source === "drive") return <DriveLogo size={16} />;
-  return <GitHubMark size={16} />;
+  const Logo = BRAND_LOGOS[source];
+  return <Logo size={16} />;
 }
 
 /**

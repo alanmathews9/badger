@@ -117,7 +117,8 @@ export function SearchScreen({
 
                 {data.droppedTerms.length > 0 && (
                   <p className="mb-3 text-[11.5px] text-stone-500">
-                    Searched the first {data.terms.length} terms. GitHub allows no more, so{" "}
+                    Searched the first {data.terms.length} terms, which is as many as the
+                    slowest of the three search APIs accepts, so{" "}
                     <span className="font-mono">{data.droppedTerms.join(", ")}</span> were not
                     included.
                   </p>

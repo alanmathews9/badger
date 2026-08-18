@@ -17,14 +17,21 @@ model:
     temperature: 0.1
     max_tokens: 8192
 
+# Kept in step with hooks/allowed-tools.txt, which is what actually enforces
+# this. The runtime ignores this key, but it is the first thing a reader opens.
 tools:
   - read
   - memory
   - github_search
   - github_issue
+  - github_pr
   - github_file
   - github_commits
-  - github_pr
+  - gmail_search
+  - gmail_thread
+  - drive_search
+  - drive_file
+  - drive_comments
 
 skills:
   - trace-decision

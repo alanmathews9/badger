@@ -5,8 +5,8 @@
 // something has to sit in between. This is that, and nothing more: it serves
 // the built frontend and exposes Badger's two passes as two endpoints.
 //
-//   POST /api/search   deterministic. Composio -> GitHub, live, no model.
-//   GET  /api/ask      the agent, streamed over SSE.   [step 4]
+//   POST /api/search   deterministic. GitHub, Gmail and Drive, live, no model.
+//   GET  /api/ask      the agent, streamed over SSE.
 //
 // Deliberately plain node:http. The repo's only dependencies are the agent's
 // own; adding a web framework to a submission whose thesis is "the agent is a
@@ -15,7 +15,7 @@
 // Port 4000 by default, not 3000: 3333 is gitagent's own voice UI and 3000 and
 // 5173 are commonly already taken on a dev machine. BADGER_PORT overrides.
 //
-//   node src/server.mjs          # http://localhost:4000
+//   npm run serve                # http://localhost:4000
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
@@ -23,23 +23,12 @@ import { fileURLToPath } from "node:url";
 import { query } from "@open-gitagent/gitagent";
 import { searchAll, SearchError } from "./search.mjs";
 import { readAllowedTools } from "./allowed-tools.mjs";
-import { authEnabled, clearSessionCookie, hasValidSession, issueSessionCookie, passphraseMatches, userIdFor } from "./auth.mjs";
-import {
-  TOOLKITS,
-  TOOLKIT_LABELS,
-  beginConnect,
-  chooseRepo,
-  disconnectSource,
-  githubLogin,
-  listConnections,
-  listRepositories,
-  accountFor,
-  resolveContext,
-} from "./connections.mjs";
+import { authEnabled, clearSessionCookie, hasValidSession, issueSessionCookie, passphraseMatches } from "./auth.mjs";
+import { TOOLKITS, TOOLKIT_LABELS, accountFor, listConnections, resolveContext } from "./connections.mjs";
 import { budgetStatus, claimAskSlot, clientIp, rateLimit } from "./limits.mjs";
 import { splashPage } from "./splash.mjs";
 import { SYSTEM_SUFFIX } from "./system-suffix.mjs";
-import { annotateUnverified, extractCitations, verifyCitations } from "./verify-citations.mjs";
+import { annotateUnverified, extractCitations, mentions, verifyCitations } from "./verify-citations.mjs";
 
 // The repo root, which is also the agent directory query() loads. The server
 // lives two levels down under app/ precisely so that this is an explicit,
@@ -82,12 +71,6 @@ const server = createServer(async (req, res) => {
 
     if (url.pathname === "/api/search" && req.method === "POST") return await handleSearch(req, res);
     if (url.pathname === "/api/sources" && req.method === "GET") return await handleSources(req, res);
-    if (url.pathname === "/api/connect" && req.method === "POST") return await handleConnect(req, res, url);
-    if (url.pathname === "/api/connect/callback") return await handleConnectCallback(url, res);
-    if (url.pathname === "/api/connections" && req.method === "GET") return await handleConnections(req, res);
-    if (url.pathname === "/api/connections/disconnect" && req.method === "POST") return await handleDisconnect(req, res);
-    if (url.pathname === "/api/repos" && req.method === "GET") return await handleRepos(req, res);
-    if (url.pathname === "/api/repos" && req.method === "POST") return await handleChooseRepo(req, res);
     if (url.pathname === "/api/ask" && req.method === "GET") return await handleAsk(url, req, res);
     if (url.pathname.startsWith("/api/")) return json(res, 404, { error: "no such endpoint" });
     return await serveStatic(url.pathname, res);
@@ -178,131 +161,28 @@ let githubReachable = false;
  * result page that does not tell you whose data it is is a trap.
  */
 async function handleSources(req, res) {
-  const userId = userIdFor(req);
-  const ctx = await resolveContext(userId);
+  const ctx = await resolveContext();
   // Drive and Gmail used to be hardcoded as "not connected" here, which stayed
   // in place after they were wired up — so the Tools page claimed two of the
   // three sources were missing while the agent was searching them.
-  const own = ctx.mode === "own" ? await listConnections(userId) : null;
-  const demo = ctx.mode === "demo" ? await listConnections(ctx.userId) : null;
-  const state = own ?? demo ?? {};
+  const state = ctx.userId ? await listConnections(ctx.userId) : {};
 
   return json(res, 200, {
     mode: ctx.mode,
-    repo: ctx.repo,
     sources: await Promise.all(
       TOOLKITS.map(async (id) => {
         const connected = Boolean(state[id]) && (id !== "github" || githubReachable);
-        // Whose account, not just whether there is one. For GitHub the repo is
-        // reported separately: a slug is not an identity, and the account can
-        // reach more than one repository.
-        const account = connected ? await accountFor(ctx.userId, id) : null;
+        // Whose account, not just whether there is one: "connected" does not
+        // tell you whether Badger is reading the right mailbox.
         return {
           id: id === "googledrive" ? "drive" : id,
           label: TOOLKIT_LABELS[id],
           connected,
-          own: ctx.mode === "own",
-          account,
-          repo: id === "github" ? (connected ? (ctx.repo ?? null) : null) : null,
-          detail: connected ? (account ?? "connected") : "not connected",
+          account: connected ? await accountFor(ctx.userId, id) : null,
         };
       }),
     ),
   });
-}
-
-/** POST /api/connect {toolkit} -> the Composio Connect Link to send the browser to. */
-async function handleConnect(req, res, url) {
-  const limited = rateLimit(req, "search");
-  if (limited) return json(res, 429, { error: limited });
-  try {
-    const { toolkit } = JSON.parse(await readBody(req));
-    const callbackUrl = `${url.origin}/api/connect/callback?source=${encodeURIComponent(toolkit)}`;
-    const { redirectUrl } = await beginConnect(userIdFor(req), toolkit, callbackUrl);
-    return json(res, 200, { redirectUrl });
-  } catch (err) {
-    // "already connected" is the caller's mistake and safe to repeat back;
-    // anything else could carry internals, so it stays in the log.
-    if (/already connected|unknown source/.test(err?.message ?? "")) {
-      return json(res, 409, { error: err.message });
-    }
-    console.error("[connect]", err);
-    return json(res, 502, { error: "could not start the connection" });
-  }
-}
-
-/**
- * Where Composio sends the browser back after authorising.
- *
- * Composio has already stored the credential by this point; there is nothing
- * to receive. Bounce back into the app, which re-reads /api/connections rather
- * than trusting a query parameter it did not sign.
- */
-async function handleConnectCallback(url, res) {
-  const source = url.searchParams.get("source") ?? "";
-  const safe = TOOLKITS.includes(source) ? source : "";
-  res.writeHead(303, { location: safe ? `/?connected=${safe}` : "/" });
-  res.end();
-}
-
-/** GET /api/connections — one connection per source, or none. */
-async function handleConnections(req, res) {
-  const userId = userIdFor(req);
-  try {
-    const connections = await listConnections(userId);
-    const ctx = await resolveContext(userId);
-    return json(res, 200, {
-      mode: ctx.mode,
-      repo: ctx.repo,
-      login: connections.github ? await githubLogin(userId) : null,
-      sources: TOOLKITS.map((id) => ({
-        id,
-        label: TOOLKIT_LABELS[id],
-        connected: Boolean(connections[id]),
-        connectedAt: connections[id]?.createdAt ?? null,
-      })),
-    });
-  } catch (err) {
-    console.error("[connections]", err);
-    return json(res, 502, { error: "could not read your connections" });
-  }
-}
-
-/**
- * POST /api/connections/disconnect {toolkit} — remove one of *your* sources.
- *
- * The caller names a source, never an account id. There is therefore no id a
- * visitor could post to reach someone else's connection: connections.mjs looks
- * up the asking session's own and deletes only that.
- */
-async function handleDisconnect(req, res) {
-  try {
-    const { toolkit } = JSON.parse(await readBody(req));
-    const removed = await disconnectSource(userIdFor(req), toolkit);
-    return json(res, removed ? 200 : 404, removed ? { disconnected: true } : { error: "not connected" });
-  } catch (err) {
-    console.error("[disconnect]", err);
-    return json(res, 502, { error: "could not disconnect" });
-  }
-}
-
-async function handleRepos(req, res) {
-  try {
-    return json(res, 200, { repos: await listRepositories(userIdFor(req)) });
-  } catch (err) {
-    console.error("[repos]", err);
-    return json(res, 502, { error: "could not list repositories — is GitHub connected?" });
-  }
-}
-
-async function handleChooseRepo(req, res) {
-  try {
-    const { repo } = JSON.parse(await readBody(req));
-    await chooseRepo(userIdFor(req), repo);
-    return json(res, 200, { repo });
-  } catch (err) {
-    return json(res, 400, { error: err?.message ?? "bad request" });
-  }
 }
 
 /** POST /api/search  {query, limit} -> the results page. No LLM on this path. */
@@ -316,12 +196,9 @@ async function handleSearch(req, res) {
   } catch {
     return json(res, 400, { error: "body must be JSON" });
   }
-  const ctx = await resolveContext(userIdFor(req));
+  const ctx = await resolveContext();
   if (ctx.mode === "none") {
-    return json(res, 409, { error: "Connect GitHub from the Tools page before searching." });
-  }
-  if (ctx.mode === "own" && !ctx.repo) {
-    return json(res, 409, { error: "Choose a repository on the Tools page before searching." });
+    return json(res, 409, { error: "No sources are configured, so there is nothing to search." });
   }
 
   try {
@@ -393,9 +270,9 @@ async function handleAsk(url, req, res) {
   const opened = [];
   let answer = "";
 
-  const ctx = await resolveContext(userIdFor(req));
-  if (ctx.mode === "none" || (ctx.mode === "own" && !ctx.repo)) {
-    send("error", { message: "Connect GitHub and choose a repository on the Tools page first." });
+  const ctx = await resolveContext();
+  if (ctx.mode === "none") {
+    send("error", { message: "No sources are configured, so there is nothing to answer from." });
     slot.release();
     return res.end();
   }
@@ -469,6 +346,7 @@ async function handleAsk(url, req, res) {
 
   const verification = verifyCitations(answer, toolOutputs);
   const cited = extractCitations(answer);
+  labelOpened(opened, toolOutputs);
   const costs = typeof run.costs === "function" ? run.costs() : null;
 
   send("done", {
@@ -498,17 +376,59 @@ async function handleAsk(url, req, res) {
   res.end();
 }
 
-/** Note what a tool call opened, so the answer can be compared against it. */
+/**
+ * Note what a tool call opened, so the answer can be compared against it.
+ *
+ * This drives two things the reader sees: "N items were opened but not cited",
+ * and the follow-up chips. It knew only the three GitHub read tools, so a mail
+ * thread or a Drive document Badger opened in full counted as nothing — the
+ * honesty signal undercounted, and no chip ever offered mail or a document.
+ *
+ * Mail and Drive are opened by opaque id, so there is no label to record here.
+ * `labelOpened` recovers one from the tool's own output once it has arrived.
+ */
 function recordOpened(opened, msg) {
   const args = msg.args ?? {};
   const add = (kind, ref, label) => {
     if (ref == null || opened.some((o) => o.kind === kind && o.ref === String(ref))) return;
     opened.push({ kind, ref: String(ref), label: label ?? String(ref) });
   };
-  if (msg.toolName === "github_issue") add("issue", args.number, `issue #${args.number}`);
-  if (msg.toolName === "github_pr") add("pr", args.number, `PR #${args.number}`);
-  if (msg.toolName === "github_file") add("file", args.path, args.path);
+  switch (msg.toolName) {
+    case "github_issue": return add("issue", args.number, `issue #${args.number}`);
+    case "github_pr": return add("pr", args.number, `PR #${args.number}`);
+    case "github_file": return add("file", args.path, args.path);
+    case "gmail_thread": return add("mail", args.thread_id);
+    // Both Drive reads name the same document, so they collapse to one entry.
+    case "drive_file":
+    case "drive_comments": return add("doc", args.file_id);
+  }
 }
+
+/**
+ * Give the mail and document opens a human label.
+ *
+ * The tools print an id-to-name line at the top of their output — gmail_thread
+ * writes `thread <id> — "<subject>"`, drive_file writes `<name>  [doc]` above
+ * `id: <file_id>` — so the name is already retrieved and costs no extra call.
+ * An id that cannot be resolved keeps the id rather than inventing a name.
+ */
+function labelOpened(opened, toolOutputs) {
+  const corpus = toolOutputs.join("\n");
+  for (const item of opened) {
+    if (item.kind === "mail") {
+      const m = corpus.match(new RegExp(`thread ${escapeRe(item.ref)} — "([^"]+)"`));
+      if (m) item.label = m[1];
+    } else if (item.kind === "doc") {
+      const m = corpus.match(new RegExp(`(.+)\\s+\\[(doc|sheet)\\]\\nid: ${escapeRe(item.ref)}`));
+      if (m) {
+        item.label = m[1].trim();
+        item.detail = m[2] === "sheet" ? "spreadsheet" : "document";
+      }
+    }
+  }
+}
+
+const escapeRe = (v) => String(v).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
  * Turn the answer's citations into source cards, recovering each one's title
@@ -536,12 +456,34 @@ function resolveCitations(cited, toolOutputs) {
     items.push({ kind: "file", ref: path, label: path, detail: "file" });
   }
 
+  // Mail and documents were the silent half. extractCitations has returned
+  // them since Gmail and Drive were wired up and verifyCitations counts them,
+  // so the badge could read "5 citations, all retrieved" above a grid showing
+  // two cards. They are cited by subject and by name rather than by id — that
+  // is the format RULES.md asks for — so the citation is its own reference.
+  for (const m of cited.mail) {
+    items.push({ kind: "mail", ref: m.subject, label: m.subject, detail: `mail, ${m.sender}` });
+  }
+
+  for (const name of cited.documents) {
+    items.push({ kind: "doc", ref: name, label: name, detail: "document" });
+  }
+
   return items;
 }
 
-/** Did the answer actually cite this opened item? */
+/**
+ * Did the answer actually cite this opened item?
+ *
+ * GitHub items carry an id that matches literally. Mail and documents are
+ * cited by subject and by name, so they are compared against the label
+ * recovered from the tool output, with the same forgiving match the verifier
+ * uses — the target is invention, not transcription.
+ */
 function isCited(item, cited) {
   if (item.kind === "file") return cited.paths.includes(item.ref);
+  if (item.kind === "mail") return cited.mail.some((m) => mentions(item.label, m.subject));
+  if (item.kind === "doc") return cited.documents.some((d) => mentions(item.label, d));
   return cited.numbers.includes(item.ref);
 }
 
