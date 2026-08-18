@@ -12,11 +12,20 @@ import type { SearchResponse } from "@/lib/api";
  * evaluator reads them before they can act on them, and forgets. Here they are
  * one click from running. People freeze at an empty search box, and someone
  * who types "hello" sees none of the product.
+ *
+ * These three are chosen to show the thing one source cannot do: the first
+ * returns three sources disagreeing about the same delay, the second is
+ * answerable from mail alone, and the third is answered by authored commits
+ * rather than by anyone claiming expertise.
+ *
+ * They must be checked whenever the corpus changes. The previous three named a
+ * consultancy that had been deleted, so the first thing a visitor saw was three
+ * questions that returned nothing.
  */
 const SUGGESTIONS = [
-  "Why did the Halden engagement slip?",
-  "Who knows about payments integrations?",
-  "Should we ever compress discovery to win timing?",
+  "Why was the Android app five weeks late?",
+  "Did we tell Brightsmile the app would be ready in March?",
+  "Who knows about payments?",
 ];
 
 export function SearchScreen({

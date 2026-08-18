@@ -144,15 +144,6 @@ export function AppSidebar({
           </div>
         )}
 
-        <div className="flex items-center gap-2.5 px-1 group-data-[collapsible=icon]:px-0">
-          <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-stone-200 text-[10px] font-medium">
-            AM
-          </span>
-          <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
-            <div className="truncate text-[12.5px] font-medium">Demo session</div>
-            <div className="truncate font-mono text-[10px] text-stone-500">read-only</div>
-          </div>
-        </div>
       </SidebarFooter>
 
       <SidebarRail />

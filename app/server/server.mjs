@@ -201,9 +201,7 @@ async function handleSources(req, res) {
               ? (ctx.repo ?? "no repository chosen")
               : "not connected"
             : connected
-              ? ctx.mode === "demo"
-                ? "the demo account"
-                : "connected"
+              ? "connected"
               : "not connected",
       };
     }),
