@@ -17,7 +17,7 @@
 // implicitly.
 import { exec as gh, asList, DEMO_REPO } from "../tools/scripts/_github.mjs";
 import { exec as goog, exportText, isWorkspaceFile, kindOf } from "../tools/scripts/_google.mjs";
-import { saveIndex, indexStatus, INDEX_FILE } from "../tools/scripts/_index.mjs";
+import { loadIndex, saveIndex, indexStatus, INDEX_FILE } from "../tools/scripts/_index.mjs";
 import { fileURLToPath } from "node:url";
 
 const [OWNER, REPO] = DEMO_REPO.split("/");
@@ -262,6 +262,223 @@ async function crawlDrive() {
   return { docs, live: { files: files.length, commentThreads } };
 }
 
+function countsOf(docs) {
+  const of = (source, type) => docs.filter((d) => d.source === source && (!type || d.type === type)).length;
+  return {
+    github: { issues: of("github", "issue"), prs: of("github", "pr"), files: of("github", "file"), commits: of("github", "commit") },
+    gmail: { messages: of("gmail") },
+    drive: { files: of("drive") },
+  };
+}
+
+// ── Incremental refresh ───────────────────────────────────────────────────
+//
+// "What changed since the last build?" per source, upserted into the store —
+// a ~10–20 call tick instead of a 173-call rebuild, which is what makes a
+// short cadence affordable (Onyx's own layering, sized down). Two honest
+// limits, stated rather than hidden: deletions are invisible to it (none of
+// the three sources offers a deleted-since query our allowlist reaches), and
+// GitHub's `updated:` qualifier has day precision, so same-day items are
+// re-fetched and deduped by id. The daily full rebuild is the sweep that
+// catches what this cannot.
+
+async function refreshGitHub(since) {
+  const docs = [];
+  const sinceDay = since.slice(0, 10);
+
+  const search = await counted(() =>
+    gh("GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS", {
+      q: `repo:${OWNER}/${REPO} updated:>=${sinceDay}`,
+      per_page: 100,
+    }),
+  );
+  const items = asList(search);
+  for (const item of items) {
+    const isPr = Boolean(item.pull_request);
+    const data = await counted(() =>
+      gh("GITHUB_LIST_ISSUE_COMMENTS", { owner: OWNER, repo: REPO, issue_number: item.number, per_page: 100 }),
+    );
+    const comments = asList(data);
+    let reviewComments = [];
+    if (isPr) {
+      const rc = await counted(() =>
+        gh("GITHUB_LIST_REVIEW_COMMENTS_ON_A_PULL_REQUEST", { owner: OWNER, repo: REPO, pull_number: item.number, per_page: 100 }),
+      );
+      reviewComments = asList(rc);
+    }
+    const thread = [...comments, ...reviewComments]
+      .map((c) => `— ${c.user?.login ?? "unknown"} (${day(c.created_at)}): ${flat(c.body)}`)
+      .join("\n");
+    docs.push({
+      id: `${isPr ? "pr" : "issue"}-${item.number}`,
+      source: "github",
+      type: isPr ? "pr" : "issue",
+      title: item.title ?? "",
+      body: [flat(item.body), thread].filter(Boolean).join("\n\n"),
+      author: item.user?.login ?? "unknown",
+      date: day(item.updated_at ?? item.created_at),
+      url: item.html_url ?? "",
+      meta: {
+        number: item.number,
+        state: isPr && item.pull_request?.merged_at ? "merged" : (item.state ?? ""),
+        comments: comments.length + reviewComments.length,
+      },
+      vector: null,
+    });
+  }
+
+  const commitData = await counted(() =>
+    gh("GITHUB_LIST_COMMITS", { owner: OWNER, repo: REPO, per_page: 100, since }),
+  );
+  const commits = asList(commitData);
+  for (const c of commits) {
+    const msg = flat(c.commit?.message);
+    docs.push({
+      id: `commit-${(c.sha ?? "").slice(0, 7)}`,
+      source: "github",
+      type: "commit",
+      title: msg.split("\n")[0],
+      body: msg,
+      author: c.commit?.author?.name ?? c.author?.login ?? "unknown",
+      date: day(c.commit?.author?.date),
+      url: c.html_url ?? "",
+      meta: { sha: c.sha },
+      vector: null,
+    });
+  }
+
+  // New commits mean file contents changed; re-fetch the paths those commits
+  // touched... which LIST_COMMITS does not report. Re-reading the whole tree
+  // (~30 calls) only when commits actually landed is the affordable middle.
+  let filesReread = 0;
+  if (commits.length) {
+    const files = [];
+    async function walk(path) {
+      const data = await counted(() => gh("GITHUB_GET_REPOSITORY_CONTENT", { owner: OWNER, repo: REPO, path }));
+      const payload = data.content ?? data;
+      for (const e of Array.isArray(payload) ? payload : [payload]) {
+        if (e.type === "dir") await walk(e.path);
+        else if (e.type === "file") files.push(e.path);
+      }
+    }
+    await walk("");
+    await pMap(files, 5, async (path) => {
+      const data = await counted(() => gh("GITHUB_GET_REPOSITORY_CONTENT", { owner: OWNER, repo: REPO, path }));
+      const payload = data.content ?? data;
+      const text = payload.content
+        ? Buffer.from(String(payload.content), payload.encoding === "base64" ? "base64" : "utf8").toString("utf8")
+        : "";
+      docs.push({
+        id: `ghfile-${path}`, source: "github", type: "file", title: path,
+        body: flat(text), author: "", date: "", url: payload.html_url ?? "",
+        meta: { path }, vector: null,
+      });
+    });
+    filesReread = files.length;
+  }
+
+  console.log(`  github: ${items.length} issues/PRs updated, ${commits.length} new commits, ${filesReread} files re-read`);
+  return docs;
+}
+
+async function refreshGmail(since) {
+  // Gmail's after: takes epoch seconds, which keeps full precision — the
+  // date form would re-fetch a whole day every tick.
+  const epoch = Math.floor(Date.parse(since) / 1000);
+  const data = await counted(() =>
+    goog("GMAIL_FETCH_EMAILS", { query: `after:${epoch}`, max_results: 100, include_payload: true, user_id: "me" }),
+  );
+  const docs = (data.messages ?? []).map((m) => ({
+    id: `mail-${m.messageId}`, source: "gmail", type: "mail",
+    title: m.subject || "(no subject)",
+    body: flat(m.messageText),
+    author: String(m.sender ?? "").replace(/\s*<[^>]*>/, "").trim() || "unknown",
+    date: day(m.messageTimestamp),
+    url: m.display_url ?? "",
+    meta: { threadId: m.threadId ?? null, sender: m.sender ?? "", to: m.to ?? "" },
+    vector: null,
+  }));
+  console.log(`  gmail: ${docs.length} new messages`);
+  return docs;
+}
+
+async function refreshDrive(since) {
+  const data = await counted(() =>
+    goog("GOOGLEDRIVE_FIND_FILE", { query: `modifiedTime > '${since}' and trashed = false`, page_size: 100 }),
+  );
+  const files = (data.files ?? []).filter((f) => !String(f.mimeType ?? "").includes("folder"));
+  const docs = await pMap(files, 4, async (f) => {
+    let body = "";
+    if (isWorkspaceFile(f.mimeType)) {
+      try {
+        body = flat(await counted(() => exportText(f.id, f.mimeType)));
+        apiCalls += 1;
+      } catch (err) {
+        console.log(`  drive: could not export ${f.name}: ${err.message}`);
+      }
+    }
+    let margins = "";
+    try {
+      const cd = await counted(() => goog("GOOGLEDRIVE_LIST_COMMENTS", { file_id: f.id, fields: "*" }));
+      margins = (cd.comments ?? []).filter((c) => !c.deleted)
+        .map((c) => {
+          const head = `— ${c.author?.displayName ?? "comment"} (${day(c.createdTime)}): ${flat(c.content)}`;
+          const replies = (c.replies ?? []).filter((r) => !r.deleted)
+            .map((r) => `  ↳ ${r.author?.displayName ?? ""} (${day(r.createdTime)}): ${flat(r.content)}`);
+          return [head, ...replies].join("\n");
+        }).join("\n");
+    } catch (err) {
+      console.log(`  drive: could not list comments on ${f.name}: ${err.message}`);
+    }
+    return {
+      id: `drive-${f.id}`, source: "drive", type: kindOf(f.mimeType),
+      title: f.name ?? "(unnamed)",
+      body: [body, margins].filter(Boolean).join("\n\n"),
+      author: "", date: day(f.modifiedTime), url: f.webViewLink ?? "",
+      meta: { fileId: f.id, mimeType: f.mimeType ?? "" }, vector: null,
+    };
+  });
+  console.log(`  drive: ${docs.length} files changed`);
+  return docs;
+}
+
+async function refresh() {
+  const index = loadIndex();
+  if (!index) {
+    console.log("No index to refresh — running a full build instead.");
+    return false;
+  }
+  const since = index.refreshedAt ?? index.builtAt;
+  console.log(`Refreshing the index — changes since ${since}…`);
+  const startedAt = Date.now();
+
+  const [ghDocs, gmDocs, drDocs] = await Promise.all([
+    refreshGitHub(since), refreshGmail(since), refreshDrive(since),
+  ]);
+  const changed = [...ghDocs, ...gmDocs, ...drDocs];
+
+  // Upsert: replace by id, append the new. Deletions survive until the next
+  // full rebuild, and status says when that was.
+  const byId = new Map(index.docs.map((d) => [d.id, d]));
+  let updated = 0, added = 0;
+  for (const doc of changed) {
+    byId.has(doc.id) ? updated++ : added++;
+    byId.set(doc.id, doc);
+  }
+
+  index.docs = [...byId.values()];
+  index.counts = countsOf(index.docs);
+  index.refreshedAt = new Date().toISOString();
+  saveIndex(index);
+
+  console.log(
+    `\n${updated} updated, ${added} added, ${index.docs.length} docs total — ` +
+    `${apiCalls} API calls, ${((Date.now() - startedAt) / 1000).toFixed(0)}s. ` +
+    `Full rebuild (the deletion sweep) last ran ${index.builtAt}.`,
+  );
+  return true;
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -275,11 +492,14 @@ async function main() {
     }
     const hours = (s.ageMs / 3_600_000).toFixed(1);
     console.log(`index at ${fileURLToPath(INDEX_FILE)}`);
-    console.log(`built ${s.builtAt} (${hours}h ago) — ${s.docs} docs, ${s.apiCalls} API calls, ${(s.buildMs / 1000).toFixed(0)}s`);
+    console.log(`built ${s.builtAt}, refreshed ${s.refreshedAt} (${hours}h ago) — ${s.docs} docs`);
     console.log(JSON.stringify(s.counts, null, 2));
     return;
   }
-  if (cmd && cmd !== "build") {
+  if (cmd === "refresh") {
+    if (await refresh()) return;
+    // fall through to a full build when there is nothing to refresh
+  } else if (cmd && cmd !== "build") {
     console.error(`unknown command "${cmd}" — use \`npm run index\` or \`npm run index status\``);
     process.exit(2);
   }
@@ -291,16 +511,7 @@ async function main() {
   const [github, gmail, drive] = await Promise.all([crawlGitHub(), crawlGmail(), crawlDrive()]);
 
   const docs = [...github.docs, ...gmail.docs, ...drive.docs];
-  const counts = {
-    github: {
-      issues: github.docs.filter((d) => d.type === "issue").length,
-      prs: github.docs.filter((d) => d.type === "pr").length,
-      files: github.docs.filter((d) => d.type === "file").length,
-      commits: github.docs.filter((d) => d.type === "commit").length,
-    },
-    gmail: { messages: gmail.docs.length },
-    drive: { files: drive.docs.length },
-  };
+  const counts = countsOf(docs);
 
   const buildMs = Date.now() - startedAt;
   const bytes = saveIndex({

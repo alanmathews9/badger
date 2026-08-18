@@ -23,6 +23,7 @@ import { fileURLToPath } from "node:url";
 import { query } from "@open-gitagent/gitagent";
 import { openAuditLog } from "./audit.mjs";
 import { searchAll, SearchError } from "./search.mjs";
+import { startRefreshTimer } from "./index-search.mjs";
 import { readAllowedTools } from "./allowed-tools.mjs";
 import { authEnabled, clearSessionCookie, hasValidSession, issueSessionCookie, passphraseMatches } from "./auth.mjs";
 import { TOOLKITS, TOOLKIT_LABELS, accountFor, listConnections, resolveContext } from "./connections.mjs";
@@ -583,6 +584,7 @@ server.listen(PORT, HOST, async () => {
     await searchAll("badger-warmup", { limit: 1 });
     githubReachable = true;
     console.log("github session warm");
+    startRefreshTimer();
   } catch (err) {
     console.error(`github unreachable — search will fail until this is fixed: ${err.message}`);
   }

@@ -26,8 +26,10 @@ next arc. Decisions first, order of work after.
   thousands of docs); `_index.mjs` is the single module that would swap.
 - **Webhooks deferred.** Free in dollars, real in engineering (public
   endpoint + signature checks for GitHub; Pub/Sub + expiring channels for
-  Google). If ever taken, check Composio Triggers first — it does this
-  plumbing for our exact three sources; free-tier coverage unverified.
+  Google). If ever taken, use Composio Triggers — it does this
+  plumbing for our exact three sources, and the free tier includes 50K
+  trigger events/month (verified against composio.dev/pricing 2026-08-19;
+  $0.003/event beyond, hard-capped on free).
 - **The eval is the gate.** Rewiring the agent's retrieval is exactly the
   change PLAN-SEARCH-INDEX.md said must "revisit with eval evidence":
   `npm run eval` must hold ≥13/15 with the agent on the index, compared
@@ -35,12 +37,19 @@ next arc. Decisions first, order of work after.
 
 ## Order of work
 
-1. **Incremental refresh** in the builder (`npm run index refresh`):
+1. ✅ **Done 2026-08-19.** **Incremental refresh** in the builder (`npm run index refresh`):
    updated-since crawl per source, merged into the store, counts verified
    against what each API reports, `builtAt` split into `builtAt` /
    `refreshedAt`. Then the in-server timer (default 2h,
    `BADGER_INDEX_REFRESH_HOURS`), running only while an instance is alive —
    Cloud Run's cold start already rebuilds from nothing.
+   Landed as `npm run index refresh` (verified live: a tick is 42 calls on
+   seed day, ~3 on a quiet day — GitHub's `updated:` qualifier is
+   day-precise so same-day items re-fetch and dedupe), the
+   `BADGER_INDEX_REFRESH_HOURS` timer (default 2, 0 disables, watched a
+   36s-interval tick fire end to end), and the serving rule: freshness is
+   judged on refreshedAt, while a builtAt older than 24h kicks the full
+   rebuild sweep in the background without giving up the fast path.
 2. **Index-backed agent tools.** The three search tools try the index first
    and say so in their output (path + age, the same honesty rule as the web
    UI); on a miss or no index they run their live path unchanged. Open

@@ -78,7 +78,10 @@ export function indexStatus() {
   return {
     exists: true,
     builtAt: idx.builtAt,
-    ageMs: Date.now() - Date.parse(idx.builtAt),
+    // A refresh bumps refreshedAt and leaves builtAt alone: freshness is
+    // judged on the former, the daily full-rebuild sweep on the latter.
+    refreshedAt: idx.refreshedAt ?? idx.builtAt,
+    ageMs: Date.now() - Date.parse(idx.refreshedAt ?? idx.builtAt),
     docs: idx.docs.length,
     counts: idx.counts ?? {},
     apiCalls: idx.apiCalls,

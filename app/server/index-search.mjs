@@ -50,12 +50,12 @@ let building = false;
 let lastFailureAt = 0;
 const FAILURE_COOLDOWN_MS = 15 * 60 * 1000;
 
-export function ensureIndexBuild(reason) {
+export function ensureIndexBuild(reason, mode = "build") {
   if (building || Date.now() - lastFailureAt < FAILURE_COOLDOWN_MS) return;
   building = true;
   const script = fileURLToPath(new URL("../../scripts/index-build.mjs", import.meta.url));
-  console.log(`[index] background build started — ${reason}`);
-  const child = spawn(process.execPath, [script], { stdio: ["ignore", "inherit", "inherit"] });
+  console.log(`[index] background ${mode} started — ${reason}`);
+  const child = spawn(process.execPath, mode === "refresh" ? [script, "refresh"] : [script], { stdio: ["ignore", "inherit", "inherit"] });
   child.on("exit", (code) => {
     building = false;
     if (code !== 0) lastFailureAt = Date.now();
@@ -68,15 +68,37 @@ export function ensureIndexBuild(reason) {
   });
 }
 
+/**
+ * The incremental-refresh timer — Onyx's refresh_freq, sized down. Default
+ * every 2 hours, `BADGER_INDEX_REFRESH_HOURS` overrides (0 disables). Runs
+ * only while an instance is alive, which is the correct behaviour on Cloud
+ * Run: an idle instance is scaled away, and the boot-time lazy build covers
+ * the wake-up. A tick is skipped, not queued, while another build runs.
+ */
+export function startRefreshTimer() {
+  const hours = Number(process.env.BADGER_INDEX_REFRESH_HOURS ?? 2);
+  if (!hours || hours < 0) {
+    console.log("[index] refresh timer off (BADGER_INDEX_REFRESH_HOURS=0)");
+    return;
+  }
+  console.log(`[index] refreshing every ${hours}h (BADGER_INDEX_REFRESH_HOURS)`);
+  const timer = setInterval(() => {
+    if (current()) ensureIndexBuild(`scheduled ${hours}h refresh`, "refresh");
+  }, hours * 3_600_000);
+  timer.unref(); // never the reason the process stays alive
+}
+
 /** For the live path's response: why the index did not answer. */
 export function indexNote() {
   const c = current();
   if (!c) return { exists: false, building };
+  const freshAt = c.index.refreshedAt ?? c.index.builtAt;
   return {
     exists: true,
     builtAt: c.index.builtAt,
-    ageMs: Date.now() - Date.parse(c.index.builtAt),
-    stale: Date.now() - Date.parse(c.index.builtAt) > MAX_AGE_MS,
+    refreshedAt: freshAt,
+    ageMs: Date.now() - Date.parse(freshAt),
+    stale: Date.now() - Date.parse(freshAt) > MAX_AGE_MS,
     building,
   };
 }
@@ -91,10 +113,17 @@ export function indexSearchAll(query, { limit = 20 } = {}) {
     ensureIndexBuild("no index on disk");
     return null;
   }
-  const ageMs = Date.now() - Date.parse(c.index.builtAt);
+  // Freshness is judged on the last refresh; the full-rebuild age drives the
+  // deletion sweep, which runs in the background WITHOUT giving up the fast
+  // path — a refreshed index is current except for deletions.
+  const freshAt = c.index.refreshedAt ?? c.index.builtAt;
+  const ageMs = Date.now() - Date.parse(freshAt);
   if (ageMs > MAX_AGE_MS) {
     ensureIndexBuild(`index is ${(ageMs / 3_600_000).toFixed(1)}h old`);
     return null;
+  }
+  if (Date.now() - Date.parse(c.index.builtAt) > MAX_AGE_MS) {
+    ensureIndexBuild("daily full rebuild — the sweep that catches deletions");
   }
 
   const startedAt = Date.now();
@@ -118,7 +147,7 @@ export function indexSearchAll(query, { limit = 20 } = {}) {
     tookMs: Date.now() - startedAt,
     apiCalls: 0,
     path: "index",
-    index: { builtAt: c.index.builtAt, ageMs, docs: c.index.docs.length },
+    index: { builtAt: c.index.builtAt, refreshedAt: freshAt, ageMs, docs: c.index.docs.length },
     sources: Object.fromEntries(
       Object.entries(sources).map(([name, count]) => [
         name,
