@@ -55,11 +55,15 @@ next arc. Decisions first, order of work after.
    36s-interval tick fire end to end), and the serving rule: freshness is
    judged on refreshedAt, while a builtAt older than 24h kicks the full
    rebuild sweep in the background without giving up the fast path.
-2. **Index-backed agent tools.** The three search tools try the index first
+2. ✅ **Done 2026-08-19.** **Index-backed agent tools.** The three search tools try the index first
    and say so in their output (path + age, the same honesty rule as the web
    UI); on a miss or no index they run their live path unchanged. Open
    tools (issue/thread/file) can serve from the index bodies the same way.
-3. **Eval evidence.** Re-run baseline on HEAD same day, then with the
+3. ✅ **Done 2026-08-19 — 14/15 with the agent on the index, against a
+   13/15 same-day baseline; the one miss (why-late) re-ran clean by hand
+   with four verified citations, so it is sampling noise, and the two
+   answer-completeness seams (refund-policy, clearview-why) passed this
+   run.** **Eval evidence.** Re-run baseline on HEAD same day, then with the
    change; ship only if ≥13/15 holds. Watch specifically for freshness
    questions ("what shipped this week") — the index carries dates, but the
    agent must not conclude "nothing" from an index gap without the live

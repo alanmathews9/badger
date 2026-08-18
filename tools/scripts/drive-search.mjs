@@ -20,10 +20,18 @@
 import { exec, run, clip, contextFrom, kindOf, isWorkspaceFile, exportText, CROSS_SOURCE } from "./_google.mjs";
 import { planQuery, buildDriveQuery, MAX_TERMS_GOOGLE } from "./_search-query.mjs";
 import { matchedIn, rankBy, score, weightsOver } from "./_rank.mjs";
+import { indexAnswer } from "./_index-tool.mjs";
 
 run(async (args) => {
   const { query, kind, limit } = args;
   if (!query || !String(query).trim()) return "ERROR: `query` is required.";
+
+  // Index first, live as the second look — see _index-tool.mjs. Kind-filtered
+  // calls and non-demo users go straight to live.
+  if (!kind && !args._badger_user) {
+    const viaIndex = indexAnswer("drive", query, { limit });
+    if (viaIndex) return viaIndex;
+  }
 
   const { userId } = contextFrom(args);
 
