@@ -31,3 +31,8 @@ the sources, per RULES.md.
 - What a client was told and when they were told it lives in mail and nowhere
   else. The February "early March" promise to Brightsmile is in no document.
   (2026-08-18)
+- "Who knows about X" resolves through file paths: issue and PR text names the
+  files, and github_commits on those files names the people. The "by @…" line
+  on issues and PRs shows the uploading account, not the writer — real names
+  are in commit authors and signed comments. (2026-08-18, learned from a
+  missed answer)

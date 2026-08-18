@@ -110,12 +110,24 @@ run(async (args) => {
     );
   });
 
+  // When one account authored every result, the "by @…" column carries no
+  // information — it is whoever uploaded, not whoever wrote. Saying so in the
+  // output, with where real attribution lives, is what stopped an expertise
+  // question being answered from mail mentions while the commit author sat
+  // one call away. Only fires when the column is actually meaningless.
+  const authors = new Set(ranked.map((i) => i.user?.login ?? "unknown"));
+  const authorNote =
+    ranked.length > 1 && authors.size === 1
+      ? `\nEvery result above is authored by the same account (@${[...authors][0]}). That is the uploading account, not necessarily the writer. Real attribution lives in commit authors (github_commits with a path — result text often names file paths) and in the names people sign inside comments.\n`
+      : "";
+
   return (
     `${planNote}${droppedNote}\n` +
     `today: ${todayStr} — use this date, do not recall one\n` +
     `${ranked.length} shown of ${total} total match(es) in ${OWNER}/${REPO}, most relevant first\n\n` +
     lines.join("\n") +
     `\nTo read a full thread including comments, call github_issue with its number.\n` +
+    authorNote +
     CROSS_SOURCE
   );
 });

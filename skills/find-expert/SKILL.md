@@ -56,7 +56,7 @@ from a commit author, a comment author, or text that explicitly says so.
 | Question | Lead with |
 |---|---|
 | "Who owns `<file or directory>`" | `github_commits` with `path` |
-| "Who knows about `<topic>`" | `github_search`, then read threads |
+| "Who knows about `<topic>`" | `github_search`, then `github_commits` on the paths the results name, then read threads |
 | "Who do I ask for `<access>`" | `drive_search` for the access register — it names approvers |
 | "Who is our contact at `<client>`" | `gmail_search` with the client's domain |
 | "What is `<person>`'s role" | `drive_search` for the team page or directory |
@@ -65,11 +65,21 @@ from a commit author, a comment author, or text that explicitly says so.
 
 Most real questions want both signals. Do the other one too.
 
-### 2. Commits, if there is a path
+### 2. Commits — topic questions have paths too
 
 `github_commits` with `path` set. Count authors and note recency — somebody who
 touched it two years ago is a weaker answer than somebody who touched it last
 month. If the path is unknown, list directories with `github_file`.
+
+A topic question does not arrive with a path, but the search results supply
+them: issue and PR bodies name the files they are about
+(`api/src/payments/webhook.js` in a payments incident). Take a path from the
+results and run `github_commits` on it before writing a single name down.
+This step is not optional for "who knows about X" — mail shows who *discusses*
+X, commits show who *built* it, and an answer drawn from discussion alone has
+missed the strongest evidence available. Asked who knows about payments, an
+answer once named three people from mail threads while the payments lead's
+name sat in the commit log of the very file the threads were arguing about.
 
 ### 3. Threads, always
 
