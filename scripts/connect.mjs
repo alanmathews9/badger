@@ -35,7 +35,7 @@ import { indexStatus } from "../tools/scripts/_index.mjs";
 
 loadEnvFile(new URL("../.env", import.meta.url));
 
-const USER_ID = process.env.BADGER_USER_ID ?? "badger-demo-alan";
+const USER_ID = process.env.BADGER_USER_ID ?? "default";
 const TOOLKITS = ["github", "gmail", "googledrive", "googledocs"];
 
 const composio = new Composio();

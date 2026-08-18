@@ -73,6 +73,10 @@ export async function search(query, { limit = 20, userId, repo } = {}) {
   const plan = planQuery(raw);
   const { terms, droppedTerms } = plan;
   const slug = repo || REPO_SLUG;
+  if (!slug) {
+    // Reported per-source by searchAll: Gmail and Drive still answer.
+    throw new SearchError("no GitHub repository configured — set BADGER_GITHUB_REPO in .env", 409);
+  }
   const resolved = buildQuery(raw, plan, { repoSlug: slug });
   const perPage = Math.min(Math.max(Number(limit) || 20, 1), 30);
 

@@ -7,7 +7,6 @@
     "composio:status": "node scripts/composio-session.mjs status",
     "composio:connect": "node scripts/composio-session.mjs connect",
     "composio:call": "node scripts/composio-session.mjs call",
-    "seed:github": "node scripts/seed-github.mjs",
     "ask": "node scripts/badger-sdk.mjs",
     "eval": "node scripts/eval.mjs",
     "connect": "node scripts/connect.mjs",

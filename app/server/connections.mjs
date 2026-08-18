@@ -24,7 +24,7 @@
 // restoring `connectedAccounts.link`, a callback route and a repo picker
 // together; half of it is worse than none, which is how it got here.
 import { Composio } from "@composio/core";
-import { DEMO_REPO, DEMO_USER_ID } from "../../tools/scripts/_github.mjs";
+import { REPO_SLUG, USER_ID } from "../../tools/scripts/_github.mjs";
 
 /**
  * Whether a visitor sees the seeded demo corpus.
@@ -146,6 +146,6 @@ export async function accountFor(userId, toolkit) {
  * it is showing is a trap.
  */
 export async function resolveContext() {
-  if (DEMO_FALLBACK) return { userId: DEMO_USER_ID, repo: DEMO_REPO, mode: "demo" };
+  if (DEMO_FALLBACK) return { userId: USER_ID, repo: REPO_SLUG, mode: "demo" };
   return { userId: null, repo: null, mode: "none" };
 }

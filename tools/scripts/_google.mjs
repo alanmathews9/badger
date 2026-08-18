@@ -25,7 +25,8 @@ export { CROSS_SOURCE } from "./_search-query.mjs";
 
 loadEnvFile(new URL("../../.env", import.meta.url));
 
-export const DEMO_USER_ID = process.env.BADGER_USER_ID ?? "badger-demo-alan";
+// A label inside whichever Composio workspace the key opens — see _github.mjs.
+export const USER_ID = process.env.BADGER_USER_ID ?? "default";
 
 /**
  * The eight read tools, audited one at a time against the live toolkits.
@@ -65,7 +66,7 @@ export const ALLOW = [...GMAIL_ALLOW, ...DRIVE_ALLOW];
  * than passing none.
  */
 export function contextFrom(args = {}) {
-  return { userId: args._badger_user || DEMO_USER_ID };
+  return { userId: args._badger_user || USER_ID };
 }
 
 // One session per end user, cached. Session creation costs seconds, so it must
@@ -91,7 +92,7 @@ function session(userId) {
 }
 
 /** Execute one allowlisted Composio tool as a given end user. */
-export async function exec(slug, args, userId = DEMO_USER_ID) {
+export async function exec(slug, args, userId = USER_ID) {
   if (!ALLOW.includes(slug)) throw new Error(`tool not allowlisted: ${slug}`);
   const s = await session(userId);
   const res = await s.execute(slug, args);
@@ -113,7 +114,7 @@ export async function exec(slug, args, userId = DEMO_USER_ID) {
  * file type", so the mime type is chosen from the file's own rather than
  * guessed.
  */
-export async function exportText(fileId, mimeType, userId = DEMO_USER_ID) {
+export async function exportText(fileId, mimeType, userId = USER_ID) {
   const isSheet = String(mimeType ?? "").includes("spreadsheet");
   const data = await exec(
     "GOOGLEDRIVE_EXPORT_GOOGLE_WORKSPACE_FILE",

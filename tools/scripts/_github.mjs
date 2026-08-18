@@ -18,15 +18,14 @@ import { loadEnvFile } from "./_env.mjs";
 // arrive as real environment variables.
 loadEnvFile(new URL("../../.env", import.meta.url));
 
-// The shared demo connection: the Arkind corpus, which anyone can search
-// without connecting anything of their own. A visitor who has connected their
-// own GitHub uses theirs instead.
-export const DEMO_USER_ID = process.env.BADGER_USER_ID ?? "badger-demo-alan";
-// The repository scripts/seed-github.mjs creates. Pointed at the new account
-// ahead of the corpus existing: the old alanmathews9/arkind-internal is
-// unreachable either way, since that connection was removed, so naming the
-// destination is strictly better than naming somewhere we can no longer read.
-export const DEMO_REPO = process.env.BADGER_GITHUB_REPO ?? "alan-arkind/arkind";
+// Whose keyring, and which repository — both from the environment, neither
+// hardcoded. BADGER_USER_ID is just a label inside the Composio workspace the
+// key opens ("default" when unset); connections attach to it. The repository
+// has no sensible default at all — a repo name only means something to the
+// key that can read it — so it is required, and the error below says how to
+// set it rather than defaulting to somebody else's corpus.
+export const USER_ID = process.env.BADGER_USER_ID ?? "default";
+export const REPO_SLUG = process.env.BADGER_GITHUB_REPO ?? null;
 
 /**
  * Per-request context.
@@ -42,8 +41,14 @@ export const DEMO_REPO = process.env.BADGER_GITHUB_REPO ?? "alan-arkind/arkind";
  * rest of the args and nothing is shared between requests.
  */
 export function contextFrom(args = {}) {
-  const userId = args._badger_user || DEMO_USER_ID;
-  const slug = args._badger_repo || DEMO_REPO;
+  const userId = args._badger_user || USER_ID;
+  const slug = args._badger_repo || REPO_SLUG;
+  if (!slug) {
+    throw new Error(
+      "no repository configured. Set BADGER_GITHUB_REPO=owner/repo in .env to a repository " +
+        "this key's GitHub connection can read, then retry. Gmail and Drive need no such setting.",
+    );
+  }
   const [owner, repo] = String(slug).split("/");
   // There is deliberately no account id. Composio's per-call account
   // selection ("Multi-account selection is not enabled" on this project) does
@@ -53,9 +58,7 @@ export function contextFrom(args = {}) {
   return { userId, slug, owner, repo };
 }
 
-// Kept for the CLI path, where there is one user by definition.
-export const [OWNER, REPO] = DEMO_REPO.split("/");
-export const REPO_SLUG = DEMO_REPO;
+
 
 // Exported so scripts/composio-session.mjs reports the agent's real surface
 // rather than a second, drifted copy of it. `npm run composio:status` printed
@@ -98,7 +101,7 @@ function session(userId) {
  * Execute one allowlisted Composio tool as a given end user.
  * Response shape is { data, error, logId } — there is no `successful` field.
  */
-export async function exec(slug, args, userId = DEMO_USER_ID) {
+export async function exec(slug, args, userId = USER_ID) {
   if (!ALLOW.includes(slug)) throw new Error(`tool not allowlisted: ${slug}`);
   const s = await session(userId);
   const res = await s.execute(slug, args);

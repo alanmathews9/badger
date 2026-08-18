@@ -16,7 +16,7 @@ import { loadEnvFile } from "../tools/scripts/_env.mjs";
 loadEnvFile(new URL("../.env", import.meta.url));
 
 // Stable per-end-user id. In the product this is the logged-in user's id.
-const USER_ID = process.env.BADGER_USER_ID ?? "badger-demo-alan";
+const USER_ID = process.env.BADGER_USER_ID ?? "default";
 const REPO = { owner: "alanmathews9", repo: "arkind-internal" };
 
 // The agent's allowlist, imported rather than copied.

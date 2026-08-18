@@ -44,7 +44,16 @@
 // Every expectation below is derived from `scripts/seed/company.mjs` — the same
 // file the corpus was generated from — so a corpus change that invalidates a
 // question shows up here as a failure rather than as a quietly wrong test.
-import { FACTS } from "../scripts/seed/company.mjs";
+// The seed toolchain was deleted from HEAD on 2026-08-19 (Alan's call: a
+// corpus visible in the repo reads as answering from local files). The four
+// authored facts the grading needs are pinned here instead — copied from
+// scripts/seed/company.mjs as it stood at that commit, still recoverable
+// from git history if the corpus is ever re-seeded.
+const FACTS = {
+  brightsmilePromise: { date: "2026-02-04", wording: "early March", by: "tomas" },
+  leave: { driveCarryOverDays: 10, driveDeadline: "31 March" },
+  support: { monthlyTickets: { "2026-04": 402 } },
+};
 
 export const QUESTIONS = [
   // ===================================================== cross-source seams

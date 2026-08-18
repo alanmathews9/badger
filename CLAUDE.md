@@ -500,12 +500,16 @@ what tools return — which is where every win so far has actually come from.
       gcloud run deploy badger --source . --region us-central1 \
         --service-account badger-run@$PROJECT.iam.gserviceaccount.com \
         --allow-unauthenticated --max-instances 1 --concurrency 20 \
-        --set-env-vars GOOGLE_CLOUD_PROJECT=$PROJECT,GOOGLE_CLOUD_LOCATION=us-central1,NODE_ENV=production \
+        --set-env-vars GOOGLE_CLOUD_PROJECT=$PROJECT,GOOGLE_CLOUD_LOCATION=us-central1,NODE_ENV=production,BADGER_USER_ID=badger-demo-alan,BADGER_GITHUB_REPO=alan-arkind/arkind \
         --set-secrets COMPOSIO_API_KEY=badger-composio-api-key:latest,BADGER_SESSION_SECRET=badger-session-secret:latest,BADGER_PASSPHRASE=badger-passphrase:latest
 
-  `--set-env-vars` replaces the whole set rather than adding to it, so all three
+  `--set-env-vars` replaces the whole set rather than adding to it, so all five
   have to be named every time or Vertex loses its project and the container
-  fails on its first answer.
+  fails on its first answer. **BADGER_USER_ID and BADGER_GITHUB_REPO are new
+  and REQUIRED as of 2026-08-19** — the hardcoded demo defaults were removed
+  from the tools (the repo default is gone entirely, the user id falls back to
+  "default", which has no connections), so a deploy without them serves a
+  Badger that cannot reach the demo corpus.
 - ✅ **The passphrase was rotated on 2026-08-18** — version 2 of
   `badger-passphrase`, live on revision 00003. Alan holds it; it is written down
   nowhere. For the next rotation, and note that
@@ -1071,7 +1075,12 @@ Full detail in `NOTES.md`. The ones that change how you work:
 - **A model existing in the registry does not mean the account can call it.**
   These are independent checks. Verify against the provider before switching.
 - **`.env` is write-blocked for Claude** by a permission rule. Append via shell
-  or ask the user to edit it. Never print its contents.
+  or ask the user to edit it. Never print its contents. **After any append,
+  verify through the loader** (`loadEnvFile` then print the KEY NAMES only):
+  the file has ended without a trailing newline before, which silently glued
+  an appended line onto the last existing one — measured 2026-08-19 as an
+  eval collapsing to 3/15 because BADGER_USER_ID never loaded and every tool
+  call ran as a connectionless user.
 
 ## Git policy
 

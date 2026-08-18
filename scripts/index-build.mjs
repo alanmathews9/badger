@@ -15,12 +15,14 @@
 // A full build is a few hundred read calls and a couple of minutes, almost all
 // of it Gmail/Drive body fetches. Run it deliberately; nothing rebuilds this
 // implicitly.
-import { exec as gh, asList, DEMO_REPO } from "../tools/scripts/_github.mjs";
+import { exec as gh, asList, REPO_SLUG } from "../tools/scripts/_github.mjs";
 import { exec as goog, exportText, isWorkspaceFile, kindOf } from "../tools/scripts/_google.mjs";
 import { loadIndex, saveIndex, indexStatus, INDEX_FILE } from "../tools/scripts/_index.mjs";
 import { fileURLToPath } from "node:url";
 
-const [OWNER, REPO] = DEMO_REPO.split("/");
+// GitHub is optional: with no BADGER_GITHUB_REPO the crawl covers Gmail and
+// Drive and says GitHub was skipped, rather than failing the whole build.
+const [OWNER, REPO] = (REPO_SLUG ?? "/").split("/");
 let apiCalls = 0;
 const counted = async (fn) => { apiCalls += 1; return await fn(); };
 
@@ -47,6 +49,10 @@ const flat = (s) => String(s ?? "").replace(/\r/g, "").trim();
 async function crawlGitHub() {
   const docs = [];
   const live = {};
+  if (!REPO_SLUG) {
+    console.log("  github: skipped — BADGER_GITHUB_REPO is not set");
+    return { docs, live, skipped: true };
+  }
 
   // One search call enumerates every issue and PR (verified: 30 of 30 in one
   // page). The search API allows 30 requests/minute; this is the only search
@@ -284,6 +290,7 @@ function countsOf(docs) {
 
 async function refreshGitHub(since) {
   const docs = [];
+  if (!REPO_SLUG) return docs;
   const sinceDay = since.slice(0, 10);
 
   const search = await counted(() =>
@@ -504,7 +511,9 @@ async function main() {
     process.exit(2);
   }
 
-  console.log(`Building the local index from ${OWNER}/${REPO}, the connected mailbox, and Drive…`);
+  console.log(
+    `Building the local index from ${REPO_SLUG ?? "(no GitHub repo configured)"}, the connected mailbox, and Drive…`,
+  );
   const startedAt = Date.now();
 
   // The three sources are independent providers; crawl them concurrently.
@@ -517,7 +526,7 @@ async function main() {
   const bytes = saveIndex({
     version: 1,
     builtAt: new Date().toISOString(),
-    repo: `${OWNER}/${REPO}`,
+    repo: REPO_SLUG,
     buildMs,
     apiCalls,
     counts,
@@ -528,9 +537,13 @@ async function main() {
   // build defect; say so and fail, rather than leaving a quietly partial index
   // that search would then trust.
   const checks = [
-    ["github issues+PRs", counts.github.issues + counts.github.prs, github.live.issuesAndPrs],
-    ["github files", counts.github.files, github.live.files],
-    ["github commits", counts.github.commits, github.live.commits],
+    ...(github.skipped
+      ? []
+      : [
+          ["github issues+PRs", counts.github.issues + counts.github.prs, github.live.issuesAndPrs],
+          ["github files", counts.github.files, github.live.files],
+          ["github commits", counts.github.commits, github.live.commits],
+        ]),
     ["gmail messages", counts.gmail.messages, gmail.live.messages],
     ["drive files", counts.drive.files, drive.live.files],
   ];
