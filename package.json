@@ -2,7 +2,7 @@
   "name": "badger",
   "private": true,
   "type": "module",
-  "description": "Badger \u2014 a Glean-style workplace search agent on GAP. The agent is the repo root (agent.yaml, SOUL.md, RULES.md, skills/, tools/, hooks/, memory/); app/ is the product built on it. This manifest exists because tools/scripts/_github.mjs imports @composio/core: a GAP agent with runtime:node tools has real npm dependencies, so node_modules at the root belongs to the agent, not to app/.",
+  "description": "Badger — a Glean-style workplace search agent on GAP. The agent is the repo root (agent.yaml, SOUL.md, RULES.md, skills/, tools/, hooks/, memory/); app/ is the product built on it. This manifest exists because tools/scripts/_github.mjs imports @composio/core: a GAP agent with runtime:node tools has real npm dependencies, so node_modules at the root belongs to the agent, not to app/.",
   "scripts": {
     "composio:status": "node scripts/composio-session.mjs status",
     "composio:connect": "node scripts/composio-session.mjs connect",
@@ -15,7 +15,8 @@
     "web:dev": "npm --prefix app/web run dev",
     "web:build": "npm --prefix app/web run build",
     "web:install": "npm --prefix app/web install",
-    "check:agent": "./scripts/check-agent-standalone.sh"
+    "check:agent": "./scripts/check-agent-standalone.sh",
+    "index": "node scripts/index-build.mjs"
   },
   "dependencies": {
     "@composio/core": "^0.16.0",
