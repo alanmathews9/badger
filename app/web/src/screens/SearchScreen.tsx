@@ -123,11 +123,11 @@ export function SearchScreen({
                   /* The typo layer's one rule: a correction is applied visibly
                      or not at all. This line is the visibility. */
                   <p className="mb-3 text-[13px] text-stone-700">
+                    Showing results for{" "}
                     {data.corrections!.map((c, i) => (
                       <span key={c.from}>
-                        {i > 0 && " · "}
-                        Showing results for <span className="font-medium">{c.to}</span>{" "}
-                        <span className="text-stone-500">(you typed “{c.from}”)</span>
+                        {i > 0 && ", "}
+                        <span className="font-medium">{c.to}</span>
                       </span>
                     ))}
                   </p>
