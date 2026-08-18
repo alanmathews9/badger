@@ -15,10 +15,12 @@ four fifths of the grade.
 
 ---
 
-# START HERE — state as of 2026-08-18, evening
+# START HERE — state as of 2026-08-18, night
 
-**The corpus is seeded, the eval set exists, search has been rebuilt, and
-production is eight commits behind. Deploy is the next job.**
+**The corpus is seeded, the eval set exists, search has been rebuilt, the app
+has had a cleanup pass, and production is nine commits behind. There is also an
+independent review from Fable that is not yet in this repo — get it before
+deciding anything.**
 
 Badger searches GitHub, Gmail and Drive, merges the results on one locally
 computed score, and answers with citations it verifies. The corpus it searches
@@ -37,23 +39,102 @@ Alan before the re-seed.
 
 ## The task in front of you — read this first
 
-**Two things, in this order.**
+**Four things, in this order. The first one gates the rest.**
 
-**1. Deploy.** Production is **eight commits behind** and shows none of the work
+**1. Get the Fable review from Alan, and work it into a list.** Alan
+commissioned an **independent review of this project from Fable** and says there
+are things in it that need fixing. **None of it is in this repo, and none of it
+is in this file** — nothing below has been checked against it. Ask him for the
+findings before planning anything else, because they may well change what is
+worth deploying and in what order. Do not guess at what the review says; do not
+assume the sections below already cover it.
+
+When the findings arrive, write them into this file as a list before starting
+work on them. A review that lives only in one session's context is lost at the
+next `/clear`, which is exactly how the four hardcoded status indicators
+survived as long as they did.
+
+**2. The agent calls skill names as tools, and gives up.** Found 2026-08-18
+while checking the cleanup for regressions, and **it is not new** — it
+reproduces on untouched `HEAD`. Asked *"Have we decided to rewrite the sync
+layer a third time?"* the agent calls `trace_decision`, is told there is no such
+tool, and answers:
+
+> I cannot use `trace_decision` as it is not an available tool. I can search
+> through Drive, Gmail, and GitHub for information. Would you like me to?
+
+Same for `find_expert` on the NHS accessibility question. It costs **two of the
+fifteen eval questions**, in both runs measured, and it is the single largest
+identified gap between the eval score and full marks.
+
+This is the **same failure mode `SYSTEM_SUFFIX` was written to kill** for
+`task_tracker` — the model treating a name it saw in its prompt as a callable
+tool, then reporting the failure to the user instead of doing the work. So the
+suffix already says "Never tell the user that a tool is unavailable", and it is
+not holding for skills. Two candidate causes, and **neither has been
+established** — measure before fixing:
+
+- the runtime registers skills in a way that makes them *look* callable
+  (a name in the system prompt with no matching tool), or
+- Flash is inventing the call from the skill list in the prompt.
+
+The cheap probe is to print the model's actual tool schema for one run and see
+whether `trace_decision` is in it. If it is, this is a registration problem; if
+it is not, it is a prompt problem and belongs in `SYSTEM_SUFFIX` or in the way
+skills are described.
+
+**3. Deploy.** Production is **nine commits behind** and shows none of the work
 below — it still says "Demo session", still marks Drive and Gmail "not
 connected" behind a "coming soon" tooltip, still suggests "Why did the Halden
 engagement slip?", and still runs the agent on every search. Alan has asked that
-deployments be **conserved**, so batch whatever else is coming and deploy once.
-Registry is at 258MB of the 500MB free tier — about four deploys of headroom this
-week. The exact command is under "Also outstanding".
+deployments be **conserved**, so batch the Fable fixes with everything already
+waiting and deploy once. Registry is at 258MB of the 500MB free tier — about
+four deploys of headroom this week. The exact command is under "Also
+outstanding".
 
-**2. Whether the agent belongs in search at all — Alan wants this taken up in a
-fresh session.** It is now *off* the search path, which was done to make the
-question askable rather than to answer it. The options as they stand: never
-(search is a search box, Chat is where you ask); on demand (results instantly,
-plus a "summarise these" button); or conditionally by question shape (sounds
-clever, will misfire invisibly). Alan's instruction was "let's refine search
-first, and then move from there."
+**4. Whether the agent belongs in search at all.** It is now *off* the search
+path, which was done to make the question askable rather than to answer it. The
+options as they stand: never (search is a search box, Chat is where you ask); on
+demand (results instantly, plus a "summarise these" button); or conditionally by
+question shape (sounds clever, will misfire invisibly). Alan's instruction was
+"let's refine search first, and then move from there."
+
+### The cleanup pass — done 2026-08-18 night, commit `9c2cd11`
+
+Alan called it: *"we are going all over the place, and need to make sure what
+we're working on is maintainable."* One commit, 30 files, **836 lines net
+removed**. What matters for the next session is not the deletions but the three
+defects the pass turned up, all one root cause — **Chat was never updated when
+the corpus went from one source to three**:
+
+- **Mail and Drive citations were extracted, verified, counted, and then
+  dropped.** `resolveCitations` iterated only issue numbers and file paths, so
+  the badge could read "6 citations, all retrieved" above a grid saying "This
+  answer cites nothing". Measured on the Brightsmile question: three source
+  cards where there had been none.
+- **Every source card rendered the GitHub mark**, as a literal string. Search
+  results were always correct — this was only the numbered cards under an
+  answer, which is why it survived being looked at.
+- **`recordOpened` knew the three GitHub read tools**, so a mail thread or Drive
+  document opened in full counted as nothing. `describeTool` had the same gap
+  and showed the raw slug `gmail_search` on screen while searching.
+
+Also removed: the connect / repo-picker stack (six endpoints, five client
+functions, most of `connections.mjs`) — the Manage pane that drove it was
+deleted when the seeded corpus became the product, and it cascaded, because
+with no way to connect your own GitHub `mode: "own"` was unreachable. The
+`account` argument threaded through six call sites into an `exec()` that takes
+three parameters. `resolveContext().label`, never read, and it cost a live API
+call to build. `scripts/probe-models.sh` and `scripts/mcp-tools.mjs`. Three
+overlapping icon sets became one. `strict: true` is now on in both tsconfigs —
+the tree already passed clean, so it cost nothing.
+
+**A method note worth keeping.** The eval read 10/15 after the cleanup, against
+a 13–14 baseline. That was **not** reported as fine and **not** reported as a
+regression: the whole change was stashed and the eval re-run on untouched
+`HEAD`, which gave 11/15 with *different* questions failing. Only then was it
+called sampling noise. One eval run is a sample. Compare against a re-measured
+baseline on the same day, never against a number written down last week.
 
 The inventory the corpus was built from, approved by Alan on 2026-08-18, is
 still the reference for what each artefact is *for*:
@@ -84,7 +165,8 @@ still the reference for what each artefact is *for*:
 - **Titles are marked server-side** (`markTerms`). The browser had a third regex
   with no boundary and marked the "app" inside "happened".
 - **The UI stopped calling itself a demo** and now names the account behind each
-  source. The Manage pane is deleted; the endpoints remain.
+  source. The Manage pane is deleted, and as of `9c2cd11` so are the
+  endpoints behind it — see the cleanup pass above.
 - **`npm run eval`** — fifteen questions, deterministic grading, ~5c a run,
   non-zero exit on failure. Baseline 13–14/15; the model is non-deterministic so
   a single run is a sample, not a score.
@@ -275,7 +357,10 @@ override it.** It picked the newest: every call resolved to `alan-arkind`,
 Three things follow.
 
 1. **"Manage connections: several GitHub accounts, each disconnectable"
-   (commit `87a2739`) does not do what it says.** The UI lists accounts, labels
+   (commit `87a2739`) does not do what it says.** ✅ **Settled by deletion in
+   `9c2cd11`** — the whole connect stack is gone rather than reduced, because
+   the seeded corpus is the product and nothing called it. The rest of this
+   item is kept as the measurement that justified removing it. The UI lists accounts, labels
    them and lets you pick one, and the picking has no effect on where tool
    calls go. `labelAccounts` also mislabels: it calls
    `GET_THE_AUTHENTICATED_USER` once per account and every call returns the
@@ -370,7 +455,10 @@ what tools return — which is where every win so far has actually come from.
 
 ### Also outstanding
 
-- ✅ **Production is current as of 2026-08-18** — revision `badger-00003-zfh`,
+- ⚠️ **Production is NINE commits behind as of 2026-08-18 night.** What
+  follows describes the last deploy, which is revision `badger-00003-zfh` —
+  accurate about that revision, and no longer a description of `main`.
+  Revision `badger-00003-zfh`,
   serving 100% of traffic. It carries Gmail, Drive, cross-source search, the new
   corpus, the ranking fix, the eval set and the rewritten README. Verified from
   outside: `/`, `/api/search`, `/api/ask` and a built asset all 401
@@ -535,11 +623,15 @@ not a server — so splitting buys no isolation and costs version pinning.
   set the server binds to 127.0.0.1 only — fail safe, and there is no default
   passphrase. Rate limits per IP, a daily answer ceiling and a concurrency cap;
   when the budget runs out search still works and the card says so.
-- **Per-user connections** — the cookie's `uid` is the Composio end-user id, so
-  each visitor connects **their own** GitHub and can hold several accounts at
-  once, switch between them, and disconnect any one. Managed from a side pane
-  on Tools. Badger never receives a GitHub token: Composio issues the Connect
-  Link and holds the credential.
+- **Per-user connections — REMOVED in `9c2cd11`, and this is now history.**
+  The cookie's `uid` was the Composio end-user id, so each visitor could
+  connect their own GitHub from a side pane on Tools. Two things killed it:
+  Composio cannot target a second connected account on this project (measured,
+  §"Per-account targeting does not work"), and the pane was deleted when the
+  seeded corpus became the product, leaving six endpoints nothing called. The
+  design story still holds — Badger never receives a source token, Composio
+  issues the Connect Link and holds the credential — and `app/server/
+  connections.mjs` records what restoring it would take.
 
 ## What does not exist
 
@@ -990,6 +1082,28 @@ before touching `agent.yaml` or writing a skill. It records the shipped code's
 behaviour where that differs from the published docs, which it does often.
 
 ## Session log
+
+**2026-08-18 (night) — a cleanup pass, and a defect found by measuring it.**
+Alan's framing: "we are going all over the place, and need to make sure what
+we're working on is maintainable." Reviewed every root file and all of `app/`,
+justified each one, then cut 836 lines net in one commit (`9c2cd11`).
+
+The removals were the easy half. The useful half was that three defects fell
+out of reading the code carefully — Chat had never been updated when the corpus
+went from one source to three, so mail and Drive citations were extracted,
+verified, counted and then silently dropped before rendering; every source card
+drew the GitHub mark as a literal string; and the "opened but not cited" count
+knew only the three GitHub read tools. The first of those meant the badge could
+say "6 citations, all retrieved" above a grid saying "This answer cites
+nothing", which is the exact class of confidently-wrong indicator this file
+already warns about twice.
+
+Then the eval read 10/15 against a 13–14 baseline. Rather than explain it away
+or accept it, the whole change was stashed and the eval re-run on untouched
+`HEAD` — 11/15, different questions failing. Noise, confirmed by measurement
+rather than by argument. That re-run is also what surfaced the skill-as-tool
+defect now sitting at the top of this file: it reproduces on `HEAD`, so the
+cleanup did not cause it, and it costs two eval questions every run.
 
 **2026-08-17 — hosted, gated, and rebuilt around a sidebar.** Deployed to Cloud
 Run: free HTTPS URL, no domain, Vertex from the service identity so no key
