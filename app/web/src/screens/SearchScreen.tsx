@@ -1,5 +1,4 @@
 import { Loader2 } from "lucide-react";
-import { AnswerCard, type AnswerState } from "@/components/AnswerCard";
 import { ClayBars, DigInput } from "@/components/DigInput";
 import { ResultRow } from "@/components/ResultRow";
 import { SourceCoverage } from "@/components/SourceCoverage";
@@ -35,8 +34,6 @@ export function SearchScreen({
   busy,
   error,
   data,
-  answer,
-  onOpenAnswer,
 }: {
   query: string;
   onQueryChange: (next: string) => void;
@@ -44,10 +41,8 @@ export function SearchScreen({
   busy: boolean;
   error: string | null;
   data: SearchResponse | null;
-  answer: AnswerState;
-  onOpenAnswer: () => void;
 }) {
-  const started = Boolean(data || busy || error || answer.running || answer.result);
+  const started = Boolean(data || busy || error);
 
   return (
     <div className="flex h-dvh flex-col bg-white">
@@ -110,8 +105,6 @@ export function SearchScreen({
       ) : (
         <main className="min-h-0 flex-1 overflow-y-auto px-6 pt-5 pb-16">
           <div className="max-w-[820px]">
-            <AnswerCard state={answer} onOpen={onOpenAnswer} />
-
             {error && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">
                 {error}
@@ -139,7 +132,7 @@ export function SearchScreen({
                 ) : (
                   <ul className="flex flex-col">
                     {data.results.map((row) => (
-                      <ResultRow key={row.id} row={row} terms={data.terms} />
+                      <ResultRow key={row.id} row={row} />
                     ))}
                   </ul>
                 )}

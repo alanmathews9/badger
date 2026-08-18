@@ -10,7 +10,7 @@
 // rank.mjs, so the merge in search.mjs is a sort rather than a negotiation.
 import { exec, exportText, kindOf, isWorkspaceFile } from "../../tools/scripts/_google.mjs";
 import { planQuery, buildGmailQuery, buildDriveQuery, MAX_TERMS_GOOGLE } from "../../tools/scripts/_search-query.mjs";
-import { highlight, matchedIn, score, weightsOver } from "./rank.mjs";
+import { highlight, markTerms, matchedIn, score, weightsOver } from "./rank.mjs";
 
 /**
  * Search the connected mailbox.
@@ -48,6 +48,7 @@ export async function searchGmail(query, { limit = 10, userId } = {}) {
       kind: "mail",
       number: null,
       title,
+      titleMarked: markTerms(title, terms),
       state: "",
       // The display name only. A full "Name <address>" is too long for the
       // metadata line and the address adds nothing the name does not.
@@ -140,6 +141,7 @@ export async function searchDrive(query, { limit = 10, userId, excerpt = 5 } = {
       kind: kindOf(f.mimeType),
       number: null,
       title,
+      titleMarked: markTerms(title, terms),
       state: "",
       author: "",
       updatedAt: String(f.modifiedTime ?? "").slice(0, 10),

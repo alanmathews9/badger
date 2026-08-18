@@ -34,7 +34,7 @@ import { searchDrive, searchGmail } from "./search-google.mjs";
 // Ranking lives in rank.mjs so that every source is scored by the same
 // function. It used to live here, which was fine while GitHub was the only
 // source and wrong the moment there were three.
-import { highlight, matchedIn, matcher, score, weightsOver} from "./rank.mjs";
+import { highlight, matchedIn, matcher, score, weightsOver, markTerms} from "./rank.mjs";
 
 /**
  * One result row, shaped after Onyx's SearchDoc so the UI has the same fields
@@ -202,6 +202,7 @@ function toRow(item, terms, weights) {
     kind: isPr ? "pr" : "issue",
     number: item.number,
     title,
+    titleMarked: markTerms(title, terms),
     state: item.state ?? "",
     author: item.user?.login ?? "unknown",
     updatedAt: (item.updated_at ?? item.created_at ?? "").slice(0, 10),

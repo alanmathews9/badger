@@ -1,4 +1,4 @@
-import { Highlight, HighlightTerms } from "./Highlight";
+import { Highlight } from "./Highlight";
 import { GitHubMark, StateIcon } from "./octicons";
 import { DriveLogo, GmailLogo } from "./BrandLogos";
 import type { SearchRow } from "@/lib/api";
@@ -19,7 +19,7 @@ import type { SearchRow } from "@/lib/api";
  * The title is a plain blue link. Nothing else on the row is blue, so blue
  * means "this goes somewhere".
  */
-export function ResultRow({ row, terms }: { row: SearchRow; terms: string[] }) {
+export function ResultRow({ row }: { row: SearchRow }) {
   return (
     <li className="flex gap-3 border-t border-stone-100 py-3 first:border-t-0">
       <span className="mt-0.5 shrink-0 text-stone-900">
@@ -39,7 +39,7 @@ export function ResultRow({ row, terms }: { row: SearchRow; terms: string[] }) {
             rel="noreferrer"
             className="font-medium text-blue-700 visited:text-blue-700 hover:underline"
           >
-            <HighlightTerms text={row.title} terms={terms} />
+            <Highlight text={row.titleMarked || row.title} />
           </a>
         </h3>
 

@@ -23,27 +23,3 @@ export function Highlight({ text }: { text: string }) {
     </>
   );
 }
-
-/**
- * Mark the query's terms inside a plain string — used for titles, which the
- * search API returns without highlights of its own.
- */
-export function HighlightTerms({ text, terms }: { text: string; terms: string[] }) {
-  if (!terms.length) return <>{text}</>;
-  const pattern = new RegExp(`(${terms.map(escapeRe).join("|")})`, "gi");
-  return (
-    <>
-      {text.split(pattern).map((part, i) =>
-        pattern.test(part) && terms.some((t) => t.toLowerCase() === part.toLowerCase()) ? (
-          <mark key={i} className="rounded-[3px] bg-amber-100 px-0.5 text-amber-900">
-            {part}
-          </mark>
-        ) : (
-          <Fragment key={i}>{part}</Fragment>
-        ),
-      )}
-    </>
-  );
-}
-
-const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

@@ -13,6 +13,25 @@ export { escapeRe, matcher, matchedIn, score, rankBy, weightsOver, termPattern, 
 import { anyTerm } from "../../tools/scripts/_rank.mjs";
 
 /**
+ * The whole string, with every term match wrapped in <hi>…</hi>.
+ *
+ * Titles used to be highlighted in the browser instead, by a third regex that
+ * had no word boundary — so a search for "app" marked the "app" inside
+ * "what actually happened", on a row that had scored correctly and whose body
+ * excerpt was marked correctly beside it.
+ *
+ * That was the same drift twice over: the scorer, the excerpt highlighter and
+ * the client all deciding separately what "matched" means. Marking here means
+ * the browser renders what the server found and never forms an opinion of its
+ * own — the same <hi> convention the excerpts already use.
+ */
+export function markTerms(text, terms) {
+  const s = String(text ?? "");
+  if (!s || !terms.length) return s;
+  return s.replace(anyTerm(terms), "<hi>$1</hi>");
+}
+
+/**
  * Excerpts of the body around each match, with matched words wrapped in
  * <hi>…</hi>. The convention is Onyx's: the server says what matched, and the
  * frontend splits on the marker rather than being handed HTML to inject.

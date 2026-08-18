@@ -26,9 +26,19 @@ const IDLE: AnswerState = { running: false, activity: null, text: "", result: nu
  * how Glean and Onyx both do it, and it makes each half legible: Search is the
  * second it takes to retrieve, Chat is the fifteen it takes to answer.
  *
- * A Dig still starts both, because the answer is worth having by the time you
- * have read two results. Opening Chat just moves you to where it is being
- * written. Tools is the third: what Badger can reach, and what it cannot yet.
+ * **A Dig no longer starts the agent.** It did — the answer began writing itself
+ * above the results on every search — and it was the wrong default three times
+ * over. It spent a model call and a slot from the daily answer budget on every
+ * search including the ones that were a lookup, it put fifteen seconds of
+ * streaming above a list that was already complete in one, and it made the two
+ * halves impossible to judge separately: a bad answer made good retrieval look
+ * broken.
+ *
+ * Search is now retrieval and nothing else — no model on the path, free, and as
+ * fast as the slowest of three APIs. Chat is a destination you go to, with its
+ * own composer. Whether the agent should be involved in search at all is a real
+ * question and deliberately still open; this makes it answerable by removing the
+ * assumption rather than deciding it.
  */
 export default function App() {
   const [mode, setMode] = useState<Mode>("search");
@@ -91,7 +101,6 @@ export default function App() {
       setBusy(true);
       setError(null);
       setData(null);
-      startAsk(q);
 
       try {
         const response = await search(q);
@@ -103,7 +112,7 @@ export default function App() {
         setBusy(false);
       }
     },
-    [query, record, startAsk],
+    [query, record],
   );
 
   const followUp = useCallback(
@@ -142,8 +151,6 @@ export default function App() {
             busy={busy}
             error={error}
             data={data}
-            answer={answer}
-            onOpenAnswer={() => setMode("chat")}
           />
         ) : (
           <ChatScreen question={asked} answer={answer} onFollowUp={followUp} />

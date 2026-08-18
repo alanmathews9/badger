@@ -16,6 +16,8 @@ export type SearchRow = {
   comments: number;
   url: string;
   snippet: string;
+  /** The title with matches wrapped in <hi>…</hi>, marked server-side. */
+  titleMarked: string;
   /** Excerpts with matches wrapped in <hi>…</hi>, Onyx's convention. */
   matchHighlights: string[];
   matchedTerms: string[];
