@@ -28,7 +28,7 @@ export function ResultRow({ row }: { row: SearchRow }) {
 
       <div className="min-w-0 flex-1">
         <h3 className="flex items-baseline gap-1.5 text-[15px]/[1.4]">
-          {row.source === "github" && (
+          {row.source === "github" && (row.kind === "issue" || row.kind === "pr") && (
             <span className="translate-y-[2px]">
               <StateIcon kind={row.kind === "pr" ? "pr" : "issue"} state={row.state} />
             </span>
@@ -97,10 +97,20 @@ function metaLine(row: SearchRow): string {
   const parts: string[] = [];
 
   if (row.source === "github") {
-    parts.push(`${row.kind === "pr" ? "PR" : "issue"} #${row.number}`);
-    if (row.author) parts.push(`@${row.author}`);
-    if (row.updatedAt) parts.push(row.updatedAt);
-    parts.push(`${row.comments} ${row.comments === 1 ? "comment" : "comments"}`);
+    // Files and commits only appear on the index path — live GitHub search
+    // cannot reach them (code search does not serve private repos).
+    if (row.kind === "file") {
+      parts.push("file");
+    } else if (row.kind === "commit") {
+      parts.push("commit");
+      if (row.author) parts.push(row.author);
+      if (row.updatedAt) parts.push(row.updatedAt);
+    } else {
+      parts.push(`${row.kind === "pr" ? "PR" : "issue"} #${row.number}`);
+      if (row.author) parts.push(`@${row.author}`);
+      if (row.updatedAt) parts.push(row.updatedAt);
+      parts.push(`${row.comments} ${row.comments === 1 ? "comment" : "comments"}`);
+    }
   } else if (row.source === "gmail") {
     parts.push("mail");
     if (row.author) parts.push(row.author);

@@ -5,8 +5,8 @@ export type SourceId = "github" | "gmail" | "drive";
 export type SearchRow = {
   id: string;
   source: SourceId;
-  /** issue/pr from GitHub, mail from Gmail, doc/sheet from Drive. */
-  kind: "issue" | "pr" | "mail" | "doc" | "sheet" | "file";
+  /** issue/pr/file/commit from GitHub, mail from Gmail, doc/sheet from Drive. */
+  kind: "issue" | "pr" | "file" | "commit" | "mail" | "doc" | "sheet" | "pdf";
   /** GitHub only — mail and documents have no number. */
   number: number | null;
   title: string;
@@ -51,6 +51,15 @@ export type SearchResponse = {
   /** Keyed by source id. Always present for every source attempted. */
   sources: Partial<Record<SourceId, SourceOutcome>>;
   results: SearchRow[];
+  /** Which engine answered: the local index, or the live federated search. */
+  path?: "index" | "live";
+  /** Typo corrections applied against the corpus vocabulary — always visible,
+      never silent. "showing results for payments", Google-style. */
+  corrections?: { from: string; to: string }[];
+  /** Terms that matched nothing as typed and cleared no correction threshold. */
+  unmatched?: string[];
+  /** State of the local index: age when it answered, absence when it did not. */
+  index?: { builtAt?: string; ageMs?: number; docs?: number; exists?: boolean; stale?: boolean; building?: boolean };
 };
 
 export type Source = {

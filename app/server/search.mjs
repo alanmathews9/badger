@@ -35,6 +35,7 @@ import { searchDrive, searchGmail } from "./search-google.mjs";
 // function. It used to live here, which was fine while GitHub was the only
 // source and wrong the moment there were three.
 import { highlight, matchedIn, matcher, score, weightsOver, markTerms} from "./rank.mjs";
+import { indexSearchAll, indexNote } from "./index-search.mjs";
 
 /**
  * One result row, shaped after Onyx's SearchDoc so the UI has the same fields
@@ -226,7 +227,33 @@ function toRow(item, terms, weights) {
 }
 
 /**
- * Search all three sources at once, and merge.
+ * The index-first entry point /api/search actually calls.
+ *
+ * A fresh local index answers in milliseconds with typo correction and real
+ * IDF; a missing or stale one falls back to the live federated search below,
+ * while a background build runs (see index-search.mjs). The response always
+ * carries `path` — "index" or "live" — and the index's age, because the two
+ * will disagree between refreshes and the UI must be able to say which one
+ * answered.
+ *
+ * The index only ever describes the demo corpus, so a caller asking for a
+ * different repository is routed straight to the live path.
+ */
+export async function searchAll(query, opts = {}) {
+  if (!opts.repo || opts.repo === REPO_SLUG) {
+    const viaIndex = indexSearchAll(query, opts);
+    if (viaIndex) return viaIndex;
+  }
+  const live = await searchAllLive(query, opts);
+  live.path = "live";
+  live.corrections = [];
+  live.unmatched = [];
+  live.index = indexNote();
+  return live;
+}
+
+/**
+ * Live fallback: search all three sources at once, and merge.
  *
  * The three run concurrently rather than in sequence: they are independent
  * HTTP calls to different providers, and a user watching a search box should
@@ -242,7 +269,7 @@ function toRow(item, terms, weights) {
  * are computed differently, on different corpora, and comparing them would be
  * guesswork. See rank.mjs.
  */
-export async function searchAll(query, { limit = 20, userId, repo } = {}) {
+async function searchAllLive(query, { limit = 20, userId, repo } = {}) {
   const raw = String(query ?? "").trim();
   if (!raw) throw new SearchError("empty query", 400);
 

@@ -56,7 +56,11 @@ export function SearchScreen({
           {busy
             ? "digging…"
             : data
-              ? `${data.total} found · ${data.apiCalls} API ${data.apiCalls === 1 ? "call" : "calls"} · ${(data.tookMs / 1000).toFixed(1)}s`
+              ? `${data.total} found · ${
+                  data.path === "index"
+                    ? `local index, ${ageLabel(data.index?.ageMs)} old · ${data.tookMs}ms`
+                    : `live · ${data.apiCalls} API ${data.apiCalls === 1 ? "call" : "calls"} · ${(data.tookMs / 1000).toFixed(1)}s`
+                }`
               : ""}
         </span>
       </header>
@@ -115,6 +119,35 @@ export function SearchScreen({
               <>
                 <SourceCoverage sources={data.sources} />
 
+                {(data.corrections?.length ?? 0) > 0 && (
+                  /* The typo layer's one rule: a correction is applied visibly
+                     or not at all. This line is the visibility. */
+                  <p className="mb-3 text-[13px] text-stone-700">
+                    {data.corrections!.map((c, i) => (
+                      <span key={c.from}>
+                        {i > 0 && " · "}
+                        Showing results for <span className="font-medium">{c.to}</span>{" "}
+                        <span className="text-stone-500">(you typed “{c.from}”)</span>
+                      </span>
+                    ))}
+                  </p>
+                )}
+
+                {(data.unmatched?.length ?? 0) > 0 && (
+                  <p className="mb-3 text-[11.5px] text-stone-500">
+                    <span className="font-mono">{data.unmatched!.join(", ")}</span>{" "}
+                    matched nothing as typed, and nothing in the corpus is close enough to
+                    suggest instead.
+                  </p>
+                )}
+
+                {data.path === "live" && data.index?.building && (
+                  <p className="mb-3 text-[11.5px] text-stone-500">
+                    Answered live from the three sources. The local index is building in the
+                    background and will answer future searches.
+                  </p>
+                )}
+
                 {data.droppedTerms.length > 0 && (
                   <p className="mb-3 text-[11.5px] text-stone-500">
                     Searched the first {data.terms.length} terms, which is as many as the
@@ -144,4 +177,13 @@ export function SearchScreen({
       )}
     </div>
   );
+}
+
+/** "38m" / "5.2h" — how old the local index copy is. Always shown with the
+    index path, because index and live will disagree between refreshes and a
+    reader must be able to judge by how much. */
+function ageLabel(ageMs?: number): string {
+  if (ageMs == null) return "age unknown";
+  const minutes = ageMs / 60_000;
+  return minutes < 90 ? `${Math.max(1, Math.round(minutes))}m` : `${(minutes / 60).toFixed(1)}h`;
 }
