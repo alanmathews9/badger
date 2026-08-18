@@ -21,13 +21,14 @@ import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "@open-gitagent/gitagent";
+import { openAuditLog } from "./audit.mjs";
 import { searchAll, SearchError } from "./search.mjs";
 import { readAllowedTools } from "./allowed-tools.mjs";
 import { authEnabled, clearSessionCookie, hasValidSession, issueSessionCookie, passphraseMatches } from "./auth.mjs";
 import { TOOLKITS, TOOLKIT_LABELS, accountFor, listConnections, resolveContext } from "./connections.mjs";
 import { budgetStatus, claimAskSlot, clientIp, rateLimit } from "./limits.mjs";
 import { splashPage } from "./splash.mjs";
-import { SYSTEM_SUFFIX } from "./system-suffix.mjs";
+import { buildSystemSuffix } from "./system-suffix.mjs";
 import { annotateUnverified, extractCitations, mentions, verifyCitations } from "./verify-citations.mjs";
 
 // The repo root, which is also the agent directory query() loads. The server
@@ -283,7 +284,7 @@ async function handleAsk(url, req, res) {
     prompt,
     dir: ROOT,
     allowedTools: ALLOWED_TOOLS,
-    systemPromptSuffix: SYSTEM_SUFFIX,
+    systemPromptSuffix: buildSystemSuffix(),
     maxTurns: 12,
     // Whose GitHub this run reads. Declarative tools are spawned as
     // subprocesses with a snapshot of process.env, so an environment variable
@@ -302,6 +303,9 @@ async function handleAsk(url, req, res) {
     },
   });
 
+  // The audit trail the runtime keeps only on its CLI path — see audit.mjs.
+  const audit = openAuditLog(ROOT);
+
   // A browser that navigates away should stop the agent, not leave it burning
   // tokens into a closed socket.
   req.on("close", () => {
@@ -311,6 +315,7 @@ async function handleAsk(url, req, res) {
 
   try {
     for await (const msg of run) {
+      audit.record(msg);
       switch (msg.type) {
         case "tool_use":
           toolCalls.push(msg.toolName);
@@ -341,6 +346,7 @@ async function handleAsk(url, req, res) {
     slot.release();
     return res.end();
   } finally {
+    audit.end();
     slot.release();
   }
 

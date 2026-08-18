@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 /**
  * Text appended to the system prompt on every SDK invocation, by all three
  * callers, to countermand an instruction the runtime injects and we cannot
@@ -56,3 +58,40 @@ user's question.
 
 Your skills are already loaded above; there is nothing to discover. Answer the
 question by searching your sources, starting with your first tool call.`;
+
+
+/**
+ * The suffix the three SDK callers actually pass: SYSTEM_SUFFIX plus the
+ * agent's memory, injected as data.
+ *
+ * RULES.md tells the agent to load memory before its first search, and on
+ * 2026-08-18 a live run ignored the rule — the same lesson as the three
+ * defects before it: Flash follows data far better than prose. So on the SDK
+ * paths the memory file is placed directly into the prompt, which cannot be
+ * skipped, and the model is told not to load it a second time. The CLI path
+ * keeps the rule and the memory tool.
+ *
+ * Read fresh on every call: the server is long-lived and a memory save
+ * mid-session would otherwise be invisible until restart. The read is
+ * guarded — an unguarded readFileSync at module scope is exactly what nearly
+ * crashed the container on boot once already.
+ */
+export function buildSystemSuffix() {
+  let memory = "";
+  try {
+    memory = readFileSync(new URL("../../memory/MEMORY.md", import.meta.url), "utf8").trim();
+  } catch {}
+  if (!memory) return SYSTEM_SUFFIX;
+  return (
+    SYSTEM_SUFFIX +
+    `
+
+# Memory — already loaded
+
+This is the current content of memory/MEMORY.md. Where RULES.md says to load
+memory before the first search, treat that as done — do not call the memory
+tool to load it again. Saving new memories with the memory tool still works.
+
+${memory}`
+  );
+}

@@ -21,8 +21,9 @@
 // rate limit, and a parallel runner would produce failures that are entirely
 // the runner's fault.
 import { query } from "@open-gitagent/gitagent";
+import { openAuditLog } from "../app/server/audit.mjs";
 import { readAllowedTools } from "../app/server/allowed-tools.mjs";
-import { SYSTEM_SUFFIX } from "../app/server/system-suffix.mjs";
+import { buildSystemSuffix } from "../app/server/system-suffix.mjs";
 import { loadEnvFile } from "../tools/scripts/_env.mjs";
 import { verifyCitations } from "../app/server/verify-citations.mjs";
 import { QUESTIONS } from "../evals/questions.mjs";
@@ -55,14 +56,18 @@ async function ask(q) {
       prompt: q.question,
       dir: AGENT_DIR,
       allowedTools: ALLOWED,
-      systemPromptSuffix: SYSTEM_SUFFIX,
+      systemPromptSuffix: buildSystemSuffix(),
     });
+    // The audit trail the runtime keeps only on its CLI path — see audit.mjs.
+    const audit = openAuditLog(AGENT_DIR);
     for await (const msg of result) {
+      audit.record(msg);
       if (msg.type === "tool_use") tools.push(msg.toolName);
       else if (msg.type === "tool_result")
         outputs.push(typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content));
       else if (msg.type === "assistant" && msg.content) answer = msg.content;
     }
+    audit.end();
     const costs = typeof result.costs === "function" ? result.costs() : null;
     return { answer, outputs, tools, cost: costs?.totalCostUsd ?? 0, crash };
   } catch (err) {

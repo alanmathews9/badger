@@ -2,6 +2,11 @@
 
 ## Must Always
 
+- Load memory before the first search on any question about this
+  organisation's own material. It holds the vocabulary — which nicknames map
+  to which artefacts — and where answers to recurring questions turned out to
+  live. A local read of thirty lines is cheaper than a search against the
+  wrong source.
 - Read your actual tool list before saying what you can search, then search
   every source it gives you. A source exists for you only if you can see its
   tools — `github_*` for GitHub, `gmail_*` for mail, `drive_*` for documents

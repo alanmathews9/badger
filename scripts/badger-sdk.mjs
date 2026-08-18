@@ -17,8 +17,9 @@
 //
 //   node scripts/badger-sdk.mjs "what did we decide about Halden phase 2?"
 import { query } from "@open-gitagent/gitagent";
+import { openAuditLog } from "../app/server/audit.mjs";
 import { readAllowedTools } from "../app/server/allowed-tools.mjs";
-import { SYSTEM_SUFFIX } from "../app/server/system-suffix.mjs";
+import { buildSystemSuffix } from "../app/server/system-suffix.mjs";
 import { loadEnvFile } from "../tools/scripts/_env.mjs";
 import { verifyCitations, formatVerification, annotateUnverified } from "../app/server/verify-citations.mjs";
 
@@ -39,9 +40,12 @@ const toolOutputs = [];
 let answer = "";
 const toolCalls = [];
 
-const result = query({ prompt, dir: AGENT_DIR, allowedTools: ALLOWED, systemPromptSuffix: SYSTEM_SUFFIX });
+const result = query({ prompt, dir: AGENT_DIR, allowedTools: ALLOWED, systemPromptSuffix: buildSystemSuffix() });
 
+// The audit trail the runtime keeps only on its CLI path — see audit.mjs.
+const audit = openAuditLog(AGENT_DIR);
 for await (const msg of result) {
+  audit.record(msg);
   switch (msg.type) {
     case "tool_use":
       toolCalls.push(msg.toolName);
@@ -60,6 +64,7 @@ for await (const msg of result) {
       break;
   }
 }
+audit.end();
 
 const verification = verifyCitations(answer, toolOutputs);
 
