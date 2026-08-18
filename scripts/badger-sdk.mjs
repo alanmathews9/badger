@@ -18,6 +18,7 @@
 //   node scripts/badger-sdk.mjs "what did we decide about Halden phase 2?"
 import { query } from "@open-gitagent/gitagent";
 import { readAllowedTools } from "../app/server/allowed-tools.mjs";
+import { SYSTEM_SUFFIX } from "../app/server/system-suffix.mjs";
 import { loadEnvFile } from "../tools/scripts/_env.mjs";
 import { verifyCitations, formatVerification, annotateUnverified } from "../app/server/verify-citations.mjs";
 
@@ -38,7 +39,7 @@ const toolOutputs = [];
 let answer = "";
 const toolCalls = [];
 
-const result = query({ prompt, dir: AGENT_DIR, allowedTools: ALLOWED });
+const result = query({ prompt, dir: AGENT_DIR, allowedTools: ALLOWED, systemPromptSuffix: SYSTEM_SUFFIX });
 
 for await (const msg of result) {
   switch (msg.type) {

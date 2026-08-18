@@ -38,6 +38,7 @@ import {
 } from "./connections.mjs";
 import { budgetStatus, claimAskSlot, clientIp, rateLimit } from "./limits.mjs";
 import { splashPage } from "./splash.mjs";
+import { SYSTEM_SUFFIX } from "./system-suffix.mjs";
 import { annotateUnverified, extractCitations, verifyCitations } from "./verify-citations.mjs";
 
 // The repo root, which is also the agent directory query() loads. The server
@@ -405,6 +406,7 @@ async function handleAsk(url, req, res) {
     prompt,
     dir: ROOT,
     allowedTools: ALLOWED_TOOLS,
+    systemPromptSuffix: SYSTEM_SUFFIX,
     maxTurns: 12,
     // Whose GitHub this run reads. Declarative tools are spawned as
     // subprocesses with a snapshot of process.env, so an environment variable

@@ -22,6 +22,7 @@
 // the runner's fault.
 import { query } from "@open-gitagent/gitagent";
 import { readAllowedTools } from "../app/server/allowed-tools.mjs";
+import { SYSTEM_SUFFIX } from "../app/server/system-suffix.mjs";
 import { loadEnvFile } from "../tools/scripts/_env.mjs";
 import { verifyCitations } from "../app/server/verify-citations.mjs";
 import { QUESTIONS } from "../evals/questions.mjs";
@@ -50,7 +51,12 @@ async function ask(q) {
   let crash = null;
 
   try {
-    const result = query({ prompt: q.question, dir: AGENT_DIR, allowedTools: ALLOWED });
+    const result = query({
+      prompt: q.question,
+      dir: AGENT_DIR,
+      allowedTools: ALLOWED,
+      systemPromptSuffix: SYSTEM_SUFFIX,
+    });
     for await (const msg of result) {
       if (msg.type === "tool_use") tools.push(msg.toolName);
       else if (msg.type === "tool_result")
