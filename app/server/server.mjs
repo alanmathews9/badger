@@ -35,10 +35,8 @@ import {
   createSkill,
   createSkillFromFile,
   deleteSkill,
-  editSkill,
   listSkills,
   readSkill,
-  updateSkill,
 } from "./skills-store.mjs";
 import { annotateUnverified, extractCitations, mentions, verifyCitations } from "./verify-citations.mjs";
 import { attachSourceUrls } from "./source-links.mjs";
@@ -574,7 +572,11 @@ function handleSkillsList(res) {
 }
 
 /**
- * GET/PUT/DELETE /api/skills/:slug — the manage-skills page.
+ * GET and DELETE /api/skills/:slug — the manage-skills page.
+ *
+ * No PUT. Skills are read, downloaded and removed here; changing one means
+ * downloading it, editing it and uploading it back, which keeps the file the
+ * single artefact rather than something this server can partially rewrite.
  *
  * The slug is never joined onto a path here; `skills-store` validates it
  * against a kebab-case regex first and throws otherwise, so a traversal
@@ -592,24 +594,6 @@ async function handleSkillOne(req, res, url) {
     const limited = rateLimit(req, "ask");
     if (limited) return json(res, 429, { error: limited });
 
-    if (req.method === "PUT") {
-      let body;
-      try {
-        body = JSON.parse(await readBody(req));
-      } catch {
-        return json(res, 400, { error: "body must be JSON" });
-      }
-      // Two shapes. `content` is a whole file, which is what an upload and a
-      // raw edit send. `description` + `instructions` is the pane, which shows
-      // only those two and must leave the rest of the frontmatter untouched.
-      return json(
-        res,
-        200,
-        typeof body?.content === "string"
-          ? updateSkill(dir, slug, body.content)
-          : editSkill(dir, slug, { description: body?.description, instructions: body?.instructions }),
-      );
-    }
     if (req.method === "DELETE") return json(res, 200, deleteSkill(dir, slug));
     return json(res, 405, { error: "method not allowed" });
   } catch (err) {

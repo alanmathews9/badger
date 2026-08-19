@@ -89,10 +89,7 @@ export function SkillsScreen() {
           <div className="fixed inset-0 z-10 bg-stone-900/25" onClick={() => setOpen(null)} />
           <SkillPane
             slug={open || undefined}
-            // A skill created from the form opens straight into the editor,
-            // because the form asks for a name and a trigger and stops there —
-            // the steps are written next, in the pane, with room to write them.
-            onClose={(slug) => setOpen(slug ?? null)}
+            onClose={() => setOpen(null)}
             onChanged={load}
           />
         </>

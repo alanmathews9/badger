@@ -434,7 +434,7 @@ export async function fetchSkills(): Promise<SkillInfo[]> {
 }
 
 export async function createSkill(
-  input: { name: string; description: string; instructions?: string } | { file: string },
+  input: { name: string; description: string; instructions: string } | { file: string },
 ): Promise<{ slug?: string; error?: string }> {
   const res = await fetch("/api/skills", {
     method: "POST",
@@ -527,97 +527,17 @@ export async function fetchSkill(slug: string): Promise<SkillFile | null> {
   return res.ok ? await res.json() : null;
 }
 
-/**
- * Overwrite a skill's file.
- *
- * The whole SKILL.md, not a set of fields. The hand-written skills use YAML
- * block scalars and carry frontmatter the three-field form has no box for, so
- * a form would silently drop whatever it did not know about. The file is the
- * artefact the runtime loads; editing the file is editing the skill.
- */
-export async function saveSkill(
-  slug: string,
-  fields: { description: string; instructions: string },
-): Promise<{ error?: string }> {
-  const res = await fetch(`/api/skills/${encodeURIComponent(slug)}`, {
-    method: "PUT",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(fields),
-  });
-  const data = await res.json().catch(() => ({}));
-  return res.ok ? {} : { error: data.error ?? "could not save the skill" };
-}
-
 export async function removeSkill(slug: string): Promise<{ error?: string }> {
   const res = await fetch(`/api/skills/${encodeURIComponent(slug)}`, { method: "DELETE" });
   const data = await res.json().catch(() => ({}));
   return res.ok ? {} : { error: data.error ?? "could not delete the skill" };
 }
 
-/**
- * A SKILL.md split into the parts a person wrote and the parts the runtime
- * keeps.
- *
- * The pane shows the first and hides the second. `license`, `allowed-tools`
- * and `metadata` are real and load-bearing, but they are the runtime's
- * business — a person opening a skill wants to know what it does and whether
- * it has been working, not which tools it declares.
- *
- * The counters are the exception and are worth surfacing: `usage_count` and
- * its success and failure siblings are the agent's own record of whether this
- * procedure has earned its place, and that is the most interesting thing on
- * the page.
- */
-export type SkillParts = {
-  description: string;
-  instructions: string;
-  usage: { used: number; ok: number; failed: number } | null;
-};
-
-export function parseSkill(content: string): SkillParts {
-  const fm = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
-  if (!fm) return { description: "", instructions: content.trim(), usage: null };
-
-  const front = fm[1];
-  const num = (key: string) => {
-    const m = front.match(new RegExp(`^${key}:\\s*(\\d+)\\s*$`, "m"));
-    return m ? Number(m[1]) : null;
-  };
-  const used = num("usage_count");
-  const ok = num("success_count");
-  const failed = num("failure_count");
-
-  return {
-    description: field(front, "description"),
-    instructions: content.slice(fm[0].length).trim(),
-    // Only when the agent has actually kept a tally. A row of three zeroes on
-    // a skill nobody has run yet says nothing and looks like a verdict.
-    usage: used != null && used > 0 ? { used, ok: ok ?? 0, failed: failed ?? 0 } : null,
-  };
-}
-
-/**
- * One frontmatter field, inline or block scalar.
- *
- * Mirrors `readField` in app/server/skills-store.mjs. Duplicated rather than
- * shared because the agent boundary runs between them — the server may not be
- * imported by the browser bundle and vice versa — and it is nine lines of
- * regex over a format that has not changed.
- */
-function field(front: string, key: string): string {
-  const lines = front.split(/\r?\n/);
-  const at = lines.findIndex((line) => line.startsWith(`${key}:`));
-  if (at < 0) return "";
-  const inline = lines[at].slice(key.length + 1).trim();
-  if (inline && !/^[|>][-+]?\d*$/.test(inline)) return inline.replace(/^["']|["']$/g, "");
-  const block: string[] = [];
-  for (let i = at + 1; i < lines.length; i++) {
-    if (lines[i].trim() === "") continue;
-    if (!/^\s/.test(lines[i])) break;
-    block.push(lines[i].trim());
-  }
-  return block.join(" ").replace(/\s+/g, " ").trim();
-}
+// `parseSkill` used to live here, splitting a file into "the trigger", "the
+// steps" and the counters so the pane could show three tidy sections. It went
+// with the editor: the pane shows the file now, whole, which is both simpler
+// and more honest — the runtime reads the file, so that is what you should
+// see.
 
 /**
  * Hand the file to the browser as a download.

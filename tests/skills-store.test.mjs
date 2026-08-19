@@ -16,10 +16,8 @@ import {
   createSkill,
   createSkillFromFile,
   deleteSkill,
-  editSkill,
   readSkill,
   slugify,
-  updateSkill,
 } from "../app/server/skills-store.mjs";
 
 function scratchSkillsDir() {
@@ -95,15 +93,7 @@ test("createSkill validates its inputs", () => {
   const dir = scratchSkillsDir();
   assert.throws(() => createSkill(dir, { name: "!!!", description: "d", instructions: "i" }), /name/);
   assert.throws(() => createSkill(dir, { name: "ok", description: "", instructions: "i" }), /description/);
-  // Steps are NOT required. The new-skill form asks for a name and a trigger
-  // and then opens the file for editing, so a skill legitimately exists for a
-  // moment with no body.
-  assert.doesNotThrow(() => createSkill(dir, { name: "no steps yet", description: "d" }));
-  assert.equal(
-    readSkill(dir, "no-steps-yet").content.includes("undefined"),
-    false,
-    "an absent body must not write the literal word undefined into the file",
-  );
+  assert.throws(() => createSkill(dir, { name: "ok", description: "d", instructions: "" }), /instructions/);
   assert.throws(
     () => createSkill(dir, { name: "ok", description: "d", instructions: "x".repeat(20001) }),
     /too long/,
@@ -146,7 +136,7 @@ test("a slug can never escape the skills directory", () => {
   }
 });
 
-test("a built-in skill is reported as one, and is still editable and removable", () => {
+test("a built-in skill is reported as one, and is still removable", () => {
   const dir = scratchSkillsDir();
   // No `added_via` and no `learned_from` — that is what "hand-written" means
   // to the store, and it is recovered from the file rather than tracked apart.
@@ -161,51 +151,8 @@ test("a built-in skill is reported as one, and is still editable and removable",
   // already recovers one. The special category cost two bugs in a day, both
   // of the form "no provenance marker, therefore sacred".
   assert.equal(readSkill(dir, "built-in").origin, "handwritten");
-  assert.doesNotThrow(() => editSkill(dir, "built-in", { description: "x", instructions: "y" }));
   assert.doesNotThrow(() => deleteSkill(dir, "built-in"));
   assert.equal(existsSync(join(dir, "built-in")), false);
-});
-
-test("an edit keeps the provenance that decides what a skill is", () => {
-  const dir = scratchSkillsDir();
-  createSkill(dir, { name: "mine", description: "first", instructions: "1. one" });
-  editSkill(dir, "mine", { description: "second", instructions: "1. two" });
-
-  const after = readSkill(dir, "mine");
-  assert.equal(after.description, "second");
-  assert.match(after.content, /1\. two/);
-  // The bug this test exists for: origin is read back off `added_via`, so an
-  // edit that replaced the whole file turned a custom skill into a built-in
-  // one — and built-in ones cannot be deleted. An ordinary edit became a
-  // one-way door.
-  assert.equal(after.origin, "custom", "an edit must not turn a custom skill built-in");
-  assert.doesNotThrow(() => deleteSkill(dir, "mine"));
-});
-
-test("an edit rewrites a block-scalar description instead of leaving two", () => {
-  const dir = scratchSkillsDir();
-  mkdirSync(join(dir, "folded"));
-  writeFileSync(
-    join(dir, "folded", "SKILL.md"),
-    "---\nname: folded\ndescription: >\n  first line\n  second line\nadded_via: badger-ui\nlicense: MIT\n---\n\nbody\n",
-  );
-  editSkill(dir, "folded", { description: "replaced", instructions: "new body" });
-
-  const after = readSkill(dir, "folded").content;
-  assert.match(after, /description: replaced/);
-  assert.equal(/first line/.test(after), false, "the folded block must go with the line it belonged to");
-  assert.match(after, /license: MIT/, "frontmatter the pane never shows must survive a save");
-});
-
-test("a rename is refused rather than half-applied", () => {
-  const dir = scratchSkillsDir();
-  createSkill(dir, { name: "keep me", description: "d", instructions: "i" });
-  // The runtime keys a skill by its directory, so a file whose name disagrees
-  // with its folder is a skill the picker still offers under the old name.
-  assert.throws(
-    () => updateSkill(dir, "keep-me", "---\nname: renamed\ndescription: d\n---\n\ni\n"),
-    /renaming is not supported/,
-  );
 });
 
 test("an uploaded skill can be removed again", () => {
