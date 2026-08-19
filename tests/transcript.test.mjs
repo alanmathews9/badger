@@ -108,3 +108,23 @@ test("parseAskBody caps the number of history turns kept, newest kept", () => {
   assert.ok(parsed.history.length <= 20, `kept ${parsed.history.length}`);
   assert.equal(parsed.history.at(-1).question, "q59");
 });
+
+test("a picked skill becomes one explicit instruction line", () => {
+  const prompt = buildPrompt([], "Who knows payments?", { skill: "find-expert" });
+  assert.equal(prompt, 'Use your "find-expert" skill to answer this: Who knows payments?');
+});
+
+test("the skill line survives into a follow-up with history", () => {
+  const prompt = buildPrompt(
+    [{ question: "q1", answer: "a1" }],
+    "and now?",
+    { skill: "recent-activity" },
+  );
+  assert.ok(prompt.includes('Use your "recent-activity" skill to answer this: and now?'), prompt);
+});
+
+test("parseAskBody accepts a well-formed skill slug and drops junk", () => {
+  assert.equal(parseAskBody({ question: "q", skill: "find-expert" }).skill, "find-expert");
+  assert.equal(parseAskBody({ question: "q", skill: "Not A Slug!" }).skill, null);
+  assert.equal(parseAskBody({ question: "q" }).skill, null);
+});

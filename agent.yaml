@@ -18,15 +18,10 @@ model:
     max_tokens: 8192
 
 # No tools: block — the runtime ignores the key (it reads tools/*.yaml and
-# builtins directly), and Badger no longer restricts the agent's tool list.
-# Skills the agent has learned itself (via skill_learner) join this list in
-# their own commits.
-skills:
-  - trace-decision
-  - find-expert
-  - onboard-to-project
-  - recent-activity
-  - diagnose-ticket-spike
+# builtins directly). And deliberately NO skills: list — the loader treats
+# that list as a filter (dist/loader.js:194), so naming skills here would
+# silently drop anything the agent learns or a person adds through the UI.
+# The skills/ directory is the whole truth.
 
 runtime:
   max_turns: 40

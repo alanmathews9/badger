@@ -1,11 +1,19 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, ChevronRight, ExternalLink, Loader2, MessageSquare, Plus } from "lucide-react";
+import { ArrowUp, ChevronRight, ExternalLink, Loader2, MessageSquare, Plus, Sparkles, X } from "lucide-react";
 import { Markdown, type Citation } from "@/components/Markdown";
 import { BRAND_LOGOS } from "@/components/BrandLogos";
 import type { SourceId } from "@/lib/api";
 import { VerificationBadge } from "@/components/AnswerCard";
 import type { AnswerState } from "@/components/AnswerCard";
-import { splitAnswer, type OpenedItem, type ToolStep } from "@/lib/ask";
+import {
+  createSkill,
+  fetchSkills,
+  skillDisplayName,
+  splitAnswer,
+  type OpenedItem,
+  type SkillInfo,
+  type ToolStep,
+} from "@/lib/ask";
 
 /** One exchange: the question asked, and everything the run produced. */
 export type ChatTurn = { question: string; answer: AnswerState };
@@ -28,10 +36,35 @@ export function ChatScreen({
   onNewChat,
 }: {
   turns: ChatTurn[];
-  onAsk: (next: string) => void;
+  onAsk: (next: string, skill: string | null) => void;
   onNewChat: () => void;
 }) {
   const [draft, setDraft] = useState("");
+  const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const [picked, setPicked] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+
+  useEffect(() => {
+    fetchSkills().then(setSkills).catch(() => {});
+  }, []);
+
+  // Typing "/" at the start of the input opens the picker; the rest of the
+  // line filters it. Same pattern as Onyx's prompt shortcuts.
+  const pickerOpen = draft.startsWith("/") && !adding;
+  const filter = pickerOpen ? draft.slice(1).toLowerCase() : "";
+
+  // The picker shows the two skills a person would reach for, plus anything
+  // people added through the UI. The rest (trace-decision and friends, and
+  // whatever the agent has learned) still trigger on their own from the
+  // question's shape — listing everything would make the menu a manual.
+  const pickable = skills
+    .filter((s) => ["recent-activity", "find-expert"].includes(s.slug) || s.origin === "custom")
+    .filter((s) => skillDisplayName(s.slug).toLowerCase().includes(filter));
+
+  const pick = (slug: string) => {
+    setPicked(slug);
+    setDraft("");
+  };
   const bottomRef = useRef<HTMLDivElement>(null);
   const last = turns.at(-1);
   const running = last?.answer.running ?? false;
@@ -42,11 +75,12 @@ export function ChatScreen({
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [turns.length, lastTextLength]);
 
-  const submit = (text: string) => {
+  const submit = (text: string, skill: string | null = picked) => {
     const next = text.trim();
-    if (!next || running) return;
+    if (!next || next.startsWith("/") || running) return;
     setDraft("");
-    onAsk(next);
+    setPicked(null);
+    onAsk(next, skill);
   };
 
   const uncited = !running ? (last?.answer.result?.uncited ?? []) : [];
@@ -82,6 +116,25 @@ export function ChatScreen({
               <p className="mt-4 text-[12px] text-stone-500">
                 Conversations live in this tab only — a refresh or “New chat” starts clean.
               </p>
+              <div className="mt-8 flex flex-col items-start gap-2">
+                {[
+                  "What changed in the last two weeks?",
+                  "Who knows about payments?",
+                  "Why was the Android app five weeks late?",
+                ].map((q) => (
+                  <button
+                    key={q}
+                    onClick={() => submit(q, null)}
+                    className="rounded-lg border border-stone-200 px-3.5 py-2 text-left text-[13px] text-stone-700 hover:bg-stone-50"
+                  >
+                    {q}
+                  </button>
+                ))}
+                <p className="mt-2 text-[12px] text-stone-400">
+                  Tip: type <span className="rounded bg-stone-100 px-1 font-mono">/</span> to pick a
+                  skill, or add your own.
+                </p>
+              </div>
             </div>
           ) : (
             turns.map((turn, i) => (
@@ -111,13 +164,59 @@ export function ChatScreen({
             </div>
           )}
 
+          {pickerOpen && (
+            <SkillPicker
+              skills={pickable}
+              onPick={pick}
+              onAdd={() => {
+                setAdding(true);
+                setDraft("");
+              }}
+            />
+          )}
+
+          {adding && (
+            <AddSkillForm
+              onDone={(slug) => {
+                setAdding(false);
+                fetchSkills().then(setSkills).catch(() => {});
+                if (slug) setPicked(slug);
+              }}
+            />
+          )}
+
           <div className="flex h-[46px] items-center gap-2.5 rounded-lg border border-stone-300 pr-2 pl-3.5">
             <MessageSquare className="size-[17px] shrink-0 text-stone-400" strokeWidth={1.9} />
+            {picked && (
+              <span className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-stone-900 pr-1.5 pl-2.5 text-xs text-stone-50">
+                <Sparkles className="size-3" strokeWidth={2} />
+                {skillDisplayName(picked)}
+                <button
+                  onClick={() => setPicked(null)}
+                  aria-label="Remove skill"
+                  className="inline-flex size-4 items-center justify-center rounded-full hover:bg-stone-700"
+                >
+                  <X className="size-3" strokeWidth={2} />
+                </button>
+              </span>
+            )}
             <input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && submit(draft)}
-              placeholder={turns.length === 0 ? "Ask Badger" : "Ask a follow-up"}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  if (pickerOpen && pickable.length > 0) pick(pickable[0].slug);
+                  else submit(draft);
+                }
+                if (e.key === "Escape" && pickerOpen) setDraft("");
+              }}
+              placeholder={
+                picked
+                  ? "What do you want to know?"
+                  : turns.length === 0
+                    ? "Ask Badger, or type / for skills"
+                    : "Ask a follow-up"
+              }
               className="min-w-0 flex-1 bg-transparent text-sm placeholder:text-stone-400 focus:outline-none"
             />
             <button
@@ -201,16 +300,15 @@ function StepTrail({ answer, coverage }: { answer: AnswerState; coverage: string
   const { steps, running, result } = answer;
 
   if (running) {
-    const searching = !answer.text;
+    // Only the newest step shows while the run is live — the same choice Onyx
+    // makes. A growing list mid-run is motion without information; the full
+    // trail is one click away the moment the answer lands.
+    const current = steps.at(-1) ?? null;
     return (
-      <div className="mt-4 flex flex-col gap-0.5">
-        {steps.length === 0 ? (
-          <StepRow step={null} live />
-        ) : (
-          steps.map((step, i) => (
-            <StepRow key={i} step={step} live={searching && i === steps.length - 1} />
-          ))
-        )}
+      <div className="mt-4 flex items-center gap-1.5 text-[12.5px] text-stone-500">
+        <Loader2 className="size-3 shrink-0 animate-spin text-stone-400" />
+        {current ? current.label : "Thinking"}…
+        {steps.length > 1 && <span className="text-stone-400">· step {steps.length}</span>}
       </div>
     );
   }
@@ -356,3 +454,117 @@ const SOURCE_OF: Record<OpenedItem["kind"], SourceId> = {
   mail: "gmail",
   doc: "drive",
 };
+
+/**
+ * The "/" menu: the skills a person can hand-pick, plus the door to adding
+ * their own. Picking one puts a chip on the composer; the question itself is
+ * typed normally afterwards.
+ */
+function SkillPicker({
+  skills,
+  onPick,
+  onAdd,
+}: {
+  skills: SkillInfo[];
+  onPick: (slug: string) => void;
+  onAdd: () => void;
+}) {
+  return (
+    <div className="mb-2 overflow-hidden rounded-lg border border-stone-200 bg-white shadow-sm">
+      {skills.map((s) => (
+        <button
+          key={s.slug}
+          onClick={() => onPick(s.slug)}
+          className="flex w-full items-baseline gap-2.5 px-3.5 py-2.5 text-left hover:bg-stone-50"
+        >
+          <span className="text-[13px] font-medium text-stone-900">{skillDisplayName(s.slug)}</span>
+          <span className="min-w-0 truncate text-[12px] text-stone-500">{s.description}</span>
+          {s.origin === "custom" && (
+            <span className="ml-auto shrink-0 rounded bg-stone-100 px-1.5 font-mono text-[10px] text-stone-500">
+              yours
+            </span>
+          )}
+        </button>
+      ))}
+      <button
+        onClick={onAdd}
+        className="flex w-full items-center gap-2 border-t border-stone-100 px-3.5 py-2.5 text-left text-[13px] text-stone-600 hover:bg-stone-50"
+      >
+        <Plus className="size-3.5" strokeWidth={2} />
+        Add your own skill
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Adding a skill writes a real SKILL.md into the agent's own repository —
+ * the same mechanism the agent's learning uses, driven by a person. It is
+ * available to the very next question, and it shows up in git as a change
+ * for a human to review and commit.
+ */
+function AddSkillForm({ onDone }: { onDone: (slug: string | null) => void }) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [instructions, setInstructions] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    const result = await createSkill({ name, description, instructions });
+    setSaving(false);
+    if (result.error) setError(result.error);
+    else onDone(result.slug ?? null);
+  };
+
+  const field =
+    "w-full rounded-md border border-stone-200 px-2.5 py-1.5 text-[13px] placeholder:text-stone-400 focus:border-stone-400 focus:outline-none";
+
+  return (
+    <div className="mb-2 rounded-lg border border-stone-200 bg-white p-3.5 shadow-sm">
+      <div className="mb-2.5 text-[13px] font-medium text-stone-900">New skill</div>
+      <div className="flex flex-col gap-2">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Name — e.g. Summarise for a customer"
+          className={field}
+        />
+        <input
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="One line on when to use it"
+          className={field}
+        />
+        <textarea
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
+          placeholder={"The instructions Badger should follow.\ne.g. Never name internal people. Lead with the outcome."}
+          rows={4}
+          className={field + " resize-y"}
+        />
+      </div>
+      {error && <p className="mt-2 text-[12px] text-amber-700">{error}</p>}
+      <div className="mt-2.5 flex items-center gap-2">
+        <button
+          onClick={save}
+          disabled={saving || !name.trim() || !description.trim() || !instructions.trim()}
+          className="inline-flex h-8 items-center rounded-md bg-stone-900 px-3 text-xs font-medium text-stone-50 disabled:opacity-40"
+        >
+          {saving ? "Saving…" : "Save skill"}
+        </button>
+        <button
+          onClick={() => onDone(null)}
+          className="inline-flex h-8 items-center rounded-md px-2.5 text-xs text-stone-600 hover:bg-stone-100"
+        >
+          Cancel
+        </button>
+        <span className="ml-auto text-[11px] text-stone-400">
+          Lands in the agent's own repo, usable on the next question
+        </span>
+      </div>
+    </div>
+  );
+}

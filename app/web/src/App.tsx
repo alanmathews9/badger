@@ -12,7 +12,7 @@ import {
   type SearchResponse,
   type SourcesResponse,
 } from "@/lib/api";
-import { ask, describeTool, type Turn } from "@/lib/ask";
+import { ask, describeTool, skillDisplayName, type Turn } from "@/lib/ask";
 import type { AnswerState } from "@/components/AnswerCard";
 import type { ChatTurn } from "@/screens/ChatScreen";
 import { useRecentDigs } from "@/lib/recentDigs";
@@ -75,7 +75,7 @@ export default function App() {
   }, []);
 
   const startAsk = useCallback(
-    (question: string) => {
+    (question: string, skill: string | null = null) => {
       cancelAsk.current?.();
       // The conversation so far, as plain text. The server strips the model's
       // Sources/Coverage boilerplate and enforces its own budget; a turn that
@@ -83,7 +83,13 @@ export default function App() {
       const history: Turn[] = turns
         .map((t) => ({ question: t.question, answer: t.answer.result?.answer ?? t.answer.text }))
         .filter((t) => t.answer.trim().length > 0);
-      setTurns((ts) => [...ts, { question, answer: { ...IDLE, running: true } }]);
+      // A hand-picked skill opens the trail as its own step, because the one
+      // thing the runtime cannot tell us — which skill is in play — is known
+      // here for certain: the user chose it.
+      const seed = skill
+        ? [{ label: `Using: ${skillDisplayName(skill)}`, name: "skill", args: { skill } }]
+        : [];
+      setTurns((ts) => [...ts, { question, answer: { ...IDLE, running: true, steps: seed } }]);
       cancelAsk.current = ask(
         question,
         {
@@ -100,6 +106,7 @@ export default function App() {
           onError: (message) => patchLast((s) => ({ ...s, running: false, error: message })),
         },
         history,
+        skill,
       );
     },
     [turns, patchLast],
@@ -136,9 +143,9 @@ export default function App() {
   );
 
   const followUp = useCallback(
-    (next: string) => {
+    (next: string, skill: string | null = null) => {
       setMode("chat");
-      startAsk(next);
+      startAsk(next, skill);
     },
     [startAsk],
   );

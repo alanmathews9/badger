@@ -30,6 +30,7 @@ import { budgetStatus, claimAskSlot, clientIp, rateLimit } from "./limits.mjs";
 import { splashPage } from "./splash.mjs";
 import { buildSystemSuffix } from "./system-suffix.mjs";
 import { buildPrompt, parseAskBody } from "./transcript.mjs";
+import { createSkill, listSkills } from "./skills-store.mjs";
 import { annotateUnverified, extractCitations, mentions, verifyCitations } from "./verify-citations.mjs";
 import { attachSourceUrls } from "./source-links.mjs";
 
@@ -73,6 +74,8 @@ const server = createServer(async (req, res) => {
     }
 
     if (url.pathname === "/api/search" && req.method === "POST") return await handleSearch(req, res);
+    if (url.pathname === "/api/skills" && req.method === "GET") return handleSkillsList(res);
+    if (url.pathname === "/api/skills" && req.method === "POST") return await handleSkillsCreate(req, res);
     if (url.pathname === "/api/sources" && req.method === "GET") return await handleSources(req, res);
     if (url.pathname === "/api/ask" && req.method === "POST") return await handleAsk(req, res);
     if (url.pathname.startsWith("/api/")) return json(res, 404, { error: "no such endpoint" });
@@ -246,6 +249,12 @@ async function handleAsk(req, res) {
   const parsed = parseAskBody(body);
   if (parsed.error) return json(res, 400, { error: parsed.error });
   const { question, history } = parsed;
+  // Only a skill that exists on disk reaches the prompt; a stale or invented
+  // slug degrades to a plain question rather than an error.
+  const skill =
+    parsed.skill && listSkills(join(ROOT, "skills")).some((s) => s.slug === parsed.skill)
+      ? parsed.skill
+      : null;
 
   const limited = rateLimit(req, "ask");
   if (limited) return json(res, 429, { error: limited });
@@ -255,7 +264,7 @@ async function handleAsk(req, res) {
   const slot = claimAskSlot();
   if (slot.error) return json(res, 429, { error: slot.error });
 
-  const prompt = buildPrompt(history, question);
+  const prompt = buildPrompt(history, question, { skill });
 
   res.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
@@ -493,6 +502,38 @@ function isCited(item, cited) {
   if (item.kind === "mail") return cited.mail.some((m) => mentions(item.label, m.subject));
   if (item.kind === "doc") return cited.documents.some((d) => mentions(item.label, d));
   return cited.numbers.includes(item.ref);
+}
+
+/**
+ * GET /api/skills — what the agent knows how to do, for the picker.
+ * POST /api/skills — a person adds a skill through the UI. The file lands in
+ * the agent's own skills/ tree, so the next question can already use it; the
+ * commit is left for a human review, same as a learned skill gets pruned or
+ * kept by hand.
+ */
+function handleSkillsList(res) {
+  return json(res, 200, { skills: listSkills(join(ROOT, "skills")) });
+}
+
+async function handleSkillsCreate(req, res) {
+  const limited = rateLimit(req, "ask");
+  if (limited) return json(res, 429, { error: limited });
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return json(res, 400, { error: "body must be JSON" });
+  }
+  try {
+    const { slug } = createSkill(join(ROOT, "skills"), {
+      name: body?.name,
+      description: body?.description,
+      instructions: body?.instructions,
+    });
+    return json(res, 201, { slug });
+  } catch (err) {
+    return json(res, 400, { error: err.message });
+  }
 }
 
 /**

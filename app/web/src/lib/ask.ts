@@ -64,7 +64,12 @@ export type Turn = { question: string; answer: string };
  *
  * Returns a function that cancels the run.
  */
-export function ask(question: string, handlers: AskHandlers, history: Turn[] = []): () => void {
+export function ask(
+  question: string,
+  handlers: AskHandlers,
+  history: Turn[] = [],
+  skill: string | null = null,
+): () => void {
   const controller = new AbortController();
   let finished = false;
 
@@ -99,7 +104,7 @@ export function ask(question: string, handlers: AskHandlers, history: Turn[] = [
       response = await fetch("/api/ask", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ question, history }),
+        body: JSON.stringify({ question, history, ...(skill ? { skill } : {}) }),
         signal: controller.signal,
       });
     } catch {
@@ -217,7 +222,61 @@ export function describeTool(name: string, args: Record<string, unknown>): strin
       return "Reading a document";
     case "drive_comments":
       return "Reading the comments on a document";
+    // The learning loop and the runtime's own tools, phrased as what the
+    // agent is doing rather than as internal slugs.
+    case "task_tracker":
+      return args.action === "end" ? "Wrapping up" : "Noting the task";
+    case "skill_learner":
+      return "Reflecting on what worked";
+    case "memory":
+      return args.action === "save" ? "Saving to memory" : "Checking memory";
+    case "read":
+      return "Reading a file";
+    case "write":
+    case "edit":
+      return "Writing a file";
+    case "cli":
+      return "Running a command";
     default:
       return name;
   }
+}
+
+/** A skill as the server lists it, for the picker. */
+export type SkillInfo = {
+  slug: string;
+  name: string;
+  description: string;
+  origin: "handwritten" | "learned" | "custom";
+};
+
+export async function fetchSkills(): Promise<SkillInfo[]> {
+  const res = await fetch("/api/skills");
+  if (!res.ok) return [];
+  return (await res.json()).skills ?? [];
+}
+
+export async function createSkill(input: {
+  name: string;
+  description: string;
+  instructions: string;
+}): Promise<{ slug?: string; error?: string }> {
+  const res = await fetch("/api/skills", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const data = await res.json().catch(() => ({}));
+  return res.ok ? { slug: data.slug } : { error: data.error ?? "could not save the skill" };
+}
+
+/** The plain name a person sees for a skill slug. */
+export function skillDisplayName(slug: string): string {
+  const named: Record<string, string> = {
+    "recent-activity": "Recent activity",
+    "find-expert": "Find an expert",
+    "trace-decision": "Explain a decision",
+    "onboard-to-project": "Catch me up",
+  };
+  return named[slug] ?? slug.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase());
 }

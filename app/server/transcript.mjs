@@ -30,8 +30,12 @@ function stripSections(answer) {
  * Build the prompt: prior turns as a labelled transcript, newest kept when
  * the budget forces a choice, the new question last.
  */
-export function buildPrompt(history, question, { budget = BUDGET_DEFAULT } = {}) {
-  if (!history?.length) return question;
+export function buildPrompt(history, question, { budget = BUDGET_DEFAULT, skill = null } = {}) {
+  // A user-picked skill becomes one explicit line. The skill's own text is
+  // already in the system prompt (the runtime loads every SKILL.md), so the
+  // prompt only has to name it.
+  const ask = skill ? `Use your "${skill}" skill to answer this: ${question}` : question;
+  if (!history?.length) return ask;
 
   const answerMax = Math.floor(budget * ANSWER_SHARE);
   const blocks = [];
@@ -52,7 +56,7 @@ export function buildPrompt(history, question, { budget = BUDGET_DEFAULT } = {})
   return (
     "Earlier in this conversation:\n\n" +
     blocks.join("\n\n---\n\n") +
-    `\n\nFollow-up question: ${question}`
+    `\n\nFollow-up question: ${ask}`
   );
 }
 
@@ -80,5 +84,13 @@ export function parseAskBody(body) {
     .slice(-TURNS_MAX)
     .map((turn) => ({ question: turn.question, answer: turn.answer }));
 
-  return { question, history };
+  // The picked skill travels as a slug and is only ever used if it names a
+  // skill that actually exists on disk — the server checks; here we check the
+  // shape so nothing slug-unlike reaches a prompt.
+  const skill =
+    typeof body?.skill === "string" && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(body.skill) && body.skill.length <= 60
+      ? body.skill
+      : null;
+
+  return { question, history, skill };
 }
