@@ -6,6 +6,18 @@ export type OpenedItem = {
   label: string;
   /** "issue #12, open" — recovered from tool output, absent for plain opens. */
   detail?: string;
+  /** Address of the real thing, when the run gave the server enough to build
+      one. Resolves only for someone with access to the underlying account —
+      permissions stay enforced at the source. */
+  url?: string;
+};
+
+/** One tool call, kept whole so the step trail can show its detail on demand. */
+export type ToolStep = {
+  /** The plain-language line: "Searching Drive for “offboarding process”". */
+  label: string;
+  name: string;
+  args: Record<string, unknown>;
 };
 
 export type Verification = {

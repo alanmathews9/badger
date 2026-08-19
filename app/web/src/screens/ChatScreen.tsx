@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Loader2, MessageSquare, Plus } from "lucide-react";
-import { BadgerMark } from "@/components/BadgerMark";
+import { ArrowUp, ChevronRight, ExternalLink, Loader2, MessageSquare, Plus } from "lucide-react";
 import { Markdown, type Citation } from "@/components/Markdown";
 import { BRAND_LOGOS } from "@/components/BrandLogos";
 import type { SourceId } from "@/lib/api";
 import { VerificationBadge } from "@/components/AnswerCard";
 import type { AnswerState } from "@/components/AnswerCard";
-import { splitAnswer, type OpenedItem } from "@/lib/ask";
+import { splitAnswer, type OpenedItem, type ToolStep } from "@/lib/ask";
 
 /** One exchange: the question asked, and everything the run produced. */
 export type ChatTurn = { question: string; answer: AnswerState };
@@ -17,11 +16,11 @@ export type ChatTurn = { question: string; answer: AnswerState };
  *
  * Everything under an answer is derived from the run that produced it.
  * Sources are what that answer cites, verified against what the tools
- * returned; the dashed card is what Badger read in full and then did not
- * cite. That gap is the cheapest honest signal in the product — it says what
- * was looked at, not just what was used. The tool trail above each answer is
- * the same idea applied to the work itself: the calls stay on screen after
- * the answer lands, instead of flashing past on a status line.
+ * returned, each linking to the real item for whoever has access. The step
+ * trail above each answer shows the work as it happens and then collapses to
+ * one quiet row — the detail (tool calls, the verification result, coverage)
+ * stays reachable behind the chevron instead of being printed under every
+ * answer.
  */
 export function ChatScreen({
   turns,
@@ -141,7 +140,6 @@ function TurnBlock({ turn, first, isLast }: { turn: ChatTurn; first: boolean; is
   const { answer } = turn;
   const result = answer.result;
   const cited = result?.cited ?? [];
-  const uncited = result?.uncited ?? [];
   const { body, coverage } = splitAnswer(answer.text);
   // The token is the literal string the answer contains, so the superscript
   // can be attached to it. GitHub items are cited by number, everything else
@@ -157,49 +155,14 @@ function TurnBlock({ turn, first, isLast }: { turn: ChatTurn; first: boolean; is
         {turn.question}
       </h1>
 
-      <div className="mt-3 flex items-center gap-2.5">
-        <span className="inline-flex size-5 items-center justify-center rounded-full bg-stone-900">
-          <BadgerMark size={14} />
-        </span>
-        <span className="font-mono text-[11.5px] text-stone-500">
-          {answer.running
-            ? (answer.activity ?? "thinking") + "…"
-            : result
-              ? [
-                  `${result.toolCalls.length} tool ${result.toolCalls.length === 1 ? "call" : "calls"}`,
-                  result.opened.length ? `${result.opened.length} threads read in full` : null,
-                  `${cited.length} ${cited.length === 1 ? "source" : "sources"} cited`,
-                  `${(result.tookMs / 1000).toFixed(1)}s`,
-                  result.costUsd != null ? `$${result.costUsd.toFixed(4)}` : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")
-              : ""}
-        </span>
-      </div>
-
-      {/* The trail: every call this run made, kept on screen. While the run
-          is live the newest call is already on the status line above, so the
-          trail earns its place once there is more than one call to show. */}
-      {answer.tools.length > 1 && (
-        <div className="mt-2.5 flex flex-wrap gap-1.5">
-          {answer.tools.map((t, i) => (
-            <span
-              key={i}
-              className="inline-flex h-6 items-center rounded-full bg-stone-100 px-2.5 font-mono text-[10.5px] text-stone-600"
-            >
-              {t}
-            </span>
-          ))}
-        </div>
-      )}
+      <StepTrail answer={answer} coverage={coverage} />
 
       {answer.error ? (
         <p className="mt-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           {answer.error}
         </p>
       ) : (
-        <article className="mt-5 text-[15px]/[1.8] text-stone-800">
+        <article className="mt-4 text-[15px]/[1.8] text-stone-800">
           <Markdown text={body} citations={citations} />
           {answer.running && answer.text && (
             <Loader2 className="mt-2 size-3.5 animate-spin text-stone-400" />
@@ -207,65 +170,182 @@ function TurnBlock({ turn, first, isLast }: { turn: ChatTurn; first: boolean; is
         </article>
       )}
 
-      {result && (
-        <>
-          <div className="mt-7 flex items-center gap-3">
-            <span className="font-mono text-[10px] tracking-[0.1em] text-stone-500 uppercase">
-              Sources
-            </span>
-            <span className="h-px flex-1 bg-stone-100" />
-          </div>
-
-          <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-            {cited.map((item, i) => (
-              <SourceCard
-                key={item.kind + item.ref}
-                item={item}
-                index={i + 1}
-                anchored={isLast}
-              />
-            ))}
-
-            {/* The honesty signal, in its cheapest possible form. */}
-            {uncited.length > 0 && (
-              <div className="flex items-center gap-2.5 rounded-lg border border-dashed border-stone-200 px-3 py-2.5">
-                <span className="size-[19px] shrink-0 rounded-[5px] border border-stone-200 bg-stone-50" />
-                <span className="text-xs text-stone-500">
-                  {uncited.length} {uncited.length === 1 ? "item was" : "items were"} opened but
-                  not cited
-                </span>
-              </div>
-            )}
-
-            {cited.length === 0 && uncited.length === 0 && (
-              <p className="text-xs text-stone-500">
-                This answer cites nothing, so there is nothing to check it against.
-              </p>
-            )}
-          </div>
-
-          {coverage && (
-            <p className="mt-4 text-[12px]/[1.6] text-stone-500">
-              <span className="font-mono text-[10px] tracking-[0.1em] text-stone-400 uppercase">
-                Coverage
-              </span>{" "}
-              {coverage}
-            </p>
-          )}
-
-          <div className="mt-4">
-            <VerificationBadgeLight result={result} />
-          </div>
-        </>
+      {result && cited.length > 0 && (
+        <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+          <span className="font-mono text-[10px] tracking-[0.1em] text-stone-400 uppercase">
+            Sources
+          </span>
+          {cited.map((item, i) => (
+            <SourceLink key={item.kind + item.ref} item={item} index={i + 1} anchored={isLast} />
+          ))}
+        </div>
       )}
     </section>
   );
 }
 
-/** The brand mark for one source, so every surface names it the same way. */
-function SourceMark({ id, size }: { id: SourceId; size: number }) {
-  const Logo = BRAND_LOGOS[id];
-  return <Logo size={size} />;
+/**
+ * The run's work, as a trail of steps.
+ *
+ * While the run is live every step is its own row, the newest one spinning —
+ * "Searching Drive for offboarding process", "Reading a document" — and each
+ * row expands to show the actual tool call behind the plain-language line.
+ * Once the answer lands the whole trail collapses to one quiet summary row;
+ * expanding it brings the steps back, with the verification result and the
+ * coverage note at the bottom. Those two used to be printed under every
+ * answer; they are still checked on every run, just shown to whoever opens
+ * the work rather than to everyone.
+ */
+function StepTrail({ answer, coverage }: { answer: AnswerState; coverage: string | null }) {
+  const [open, setOpen] = useState(false);
+  const { steps, running, result } = answer;
+
+  if (running) {
+    const searching = !answer.text;
+    return (
+      <div className="mt-4 flex flex-col gap-0.5">
+        {steps.length === 0 ? (
+          <StepRow step={null} live />
+        ) : (
+          steps.map((step, i) => (
+            <StepRow key={i} step={step} live={searching && i === steps.length - 1} />
+          ))
+        )}
+      </div>
+    );
+  }
+
+  if (!result) return null;
+
+  return (
+    <div className="mt-3">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1 text-[12px] text-stone-400 hover:text-stone-600"
+      >
+        <ChevronRight
+          className={"size-3.5 transition-transform " + (open ? "rotate-90" : "")}
+          strokeWidth={2}
+        />
+        {steps.length === 0
+          ? "Answered without searching"
+          : `Worked through ${steps.length} ${steps.length === 1 ? "step" : "steps"}`}
+      </button>
+
+      {open && (
+        <div className="mt-2 flex flex-col gap-0.5 border-l border-stone-100 pl-3">
+          {steps.map((step, i) => (
+            <StepRow key={i} step={step} live={false} />
+          ))}
+          <div className="mt-2 flex flex-col gap-1.5">
+            <VerificationBadge result={result} />
+            {coverage && <p className="text-[12px]/[1.6] text-stone-500">{coverage}</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One step. The row is the plain-language line; the chevron opens the actual
+ * tool call — name and arguments — for whoever wants to see the work itself.
+ * A null step is the moment before the first tool call: the model reading the
+ * question, with nothing to expand yet.
+ */
+function StepRow({ step, live }: { step: ToolStep | null; live: boolean }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div>
+      <button
+        onClick={() => step && setOpen((v) => !v)}
+        className="group inline-flex items-center gap-1.5 py-0.5 text-left text-[12.5px] text-stone-500 hover:text-stone-700"
+      >
+        {live ? (
+          <Loader2 className="size-3 shrink-0 animate-spin text-stone-400" />
+        ) : (
+          <span className="size-1 shrink-0 rounded-full bg-stone-300 mx-1" />
+        )}
+        {step ? step.label : "Thinking"}
+        {live && "…"}
+        {step && (
+          <ChevronRight
+            className={
+              "size-3 shrink-0 text-stone-300 transition-transform group-hover:text-stone-400 " +
+              (open ? "rotate-90" : "")
+            }
+            strokeWidth={2}
+          />
+        )}
+      </button>
+      {open && step && (
+        <div className="mb-1 ml-[18px] max-w-full overflow-x-auto rounded-md bg-stone-50 px-2.5 py-1.5 font-mono text-[11px] text-stone-600">
+          {step.name} {formatArgs(step.args)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The call's arguments, compact enough to read on one or two lines. */
+function formatArgs(args: Record<string, unknown>): string {
+  const entries = Object.entries(args).filter(([, v]) => v != null && v !== "");
+  if (entries.length === 0) return "";
+  const text = entries.map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(", ");
+  return text.length > 220 ? text.slice(0, 220) + "…" : text;
+}
+
+/**
+ * One cited source, as a small link rather than a card.
+ *
+ * The link opens the real item — the issue on GitHub, the document on Drive,
+ * the thread in Gmail — in a new tab, for whoever has access to the account
+ * behind it. A citation the server could not build an address for renders as
+ * plain text; a dead link would be worse.
+ *
+ * Only the latest turn's sources carry the `source-N` anchor ids the citation
+ * superscripts jump to — with every turn anchored, the same id would exist
+ * once per turn and the browser would jump to the wrong one.
+ */
+function SourceLink({
+  item,
+  index,
+  anchored,
+}: {
+  item: OpenedItem;
+  index: number;
+  anchored: boolean;
+}) {
+  const Logo = BRAND_LOGOS[SOURCE_OF[item.kind]];
+  const inner = (
+    <>
+      <Logo size={12} />
+      <span className="max-w-[260px] truncate">{item.label}</span>
+    </>
+  );
+
+  return (
+    <span
+      id={anchored ? `source-${index}` : undefined}
+      className="inline-flex items-center gap-1.5 rounded px-0.5 text-[12.5px] target:bg-amber-50"
+    >
+      <span className="font-mono text-[10px] font-semibold text-amber-700">{index}</span>
+      {item.url ? (
+        <a
+          href={item.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-stone-600 underline decoration-stone-300 underline-offset-2 hover:text-stone-900 hover:decoration-stone-500"
+        >
+          {inner}
+          <ExternalLink className="size-3 text-stone-400" strokeWidth={2} />
+        </a>
+      ) : (
+        <span className="inline-flex items-center gap-1.5 text-stone-600">{inner}</span>
+      )}
+    </span>
+  );
 }
 
 /** Which system an item came from. GitHub is the default, not the only one. */
@@ -276,51 +356,3 @@ const SOURCE_OF: Record<OpenedItem["kind"], SourceId> = {
   mail: "gmail",
   doc: "drive",
 };
-
-/**
- * One cited source.
- *
- * The glyph used to be the literal string "github" for every card, written
- * when GitHub was the only source and left in place after Gmail and Drive were
- * wired up — so a mail thread and a Drive document both displayed as GitHub.
- *
- * Only the latest turn's cards carry the `source-N` anchor ids the citation
- * superscripts jump to — with every turn anchored, the same id would exist
- * once per turn and the browser would jump to the wrong one.
- */
-function SourceCard({
-  item,
-  index,
-  anchored,
-}: {
-  item: OpenedItem;
-  index: number;
-  anchored: boolean;
-}) {
-  return (
-    <div
-      id={anchored ? `source-${index}` : undefined}
-      className="flex items-center gap-2.5 rounded-lg border border-stone-200 px-3 py-2.5 target:border-amber-300 target:bg-amber-50"
-    >
-      <span className="size-[19px] shrink-0 rounded-[5px] bg-amber-700 text-center font-mono text-[10px]/[19px] font-semibold text-white">
-        {index}
-      </span>
-      <SourceMark id={SOURCE_OF[item.kind]} size={13} />
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[12.5px] font-medium">{item.label}</div>
-        <div className="mt-0.5 truncate font-mono text-[10.5px] text-stone-500">
-          {item.detail ?? item.kind}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** The verification badge again, in the light palette this screen uses. */
-function VerificationBadgeLight({ result }: { result: NonNullable<AnswerState["result"]> }) {
-  return (
-    <div className="rounded-lg bg-stone-900 px-3 py-2">
-      <VerificationBadge result={result} />
-    </div>
-  );
-}

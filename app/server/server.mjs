@@ -32,6 +32,7 @@ import { splashPage } from "./splash.mjs";
 import { buildSystemSuffix } from "./system-suffix.mjs";
 import { buildPrompt, parseAskBody } from "./transcript.mjs";
 import { annotateUnverified, extractCitations, mentions, verifyCitations } from "./verify-citations.mjs";
+import { attachSourceUrls } from "./source-links.mjs";
 
 // The repo root, which is also the agent directory query() loads. The server
 // lives two levels down under app/ precisely so that this is an explicit,
@@ -374,7 +375,11 @@ async function handleAsk(req, res) {
     // search results, and an earlier version of this — which listed only
     // explicitly-opened threads — reported "0 sources" under an answer
     // carrying four verified citations.
-    cited: resolveCitations(cited, toolOutputs),
+    cited: attachSourceUrls(
+      resolveCitations(cited, toolOutputs),
+      opened,
+      process.env.BADGER_GITHUB_REPO ?? null,
+    ),
     // Threads Badger opened in full and then did not cite. This is the gap the
     // design asks for: "N items were opened but not cited". It is deliberately
     // not "everything that appeared in a search result" — those were listed,

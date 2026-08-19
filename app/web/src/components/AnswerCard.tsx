@@ -1,11 +1,11 @@
 import { AlertTriangle, BadgeCheck } from "lucide-react";
-import type { AskResult } from "@/lib/ask";
+import type { AskResult, ToolStep } from "@/lib/ask";
 
 export type AnswerState = {
   running: boolean;
   activity: string | null;
-  /** Every tool call this run made, described — the trail stays on screen. */
-  tools: string[];
+  /** Every tool call this run made, kept whole — the trail stays on screen. */
+  steps: ToolStep[];
   text: string;
   result: AskResult | null;
   error: string | null;
@@ -30,6 +30,10 @@ export type AnswerState = {
  * "Verified" here means every citation appeared in something Badger actually
  * retrieved — not that the answer characterises it correctly. The wording says
  * "retrieved" rather than "correct" on purpose.
+ *
+ * It used to be a black bar under every answer. It now lives inside the
+ * expanded step trail — still checked on every run, shown to whoever opens
+ * the work — so the palette is the light one that surface uses.
  */
 export function VerificationBadge({ result }: { result: AskResult }) {
   const { verification, uncited } = result;
@@ -40,18 +44,19 @@ export function VerificationBadge({ result }: { result: AskResult }) {
 
   if (verification.ok) {
     return (
-      <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-emerald-400">
+      <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-emerald-700">
         <BadgeCheck className="size-3.5" strokeWidth={2} />
-        {verification.checked} citations, all retrieved
+        {verification.checked} {verification.checked === 1 ? "citation" : "citations"}, all
+        retrieved
         {uncited.length > 0 && (
-          <span className="text-stone-400">· {uncited.length} opened, not cited</span>
+          <span className="text-stone-500">· {uncited.length} opened, not cited</span>
         )}
       </span>
     );
   }
 
   return (
-    <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-amber-400">
+    <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-amber-700">
       <AlertTriangle className="size-3.5" strokeWidth={2} />
       {verification.findings.length} of {verification.checked} unverified — marked in the text
     </span>
@@ -59,5 +64,5 @@ export function VerificationBadge({ result }: { result: AskResult }) {
 }
 
 function Meta({ children }: { children: React.ReactNode }) {
-  return <span className="font-mono text-[11px] text-stone-400">{children}</span>;
+  return <span className="font-mono text-[11px] text-stone-500">{children}</span>;
 }

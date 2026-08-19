@@ -20,7 +20,7 @@ import { useRecentDigs } from "@/lib/recentDigs";
 const IDLE: AnswerState = {
   running: false,
   activity: null,
-  tools: [],
+  steps: [],
   text: "",
   result: null,
   error: null,
@@ -88,8 +88,8 @@ export default function App() {
         question,
         {
           onTool: (name, args) => {
-            const described = describeTool(name, args);
-            patchLast((s) => ({ ...s, activity: described, tools: [...s.tools, described] }));
+            const label = describeTool(name, args);
+            patchLast((s) => ({ ...s, activity: label, steps: [...s.steps, { label, name, args }] }));
           },
           onDelta: (text) => patchLast((s) => ({ ...s, text: s.text + text })),
           onDone: (result) => {
