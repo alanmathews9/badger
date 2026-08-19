@@ -1,0 +1,37 @@
+# Badger's tool blocklist. One exact tool name per line; block-tools.sh
+# refuses these and allows everything else, the runtime's builtins included.
+#
+# What belongs here: anything that WRITES TO A SOURCE — sends mail, edits a
+# document, comments on an issue, merges, deletes, shares. The agent changing
+# itself (memory, task_tracker, skill_learner — writes to its own repo) is
+# allowed and stays off this list, as do cli, read, write and edit.
+#
+# Today no write tool is registered at all: the agent's source tools are the
+# ten read-only scripts under tools/, and the Composio session behind them
+# enables read actions only — that layer, not this file, is the primary
+# enforcement. This list exists so that when a write-capable surface appears
+# (an MCP server registering every tool it exposes, a future Composio write
+# slug), the names below are already refused rather than newly discovered.
+# MCP tools register as <server>__<tool>; add both forms if wiring one.
+#
+# Named now, ahead of need — the write actions of the three connected
+# sources, in the naming our own tool layer would give them:
+
+gmail_send
+gmail_reply
+gmail_draft
+gmail_trash
+gmail_label
+drive_create
+drive_edit
+drive_delete
+drive_share
+drive_comment_create
+docs_create
+docs_edit
+github_comment
+github_create_issue
+github_edit
+github_merge
+github_close
+github_delete

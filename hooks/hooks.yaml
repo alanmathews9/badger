@@ -2,14 +2,21 @@
 # run with `sh`, receiving the event as JSON on stdin and replying with JSON
 # on stdout: {"action":"allow"} | {"action":"block","reason":"..."}.
 #
-# One hook, and it is a pre-flight rather than a constraint: the runtime is
-# fail-soft about sources (a server with no credential is skipped silently and
-# the model is never told), so without this check Badger could answer
-# "nothing found" for a source it never contacted. The pre_tool_use allowlist
-# that used to live here was removed 2026-08-19 — the agent's tool surface is
-# open, per the decision to run the framework unconstrained.
+# Two hooks, neither an allowlist. block-tools refuses only the write-to-
+# source names in blocked-tools.txt and allows everything else — the surface
+# is open by default, per the 2026-08-19 decision to run the framework
+# unconstrained. check-sources is a pre-flight: the runtime is fail-soft
+# about sources (a server with no credential is skipped silently and the
+# model is never told), so without it Badger could answer "nothing found"
+# for a source it never contacted.
 
 hooks:
+  pre_tool_use:
+    - script: block-tools.sh
+      description: >-
+        Block only the write-to-source tool names in blocked-tools.txt;
+        everything else, builtins included, is allowed. Open by default.
+
   on_session_start:
     - script: check-sources.sh
       description: >-
