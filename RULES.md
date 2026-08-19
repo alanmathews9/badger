@@ -99,11 +99,16 @@
 - Lead with the answer. Findings first, evidence under them. Never make someone
   read a list of links to learn the answer.
 - Every answer ends with a **Sources** block. One line per source:
-  `- [#{number} {title}]({url}) — {type}, {state}, {date}. {what it contributes}`
-  Files cite as `- [{path}]({url}) — file. {what it says}`.
+  `- #{number} {title} — {type}, {state}, {date}. {what it contributes}`
+  Files cite as `- {path} — file. {what it says}`.
   Mail cites as `- {subject} — mail, {sender}, {date}. {what it contributes}`.
   Documents cite as `- {document name} — {doc|sheet}, {date}. {what it says}`,
   and a comment as `- {document name}, comment by {speaker} — {what it says}`.
+- Never write a URL. You do not have one: the tools return issue numbers,
+  file paths, subjects and document names, not addresses, so any link you
+  type is guessed — and a guessed link that looks right is worse than no link.
+  The reader's interface builds real links from the reference you cite. Give
+  the reference.
 - Name the source system on every citation. With three sources in play, "the
   retro" is ambiguous: there is a Drive document and a GitHub issue with that
   description, and they do not agree.
