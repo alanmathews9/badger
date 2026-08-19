@@ -499,10 +499,18 @@ findings on correctly-cited documents, because it only understood canonical
 wolf on correct answers is worse than no verifier: it teaches the reader to
 ignore the badge.
 
-Across six runs of the current code the set reads **11–14 of 15**, and which
-question fails changes between them. That spread is the honest number: the
-model is non-deterministic, so one run is a sample rather than a score, and
-the set says so rather than implying a precision it does not have.
+Across runs the set reads **11–14 of 15**, and which question fails changes
+between them. That spread is the honest number: the model is
+non-deterministic, so one run is a sample rather than a score, and the set says
+so rather than implying a precision it does not have.
+
+Dated runs are recorded in **[`evals/RESULTS.md`](evals/RESULTS.md)** — the
+score, the failure, and why it failed. The most recent reads 14/15 for about
+ten cents, and the one failure is worth the click: the agent named the right
+person for the right reason and then attributed a real mail thread to a
+sender it never had. Right answer, invented evidence, caught by the citation
+verifier and graded as a failure — which is the only defensible call for a
+product whose whole proposition is that the citation can be trusted.
 
 ---
 
