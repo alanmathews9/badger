@@ -8,6 +8,7 @@ import {
   saveSkill,
   type SkillFile,
 } from "@/lib/ask";
+import { cn } from "@/lib/utils";
 
 /**
  * What a new skill starts as.
@@ -94,6 +95,7 @@ function NewSkill({
   const [content, setContent] = useState(TEMPLATE);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [dragging, setDragging] = useState(false);
 
   const save = async () => {
     setSaving(true);
@@ -109,9 +111,9 @@ function NewSkill({
     onClose(result.slug ?? null);
   };
 
-  // A file loads INTO the box rather than saving straight past it, so an
-  // upload is reviewable before it lands and there is exactly one save path.
-  // Still saved as written unless you change something.
+  // A file lands IN the box rather than saving straight past it, so it is
+  // reviewable before it is written and there is one save path rather than
+  // two. Still saved as given unless you change something.
   const load = async (file: File | undefined) => {
     if (!file) return;
     setError(null);
@@ -122,9 +124,46 @@ function NewSkill({
     <div className="fixed inset-y-0 right-0 z-20 flex w-[560px] max-w-full flex-col border-l border-stone-200 bg-white shadow-xl">
       <div className="flex h-14 shrink-0 items-center gap-2 border-b border-stone-100 px-4">
         <span className="text-[13.5px] font-semibold">New skill</span>
-        <label className="ml-auto inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-stone-200 px-2.5 text-[12px] text-stone-600 hover:bg-stone-50">
-          <Upload className="size-3.5" strokeWidth={2} />
-          Load a SKILL.md
+        <button
+          onClick={() => onClose(null)}
+          aria-label="Close"
+          className="ml-auto inline-flex size-7 shrink-0 items-center justify-center rounded-md text-stone-500 hover:bg-stone-100"
+        >
+          <X className="size-4" strokeWidth={2} />
+        </button>
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col px-4 py-4">
+        {/* Upload first and large. A SKILL.md someone already has arrives
+            complete, with frontmatter written for the runtime rather than
+            improvised in a box, so it is the better way in when it exists.
+            Drag-and-drop as well as click, because a file being dragged over a
+            small button is a file that misses. */}
+        <label
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            load(e.dataTransfer.files?.[0]);
+          }}
+          className={cn(
+            "flex shrink-0 cursor-pointer flex-col items-center gap-1.5 rounded-lg border border-dashed px-3 py-7 text-center transition-colors",
+            dragging
+              ? "border-stone-500 bg-stone-100"
+              : "border-stone-300 hover:border-stone-400 hover:bg-stone-50",
+          )}
+        >
+          <Upload className="size-5 text-stone-500" strokeWidth={1.8} />
+          <span className="text-[13.5px] font-medium text-stone-800">
+            Drop a SKILL.md here, or choose a file
+          </span>
+          <span className="text-[11.5px] text-stone-500">
+            It lands in the box below, unchanged, ready to save
+          </span>
           <input
             type="file"
             accept=".md,text/markdown"
@@ -132,20 +171,25 @@ function NewSkill({
             onChange={(e) => load(e.target.files?.[0])}
           />
         </label>
-        <button
-          onClick={() => onClose(null)}
-          aria-label="Close"
-          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-stone-500 hover:bg-stone-100"
-        >
-          <X className="size-4" strokeWidth={2} />
-        </button>
-      </div>
 
-      <div className="flex min-h-0 flex-1 flex-col px-4 py-4">
-        <p className="mb-2 shrink-0 text-[11.5px] text-stone-500">
-          This is the file. The name in the frontmatter becomes the slug you type after
-          <span className="font-mono"> /</span>.
+        <div className="my-3.5 flex shrink-0 items-center gap-3">
+          <span className="h-px flex-1 bg-stone-200" />
+          <span className="text-[11px] tracking-wide text-stone-400 uppercase">or</span>
+          <span className="h-px flex-1 bg-stone-200" />
+        </div>
+
+        {/* What the file is for, since a blank frontmatter block explains
+            nothing on its own. Three facts, in the order they appear in the
+            file above. */}
+        <p className="mb-2 shrink-0 text-[11.5px]/[1.6] text-stone-500">
+          A skill is one markdown file Badger reads before it answers.{" "}
+          <span className="font-mono text-stone-600">name</span> becomes the slug you type after{" "}
+          <span className="font-mono text-stone-600">/</span>.{" "}
+          <span className="font-mono text-stone-600">description</span> is what it reads to decide
+          whether the skill applies, so put the trigger phrases there in quotes. Everything under
+          the frontmatter is the procedure it follows.
         </p>
+
         <textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
