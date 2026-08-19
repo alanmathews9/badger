@@ -46,6 +46,10 @@ export function ChatScreen({
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [paneOpen, setPaneOpen] = useState(false);
+  /** The picked skill, shown as a blue /command token ahead of the text. */
+  const [command, setCommand] = useState<string | null>(null);
+  /** Which menu row the keyboard has highlighted. */
+  const [hi, setHi] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -53,8 +57,8 @@ export function ChatScreen({
   }, []);
 
   // Slash mode: the draft is "/" plus a token still being typed. Once the
-  // token ends in a space the command is settled and the menu closes.
-  const slashing = draft.match(/^\/(\S*)$/);
+  // token ends in a space the command is settled and becomes the blue token.
+  const slashing = command ? null : draft.match(/^\/(\S*)$/);
   const menuVisible = (menuOpen || slashing != null) && !paneOpen;
   const filter = (slashing?.[1] ?? "").toLowerCase();
 
@@ -64,13 +68,19 @@ export function ChatScreen({
       (s) => s.slug.includes(filter) || skillDisplayName(s.slug).toLowerCase().includes(filter),
     );
 
-  // Picking a skill pre-fills the slash command, Claude Code style — the
-  // command is visible text the user can still edit or delete.
+  // Picking a skill sets the blue /command token — still just text in the
+  // box's flow, deletable with backspace, but visibly a skill.
   const insertSkill = (slug: string) => {
-    setDraft(`/${slug} `);
+    setCommand(slug);
+    setDraft("");
     setMenuOpen(false);
     inputRef.current?.focus();
   };
+
+  // Keyboard highlight resets to the top row whenever the list changes.
+  useEffect(() => {
+    setHi(0);
+  }, [filter, menuVisible]);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const last = turns.at(-1);
@@ -85,15 +95,16 @@ export function ChatScreen({
   const submit = (text: string) => {
     let next = text.trim();
     if (!next || running) return;
-    // A leading /slug that names a real skill is the skill for this question.
-    let skill: string | null = null;
-    const command = next.match(/^\/([a-z0-9-]+)\s+([\s\S]+)$/);
-    if (command && skills.some((s) => s.slug === command[1])) {
-      skill = command[1];
-      next = command[2].trim();
+    // The token is the skill; a hand-typed leading /slug also counts.
+    let skill: string | null = command;
+    const typed = next.match(/^\/([a-z0-9-]+)\s+([\s\S]+)$/);
+    if (!skill && typed && skills.some((s) => s.slug === typed[1])) {
+      skill = typed[1];
+      next = typed[2].trim();
     }
     if (!next || next.startsWith("/")) return;
     setDraft("");
+    setCommand(null);
     onAsk(next, skill);
   };
 
@@ -191,6 +202,7 @@ export function ChatScreen({
             {menuVisible && (
               <SkillMenu
                 skills={pickable}
+                highlight={hi}
                 onPick={insertSkill}
                 onAdd={() => {
                   setMenuOpen(false);
@@ -201,25 +213,46 @@ export function ChatScreen({
             )}
 
             <div className="rounded-2xl border border-stone-200 shadow-sm transition-colors focus-within:border-stone-300">
-              <textarea
-                ref={inputRef}
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    if (slashing && pickable.length > 0) insertSkill(pickable[0].slug);
-                    else submit(draft);
-                  }
-                  if (e.key === "Escape") {
-                    setMenuOpen(false);
-                    if (slashing) setDraft("");
-                  }
-                }}
-                placeholder="Write a message…"
-                rows={2}
-                className="block w-full resize-none bg-transparent px-4 pt-3.5 text-sm placeholder:text-stone-400 focus:outline-none"
-              />
+              <div className="flex items-start gap-1.5 px-4 pt-3.5">
+                {command && (
+                  <span className="shrink-0 font-mono text-[13px] font-medium text-blue-600">
+                    /{command}
+                  </span>
+                )}
+                <textarea
+                  ref={inputRef}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    const rows = pickable.length + 1; // + "Add your own"
+                    if (menuVisible && e.key === "ArrowDown") {
+                      e.preventDefault();
+                      setHi((v) => (v + 1) % rows);
+                    } else if (menuVisible && e.key === "ArrowUp") {
+                      e.preventDefault();
+                      setHi((v) => (v - 1 + rows) % rows);
+                    } else if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      if (menuVisible) {
+                        if (hi < pickable.length) insertSkill(pickable[hi].slug);
+                        else {
+                          setMenuOpen(false);
+                          setDraft("");
+                          setPaneOpen(true);
+                        }
+                      } else submit(draft);
+                    } else if (e.key === "Escape") {
+                      setMenuOpen(false);
+                      if (slashing) setDraft("");
+                    } else if (e.key === "Backspace" && draft === "" && command) {
+                      setCommand(null);
+                    }
+                  }}
+                  placeholder={command ? "What do you want to know?" : "Write a message…"}
+                  rows={2}
+                  className="block w-full resize-none bg-transparent text-sm placeholder:text-stone-400 focus:outline-none"
+                />
+              </div>
               <div className="flex items-center px-2.5 pb-2.5">
                 <button
                   onClick={() => setMenuOpen((v) => !v)}
@@ -489,20 +522,25 @@ const SOURCE_OF: Record<OpenedItem["kind"], SourceId> = {
  */
 function SkillMenu({
   skills,
+  highlight,
   onPick,
   onAdd,
 }: {
   skills: SkillInfo[];
+  highlight: number;
   onPick: (slug: string) => void;
   onAdd: () => void;
 }) {
   return (
     <div className="absolute bottom-full left-0 z-10 mb-2 w-72 overflow-hidden rounded-xl border border-stone-200 bg-white shadow-lg">
-      {skills.map((s) => (
+      {skills.map((s, i) => (
         <button
           key={s.slug}
           onClick={() => onPick(s.slug)}
-          className="flex w-full items-start gap-2.5 px-3.5 py-2 text-left hover:bg-stone-50"
+          className={
+            "flex w-full items-start gap-2.5 px-3.5 py-2 text-left hover:bg-stone-50 " +
+            (i === highlight ? "bg-stone-100" : "")
+          }
         >
           <FileText className="mt-0.5 size-3.5 shrink-0 text-stone-400" strokeWidth={1.9} />
           <span className="min-w-0">
@@ -519,7 +557,8 @@ function SkillMenu({
         onClick={onAdd}
         className={
           "flex w-full items-center gap-2 px-3.5 py-2.5 text-left text-[12.5px] text-stone-600 hover:bg-stone-50 " +
-          (skills.length > 0 ? "border-t border-stone-100" : "")
+          (skills.length > 0 ? "border-t border-stone-100 " : "") +
+          (highlight === skills.length ? "bg-stone-100" : "")
         }
       >
         <Plus className="size-3.5" strokeWidth={2} />
