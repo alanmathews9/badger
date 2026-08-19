@@ -142,7 +142,7 @@ export default function App() {
   }, []);
 
   const startAsk = useCallback(
-    (question: string, skill: string | null = null) => {
+    (question: string, skill: string | null = null, fresh = false) => {
       cancelAsk.current?.();
       dirty.current = true;
       // Abandon any conversation still being fetched. Its `setTurns` would
@@ -163,7 +163,14 @@ export default function App() {
       // The conversation so far, as plain text. The server strips the model's
       // Sources/Coverage boilerplate and enforces its own budget; a turn that
       // errored has nothing to contribute and is left out.
-      const priorTurns: Turn[] = turns
+      // `fresh` means "this is the first question of a new conversation", which
+      // is what a question asked from the search home is. It exists because
+      // `turns` here is a closure over the PREVIOUS conversation: the caller
+      // clears it with openChat(null) in the same tick, and the functional
+      // setTurns below sees that, but this array does not. Without the flag a
+      // question asked from Home would silently carry the last conversation's
+      // history into the prompt.
+      const priorTurns: Turn[] = (fresh ? [] : turns)
         .map((t) => ({ question: t.question, answer: t.answer.result?.answer ?? t.answer.text }))
         .filter((t) => t.answer.trim().length > 0);
 
@@ -314,6 +321,27 @@ export default function App() {
     [navigate, setActive],
   );
 
+  /**
+   * A question asked from the search home.
+   *
+   * Always a new conversation. `activeChatId` survives navigating away from
+   * /chat — nothing clears it, because ChatRoute's effect is what opens and
+   * closes conversations and it does not run on /search — so without the
+   * explicit reset a question typed on Home would append to whatever was last
+   * open, minting no new id and appearing halfway down an old thread.
+   *
+   * `openChat(null)` is safe to call synchronously here: its null branch has
+   * no await before `setActive`, which writes `activeIdRef` directly, so
+   * `startAsk` sees the cleared id rather than a stale one.
+   */
+  const askFromHome = useCallback(
+    (question: string, skill: string | null) => {
+      openChat(null);
+      startAsk(question, skill, true);
+    },
+    [openChat, startAsk],
+  );
+
   const recordSearch = useCallback((query: string, facts: SearchFacts) => {
     history
       .recordSearch(query, facts)
@@ -328,7 +356,19 @@ export default function App() {
       <SidebarInset>
         <Routes>
           <Route path="/" element={<Navigate to="/search" replace />} />
-          <Route path="/search" element={<SearchRoute onSearched={recordSearch} />} />
+          <Route
+            path="/search"
+            element={
+              <SearchRoute
+                onSearched={recordSearch}
+                onAsk={askFromHome}
+                // Authoring a skill happens in the pane, which lives on Chat.
+                // The param is the handover; ChatScreen opens the pane and
+                // strips it, so the URL does not stay in a one-shot state.
+                onAddSkill={() => navigate("/chat?new-skill=1")}
+              />
+            }
+          />
           <Route
             path="/chat"
             element={<ChatRoute turns={turns} chats={chats} loading={loadingChat} chatsLoading={chatsLoading} onOpen={openChat} onAsk={startAsk} onStop={stopAsk} />}
@@ -356,7 +396,15 @@ export default function App() {
  * runs it, so a typed search, a suggestion click, a sidebar history item, the
  * back button and a pasted link all take exactly one path.
  */
-function SearchRoute({ onSearched }: { onSearched: (query: string, facts: SearchFacts) => void }) {
+function SearchRoute({
+  onSearched,
+  onAsk,
+  onAddSkill,
+}: {
+  onSearched: (query: string, facts: SearchFacts) => void;
+  onAsk: (question: string, skill: string | null) => void;
+  onAddSkill: () => void;
+}) {
   const [params, setParams] = useSearchParams();
   const query = params.get("q") ?? "";
 
@@ -411,6 +459,8 @@ function SearchRoute({ onSearched }: { onSearched: (query: string, facts: Search
     <SearchScreen
       query={draft}
       onQueryChange={setDraft}
+      onAsk={onAsk}
+      onAddSkill={onAddSkill}
       onSubmit={(raw) => {
         // Guard the argument rather than trusting callers. An event handler
         // that forwards its MouseEvent here fails silently inside React.
@@ -444,13 +494,26 @@ function ChatRoute({
 }) {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
 
   useEffect(() => {
     onOpen(id ?? null);
   }, [id, onOpen]);
 
+  // Home's "Add your own skill" arrives as ?new-skill=1, because the pane
+  // lives here. Consumed on arrival: leaving the param in the address bar
+  // would reopen the pane on every reload and on the back button.
+  const openSkillPane = params.get("new-skill") === "1";
+  useEffect(() => {
+    if (!openSkillPane) return;
+    const next = new URLSearchParams(params);
+    next.delete("new-skill");
+    setParams(next, { replace: true });
+  }, [openSkillPane, params, setParams]);
+
   return (
     <ChatScreen
+      openSkillPane={openSkillPane}
       turns={turns}
       chats={chats}
       activeId={id ?? null}

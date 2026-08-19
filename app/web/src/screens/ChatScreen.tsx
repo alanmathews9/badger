@@ -54,6 +54,7 @@ export function ChatScreen({
   onStop,
   onNewChat,
   onSelectChat,
+  openSkillPane = false,
 }: {
   turns: ChatTurn[];
   chats: ChatSummary[];
@@ -67,9 +68,12 @@ export function ChatScreen({
   onStop: () => void;
   onNewChat: () => void;
   onSelectChat: (id: string) => void;
+  /** Arrive with the add-skill pane already open — the handover from Home's
+      picker, where the pane does not exist. */
+  openSkillPane?: boolean;
 }) {
   const [skills, setSkills] = useState<SkillInfo[]>([]);
-  const [paneOpen, setPaneOpen] = useState(false);
+  const [paneOpen, setPaneOpen] = useState(openSkillPane);
   const [pending, setPending] = useState<string | null>(null);
   /** A suggestion waiting to be dropped into the box — never sent from here. */
   const [prefill, setPrefill] = useState<string | null>(null);

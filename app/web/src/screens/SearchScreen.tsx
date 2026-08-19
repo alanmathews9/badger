@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ClayBars, DigInput } from "@/components/DigInput";
+import { HomeBar } from "@/components/HomeBar";
 import { SearchCanvas } from "@/components/SearchCanvas";
 import { ResultRow } from "@/components/ResultRow";
 import { SourceRail } from "@/components/SourceRail";
@@ -10,6 +11,8 @@ export function SearchScreen({
   query,
   onQueryChange,
   onSubmit,
+  onAsk,
+  onAddSkill,
   busy,
   error,
   data,
@@ -17,6 +20,9 @@ export function SearchScreen({
   query: string;
   onQueryChange: (next: string) => void;
   onSubmit: (query?: string) => void;
+  /** Send the box to the agent instead of the index. Home only — see HomeBar. */
+  onAsk: (question: string, skill: string | null) => void;
+  onAddSkill: () => void;
   busy: boolean;
   error: string | null;
   data: SearchResponse | null;
@@ -77,13 +83,17 @@ export function SearchScreen({
           </h1>
           <ClayBars />
 
+          {/* Search and Chat over one box. The home screen used to offer only
+              the first, so the way to ask the agent a question was to notice
+              Chat in the sidebar and type it again. See `HomeBar`. */}
           <div className="mt-6">
-            <DigInput
+            <HomeBar
               value={query}
               onChange={onQueryChange}
-              onSubmit={onSubmit}
+              onSearch={onSubmit}
+              onAsk={onAsk}
+              onAddSkill={onAddSkill}
               busy={busy}
-              autoFocus
             />
           </div>
 

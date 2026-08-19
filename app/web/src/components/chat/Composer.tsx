@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Plus, Square } from "lucide-react";
-import { skillDisplayName, type SkillInfo } from "@/lib/ask";
+import { parseSkillCommand, pickableSkills, slashFilter, type SkillInfo } from "@/lib/ask";
 import { SkillMenu } from "./SkillMenu";
 
 /**
@@ -46,15 +46,11 @@ export function Composer({
 
   // Slash mode: the draft is "/" plus a token still being typed. Once the
   // token ends in a space the command is settled and becomes the token.
-  const slashing = command ? null : draft.match(/^\/(\S*)$/);
-  const menuVisible = menuOpen || slashing != null;
-  const filter = (slashing?.[1] ?? "").toLowerCase();
-
-  const pickable = skills
-    .filter((s) => ["recent-activity", "find-expert"].includes(s.slug) || s.origin === "custom")
-    .filter(
-      (s) => s.slug.includes(filter) || skillDisplayName(s.slug).toLowerCase().includes(filter),
-    );
+  // The three rules — what filters, what is offered, how a typed command is
+  // split — are shared with the home bar; see lib/ask.ts.
+  const filter = slashFilter(draft, command);
+  const menuVisible = menuOpen || filter != null;
+  const pickable = pickableSkills(skills, filter ?? "");
 
   const insertSkill = (slug: string) => {
     setCommand(slug);
@@ -92,19 +88,12 @@ export function Composer({
   }, [filter, menuVisible]);
 
   const submit = (text: string) => {
-    let next = text.trim();
-    if (!next || running) return;
-    // The token is the skill; a hand-typed leading /slug also counts.
-    let skill: string | null = command;
-    const typed = next.match(/^\/([a-z0-9-]+)\s+([\s\S]+)$/);
-    if (!skill && typed && skills.some((s) => s.slug === typed[1])) {
-      skill = typed[1];
-      next = typed[2].trim();
-    }
-    if (!next || next.startsWith("/")) return;
+    if (running) return;
+    const parsed = parseSkillCommand(text, command, skills);
+    if (!parsed) return;
     setDraft("");
     setCommand(null);
-    onSubmit(next, skill);
+    onSubmit(parsed.question, parsed.skill);
   };
 
   const openPane = () => {
@@ -146,7 +135,7 @@ export function Composer({
                 } else submit(draft);
               } else if (e.key === "Escape") {
                 setMenuOpen(false);
-                if (slashing) setDraft("");
+                if (filter != null) setDraft("");
               } else if (e.key === "Backspace" && draft === "" && command) {
                 setCommand(null);
               }

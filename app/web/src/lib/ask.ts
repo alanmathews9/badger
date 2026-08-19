@@ -455,3 +455,66 @@ export function skillDisplayName(slug: string): string {
   };
   return named[slug] ?? slug.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase());
 }
+
+// ── The slash-command picker, shared ──────────────────────────────────────
+//
+// The chat composer and the home bar both let you name a skill by typing "/",
+// and they must agree on what "/" means: which skills are offered, how the
+// filter narrows them, and how a typed "/slug question" is split back apart.
+// These three live here rather than in either component so the two cannot
+// drift — the composer's version was the original, and a second hand-rolled
+// copy on Home is exactly how "/find-expert" would come to mean two things.
+
+/**
+ * Which skills the picker offers.
+ *
+ * Not all of them, on purpose. `trace-decision` and `onboard-to-project` are
+ * procedures the agent should reach for on its own when the question calls for
+ * it; putting every skill in a menu invites picking one as a category, which
+ * is the opposite of how skills are meant to be selected.
+ */
+export function pickableSkills(skills: SkillInfo[], filter = ""): SkillInfo[] {
+  const f = filter.toLowerCase();
+  return skills
+    .filter((s) => ["recent-activity", "find-expert"].includes(s.slug) || s.origin === "custom")
+    .filter((s) => s.slug.includes(f) || skillDisplayName(s.slug).toLowerCase().includes(f));
+}
+
+/**
+ * The half-typed slug after a leading "/", or null.
+ *
+ * Null once a command is already settled — the token has become a chip and
+ * what follows is the question, not more of the command.
+ */
+export function slashFilter(draft: string, command: string | null): string | null {
+  if (command) return null;
+  const m = draft.match(/^\/(\S*)$/);
+  return m ? m[1] : null;
+}
+
+/**
+ * Split a draft into the question and the skill it names, or null if there is
+ * nothing sendable.
+ *
+ * Two ways a skill can be named and both are honoured: picked from the menu,
+ * which arrives as `command`, or typed by hand as "/slug the question". A
+ * hand-typed slug counts only if it is a real one — otherwise "/foo bar" would
+ * send "bar" and silently drop what the person thought they had asked for.
+ */
+export function parseSkillCommand(
+  draft: string,
+  command: string | null,
+  skills: SkillInfo[],
+): { question: string; skill: string | null } | null {
+  let next = draft.trim();
+  if (!next) return null;
+  let skill = command;
+  const typed = next.match(/^\/([a-z0-9-]+)\s+([\s\S]+)$/);
+  if (!skill && typed && skills.some((s) => s.slug === typed[1])) {
+    skill = typed[1];
+    next = typed[2].trim();
+  }
+  // Still a bare command with no question behind it: nothing to send.
+  if (!next || next.startsWith("/")) return null;
+  return { question: next, skill };
+}
