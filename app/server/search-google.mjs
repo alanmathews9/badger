@@ -53,6 +53,8 @@ export async function searchGmail(query, { limit = 10, userId } = {}) {
       // The display name only. A full "Name <address>" is too long for the
       // metadata line and the address adds nothing the name does not.
       author: String(m.sender ?? "").replace(/\s*<[^>]*>/, "").trim() || "unknown",
+      // Kept as well as the display name — see the note in index-search.mjs.
+      authorEmail: (String(m.sender ?? "").match(/<([^>]+)>/) ?? [])[1] ?? null,
       updatedAt: String(m.messageTimestamp ?? "").slice(0, 10),
       comments: 0,
       url: m.display_url ?? "",
@@ -143,7 +145,15 @@ export async function searchDrive(query, { limit = 10, userId, excerpt = 5 } = {
       title,
       titleMarked: markTerms(title, terms),
       state: "",
+      // Owner and folder are both absent on the LIVE path, and deliberately.
+      // The owner would come back for the asking — Drive returns it under a
+      // `fields` mask, which the crawl now uses — but this query is a
+      // fullText search whose response holds no folders to resolve `parents`
+      // against, and a second listing call on a path that already makes
+      // seventeen is not worth one line of metadata. The index path answers
+      // every search after the first rebuild, and it carries both.
       author: "",
+      folder: null,
       updatedAt: String(f.modifiedTime ?? "").slice(0, 10),
       comments: 0,
       url: f.webViewLink ?? "",

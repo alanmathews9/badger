@@ -204,6 +204,7 @@ function toRow(item, terms, weights) {
   return {
     id: `${isPr ? "pr" : "issue"}-${item.number}`,
     source: "github",
+    repo: REPO_SLUG,
     kind: isPr ? "pr" : "issue",
     number: item.number,
     title,

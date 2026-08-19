@@ -213,10 +213,30 @@ async function crawlGmail() {
 
 async function crawlDrive() {
   const data = await counted(() =>
-    goog("GOOGLEDRIVE_FIND_FILE", { query: "trashed = false", page_size: 100 }),
+    goog("GOOGLEDRIVE_FIND_FILE", {
+      query: "trashed = false",
+      page_size: 100,
+      // Drive's files.list returns a MINIMAL default field set, and asking is
+      // the only way to get the rest — this is exactly what Onyx does in
+      // backend/onyx/connectors/google_drive/file_retrieval.py, where
+      // FILE_FIELDS spells out "owners(emailAddress)" for the same reason.
+      // Composio forwards the mask (probed 2026-08-20), so the owner and the
+      // last modifier cost no extra call.
+      fields: "files(id, name, mimeType, modifiedTime, webViewLink, parents, owners(displayName), lastModifyingUser(displayName))",
+    }),
   );
   const all = data.files ?? [];
   const files = all.filter((f) => !String(f.mimeType ?? "").includes("folder"));
+  // The folders are in the SAME response we already have, and every file
+  // carries its `parents` ids, so naming a file's folder costs no extra call.
+  // Worth having: "Release Notes, in Releases" is how a person recognises a
+  // document, and it is the only "where" Drive can answer — the toolkit
+  // returns no owner and no last-modifier, probed 2026-08-19.
+  const folderName = new Map(
+    all
+      .filter((f) => String(f.mimeType ?? "").includes("folder"))
+      .map((f) => [f.id, f.name ?? ""]),
+  );
   console.log(`  drive: ${all.length} entries listed, ${files.length} files (${all.length - files.length} folders skipped)`);
 
   let commentThreads = 0;
@@ -257,10 +277,16 @@ async function crawlDrive() {
       type: kindOf(f.mimeType),
       title: f.name ?? "(unnamed)",
       body: [body, margins].filter(Boolean).join("\n\n"),
-      author: "",
+      // Who touched it last, falling back to who owns it. Both come from the
+      // field mask above; neither is in Drive's default response.
+      author: personName(f),
       date: day(f.modifiedTime),
       url: f.webViewLink ?? "",
-      meta: { fileId: f.id, mimeType: f.mimeType ?? "" },
+      meta: {
+        fileId: f.id,
+        mimeType: f.mimeType ?? "",
+        folder: folderName.get((f.parents ?? [])[0]) || null,
+      },
       vector: null,
     };
   });
@@ -412,9 +438,31 @@ async function refreshGmail(since) {
 
 async function refreshDrive(since) {
   const data = await counted(() =>
-    goog("GOOGLEDRIVE_FIND_FILE", { query: `modifiedTime > '${since}' and trashed = false`, page_size: 100 }),
+    goog("GOOGLEDRIVE_FIND_FILE", {
+      query: `modifiedTime > '${since}' and trashed = false`,
+      page_size: 100,
+      fields:
+        "files(id, name, mimeType, modifiedTime, webViewLink, parents, owners(displayName), lastModifyingUser(displayName))",
+    }),
   );
   const files = (data.files ?? []).filter((f) => !String(f.mimeType ?? "").includes("folder"));
+
+  // The refresh query is bounded by modifiedTime, so the folders themselves
+  // are usually not in the response the way they are on a full crawl. One
+  // extra listing for folders only, and only when there is something to
+  // place — cheaper than a metadata call per file, and it keeps a refreshed
+  // row from silently losing the folder a full rebuild gave it.
+  let folderName = new Map();
+  if (files.length) {
+    const folders = await counted(() =>
+      goog("GOOGLEDRIVE_FIND_FILE", {
+        query: "mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+        page_size: 100,
+      }),
+    );
+    folderName = new Map((folders.files ?? []).map((f) => [f.id, f.name ?? ""]));
+  }
+
   const docs = await pMap(files, 4, async (f) => {
     let body = "";
     if (isWorkspaceFile(f.mimeType)) {
@@ -442,8 +490,13 @@ async function refreshDrive(since) {
       id: `drive-${f.id}`, source: "drive", type: kindOf(f.mimeType),
       title: f.name ?? "(unnamed)",
       body: [body, margins].filter(Boolean).join("\n\n"),
-      author: "", date: day(f.modifiedTime), url: f.webViewLink ?? "",
-      meta: { fileId: f.id, mimeType: f.mimeType ?? "" }, vector: null,
+      author: personName(f), date: day(f.modifiedTime), url: f.webViewLink ?? "",
+      meta: {
+        fileId: f.id,
+        mimeType: f.mimeType ?? "",
+        folder: folderName.get((f.parents ?? [])[0]) || null,
+      },
+      vector: null,
     };
   });
   console.log(`  drive: ${docs.length} files changed`);
@@ -595,3 +648,12 @@ main().catch((err) => {
   console.error(`index build failed: ${err.message}`);
   process.exit(1);
 });
+
+/** The person a Drive file is attributable to: last modifier, else owner. */
+function personName(file) {
+  return (
+    file?.lastModifyingUser?.displayName ||
+    (file?.owners ?? [])[0]?.displayName ||
+    ""
+  );
+}

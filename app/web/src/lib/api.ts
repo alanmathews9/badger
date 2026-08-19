@@ -12,6 +12,12 @@ export type SearchRow = {
   title: string;
   state: string;
   author: string;
+  /** Mail only: the sender's address, alongside the display name. */
+  authorEmail?: string | null;
+  /** Drive only: the folder the file sits in. */
+  folder?: string | null;
+  /** GitHub only: owner/repo, shown at the end of the line. */
+  repo?: string | null;
   updatedAt: string;
   comments: number;
   url: string;

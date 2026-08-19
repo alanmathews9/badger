@@ -226,6 +226,16 @@ function toUiRow(row, terms) {
     titleMarked: markTerms(row.title, terms),
     state: row.meta?.state ?? "",
     author: row.author,
+    // The sender's address, for mail. The crawl already stores the whole
+    // "Name <addr>" header; only the display name was ever surfaced, which
+    // makes two people with the same first name indistinguishable in a
+    // result list. Absent on the sources that have no such thing.
+    authorEmail: emailIn(row.meta?.sender),
+    // Drive's folder, and GitHub's repository. Both are stored by the crawl;
+    // absent on an index built before they were, which is why every consumer
+    // treats them as optional rather than assuming.
+    folder: row.meta?.folder ?? null,
+    repo: row.source === "github" ? (process.env.BADGER_GITHUB_REPO ?? null) : null,
     updatedAt: row.date,
     comments: row.meta?.comments ?? 0,
     url: row.url,
@@ -238,4 +248,10 @@ function toUiRow(row, terms) {
     discussion: null,
     score: row.score,
   };
+}
+
+/** The address out of a "Name <addr>" header, when there is one. */
+function emailIn(sender) {
+  const m = String(sender ?? "").match(/<([^>]+)>/);
+  return m ? m[1] : null;
 }
