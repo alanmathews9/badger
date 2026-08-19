@@ -1,17 +1,18 @@
 ---
 name: find-expert
-description: >
-  Identify who knows about, owns, or has actually worked on something — a
-  system, a client, a file, a topic. Use for "who owns", "who knows about",
-  "who should I ask", "who has done this before", "do we have anyone with
-  experience in", "who's been working on". Also use when someone is preparing
-  for a call or a staffing decision and needs to know where real depth is.
+description: |
+  Identify who knows about, owns, or has actually worked on something — a system, a client, a file, a topic. Use for "who owns", "who knows about", "who should I ask", "who has done this before", "do we have anyone with experience in", "who's been working on". Also use when someone is preparing for a call or a staffing decision and needs to know where real depth is.
 license: MIT
 allowed-tools: github_search github_issue github_pr github_commits github_file gmail_search gmail_thread drive_search drive_file drive_comments memory
 metadata:
   author: alan-mathews
-  version: "1.0.0"
+  version: 1.0.0
   category: retrieval
+confidence: 1
+usage_count: 1
+success_count: 1
+failure_count: 0
+negative_examples: []
 ---
 
 # Find who knows

@@ -98,7 +98,9 @@ export function buildSystemSuffix() {
   try {
     memory = readFileSync(new URL("../../memory/MEMORY.md", import.meta.url), "utf8").trim();
   } catch {}
-  if (!memory) return SYSTEM_SUFFIX;
+  // The memory tool itself treats a bare "# Memory" as "No memories yet."
+  // — same rule here, or an empty notebook would still inject a section.
+  if (!memory || memory === "# Memory") return SYSTEM_SUFFIX;
   return (
     SYSTEM_SUFFIX +
     `
