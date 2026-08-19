@@ -13,11 +13,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   listSkills,
-  createSkill,
   createSkillFromFile,
   deleteSkill,
   readSkill,
-  slugify,
 } from "../app/server/skills-store.mjs";
 
 function scratchSkillsDir() {
@@ -31,17 +29,6 @@ function writeSkill(dir, slug, frontmatter) {
   mkdirSync(join(dir, slug));
   writeFileSync(join(dir, slug, "SKILL.md"), `---\n${frontmatter}\n---\n\nBody.\n`);
 }
-
-test("slugify turns a plain name into a safe directory name", () => {
-  assert.equal(slugify("Summarise for a customer"), "summarise-for-a-customer");
-  assert.equal(slugify("  Weird!!  name??  "), "weird-name");
-  assert.equal(slugify("répondre en français"), "rpondre-en-franais");
-});
-
-test("slugify refuses names that leave nothing usable", () => {
-  assert.equal(slugify("!!!"), "");
-  assert.equal(slugify("../../etc/passwd"), "etcpasswd");
-});
 
 test("listSkills reads name, description and origin from frontmatter", () => {
   const dir = scratchSkillsDir();
@@ -62,42 +49,6 @@ test("a directory without SKILL.md is skipped, not fatal", () => {
   mkdirSync(join(dir, "empty-dir"));
   writeSkill(dir, "real", "name: real\ndescription: Real.");
   assert.deepEqual(listSkills(dir).map((s) => s.slug), ["real"]);
-});
-
-test("createSkill writes a loadable SKILL.md marked as added via the UI", () => {
-  const dir = scratchSkillsDir();
-  const { slug } = createSkill(dir, {
-    name: "Summarise for a customer",
-    description: "Turn internal detail into a customer-safe summary.",
-    instructions: "Never name internal people. Lead with the outcome.",
-  });
-  assert.equal(slug, "summarise-for-a-customer");
-  const text = readFileSync(join(dir, slug, "SKILL.md"), "utf8");
-  assert.match(text, /name: summarise-for-a-customer/);
-  assert.match(text, /added_via: badger-ui/);
-  assert.match(text, /Never name internal people/);
-  // And the store can read back what it wrote.
-  assert.equal(listSkills(dir).find((s) => s.slug === slug).origin, "custom");
-});
-
-test("createSkill refuses a collision instead of overwriting", () => {
-  const dir = scratchSkillsDir();
-  writeSkill(dir, "find-expert", "name: find-expert\ndescription: Existing.");
-  assert.throws(
-    () => createSkill(dir, { name: "Find Expert", description: "d", instructions: "i" }),
-    /already exists/,
-  );
-});
-
-test("createSkill validates its inputs", () => {
-  const dir = scratchSkillsDir();
-  assert.throws(() => createSkill(dir, { name: "!!!", description: "d", instructions: "i" }), /name/);
-  assert.throws(() => createSkill(dir, { name: "ok", description: "", instructions: "i" }), /description/);
-  assert.throws(() => createSkill(dir, { name: "ok", description: "d", instructions: "" }), /instructions/);
-  assert.throws(
-    () => createSkill(dir, { name: "ok", description: "d", instructions: "x".repeat(20001) }),
-    /too long/,
-  );
 });
 
 test("a block-scalar description is read, folded onto one line", () => {
@@ -176,4 +127,51 @@ test("uploading a learned skill does not restamp it as UI-added", () => {
   // The stamp is only for files that claim no origin at all.
   assert.equal(readSkill(dir, "taught").origin, "learned");
   assert.equal(/added_via/.test(readSkill(dir, "taught").content), false);
+});
+
+// ── Creating from a whole file ────────────────────────────────────────────
+//
+// The only way a skill is created now: one string, whether it was typed into
+// the box or loaded from disk. What matters is that the frontmatter the
+// runtime depends on is really there, because these files are written by hand.
+
+test("a file is refused unless the runtime could actually load it", () => {
+  const dir = scratchSkillsDir();
+  assert.throws(() => createSkillFromFile(dir, "no frontmatter here"), /frontmatter/);
+  assert.throws(
+    () => createSkillFromFile(dir, "---\nname: Not Kebab\ndescription: d\n---\n\nbody\n"),
+    /kebab-case/,
+  );
+  assert.throws(
+    () => createSkillFromFile(dir, "---\nname: fine\n---\n\nbody\n"),
+    /description/,
+  );
+  // The template offers a block scalar, and a one-line regex captured ">" from
+  // it and called that a description — so a file whose `description: >` had
+  // nothing indented beneath passed with an empty trigger, which is the one
+  // field the model reads before deciding whether the skill applies.
+  assert.throws(
+    () => createSkillFromFile(dir, "---\nname: fine\ndescription: >\n---\n\nbody\n"),
+    /description/,
+  );
+});
+
+test("a file that would load is written as given, and can be removed", () => {
+  const dir = scratchSkillsDir();
+  const file = "---\nname: mine\ndescription: >\n  when someone asks \"who owns\" a thing\nlicense: MIT\n---\n\n## When to Use\n\n\"Who owns billing?\"\n";
+  const { slug } = createSkillFromFile(dir, file);
+  assert.equal(slug, "mine");
+
+  const back = readSkill(dir, "mine");
+  assert.match(back.content, /license: MIT/);
+  assert.match(back.description, /who owns/);
+  assert.equal(back.origin, "custom", "stamped so it can be deleted again");
+  assert.doesNotThrow(() => deleteSkill(dir, "mine"));
+});
+
+test("two skills cannot claim the same name", () => {
+  const dir = scratchSkillsDir();
+  const file = "---\nname: taken\ndescription: d\n---\n\nbody\n";
+  createSkillFromFile(dir, file);
+  assert.throws(() => createSkillFromFile(dir, file), /already exists/);
 });

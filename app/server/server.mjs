@@ -32,7 +32,6 @@ import { splashPage } from "./splash.mjs";
 import { buildSystemSuffix } from "./system-suffix.mjs";
 import { buildPrompt, parseAskBody } from "./transcript.mjs";
 import {
-  createSkill,
   createSkillFromFile,
   deleteSkill,
   listSkills,
@@ -615,15 +614,9 @@ async function handleSkillsCreate(req, res) {
     return json(res, 400, { error: "body must be JSON" });
   }
   try {
-    // Two ways in: the three-field form, or a raw SKILL.md the user uploads.
-    const { slug } =
-      typeof body?.file === "string"
-        ? createSkillFromFile(join(ROOT, "skills"), body.file)
-        : createSkill(join(ROOT, "skills"), {
-            name: body?.name,
-            description: body?.description,
-            instructions: body?.instructions,
-          });
+    // One way in: a whole SKILL.md. Written in the box or loaded from a file,
+    // it is the same string by the time it arrives here.
+    const { slug } = createSkillFromFile(join(ROOT, "skills"), body?.file);
     return json(res, 201, { slug });
   } catch (err) {
     return json(res, 400, { error: err.message });

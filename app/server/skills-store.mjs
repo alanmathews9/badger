@@ -12,15 +12,11 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
-/** A plain name → a filesystem-safe kebab slug. Returns "" when nothing survives. */
-export function slugify(name) {
-  return String(name ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .trim()
-    .replace(/[\s-]+/g, "-")
-    .replace(/^-|-$/g, "");
-}
+// `slugify` and the three-field `createSkill` lived here and are gone with the
+// form that fed them. A skill was assembled from a name, a description and a
+// body, which meant this file owned a small markdown writer — the exact
+// machinery the one-box editor removes. There is now a single way a skill is
+// created, from a whole file, and it is the same path an upload takes.
 
 /** @returns {{slug: string, name: string, description: string, origin: "handwritten"|"learned"|"custom"}[]} */
 export function listSkills(skillsDir) {
@@ -59,45 +55,6 @@ export function listSkills(skillsDir) {
 }
 
 /**
- * Write a new skill into the agent's tree. Throws with a human-readable
- * message on any invalid input; the caller turns that into a 4xx.
- */
-export function createSkill(skillsDir, { name, description, instructions }) {
-  const slug = slugify(name);
-  if (!slug || slug.length > 60) throw new Error("name must contain a few plain words");
-  if (!String(description ?? "").trim()) throw new Error("description is required");
-  if (!String(instructions ?? "").trim()) throw new Error("instructions are required");
-  if (String(description).length > 500) throw new Error("description too long (500 chars max)");
-  if (String(instructions).length > 20000) throw new Error("instructions too long (20k chars max)");
-
-  const dir = join(skillsDir, slug);
-  if (existsSync(dir)) throw new Error(`a skill named "${slug}" already exists`);
-
-  // One-line description in the frontmatter, so listSkills can read it back
-  // without a YAML parser.
-  const oneLineDescription = String(description).replace(/\s+/g, " ").trim();
-  const content = [
-    "---",
-    `name: ${slug}`,
-    `description: ${oneLineDescription}`,
-    "added_via: badger-ui",
-    `added_at: '${new Date().toISOString()}'`,
-    "---",
-    "",
-    // `?? ""`, not String(instructions): with the steps left out — which the
-    // two-field form does by design — String(undefined) writes the literal
-    // word "undefined" into the file, and the agent would read it as the
-    // procedure. Caught by creating one through the API and looking at it.
-    String(instructions ?? "").trim(),
-    "",
-  ].join("\n");
-
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "SKILL.md"), content, "utf8");
-  return { slug };
-}
-
-/**
  * Add a skill from a raw SKILL.md the user already has. Written verbatim —
  * it is their file — after checking it is a skill the runtime will actually
  * load: frontmatter with a kebab-case name and a description, no collision.
@@ -107,10 +64,14 @@ export function createSkillFromFile(skillsDir, content) {
   if (text.length > 50000) throw new Error("file too long (50k chars max)");
   const fm = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!fm) throw new Error("not a SKILL.md — missing the --- frontmatter block");
-  const name = fm[1].match(/^name:\s*(.+)$/m)?.[1]?.trim();
-  const description = fm[1].match(/^description:\s*(.+)$/m)?.[1]?.trim();
+  const name = readField(fm[1], "name");
+  const description = readField(fm[1], "description");
   if (!name || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name))
     throw new Error("frontmatter needs a kebab-case name: (e.g. name: my-skill)");
+  // `readField`, not a one-line regex. The regex captured ">" from a block
+  // scalar and called that a description, so a file whose `description: >` had
+  // nothing indented under it passed validation with an empty trigger — the
+  // one field the model actually reads before deciding.
   if (!description) throw new Error("frontmatter needs a description: line — it is the trigger");
   const dir = join(skillsDir, name);
   if (existsSync(dir)) throw new Error(`a skill named "${name}" already exists`);

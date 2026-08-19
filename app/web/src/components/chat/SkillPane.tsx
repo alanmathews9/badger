@@ -3,6 +3,48 @@ import { Download, MoreHorizontal, Trash2, Upload, X } from "lucide-react";
 import { createSkill, downloadSkill, fetchSkill, removeSkill, type SkillFile } from "@/lib/ask";
 
 /**
+ * What a new skill starts as.
+ *
+ * The headings are not decoration. `## When to Use` is the single strongest
+ * convention across the framework authors' own published agents — always the
+ * first body heading — and here it is also load-bearing: `skill-match.mjs`
+ * reads the quoted questions out of that section to decide when a skill
+ * fires. The quoted phrases in `description:` are the other half of the same
+ * mechanism, matched first.
+ *
+ * A skill written without either can only ever be invoked by hand with "/".
+ * That is what the three-field form used to produce — a name, a prose trigger
+ * and some numbered steps — and nothing in that form could have told you.
+ * Pre-filling the shape is how the box teaches it.
+ *
+ * `license`, `allowed-tools` and `metadata` are deliberately absent. They are
+ * valid keys and the shipped four carry them, but nothing here needs a person
+ * to supply them, and every field in a scaffold that can be left wrong is a
+ * field that will be.
+ */
+const TEMPLATE = `---
+name: my-skill
+description: When Badger should use this, with the phrases that should trigger it in quotes: "who owns", "who should I ask".
+---
+
+# Title
+
+## When to Use
+
+The situation this is for. List example questions in quotes — these are what
+Badger matches a real question against:
+
+"Who owns the payments webhook?"
+"Who should I ask about billing?"
+
+## Steps
+
+1.
+2.
+3.
+`;
+
+/**
  * The skill side pane, in its two jobs.
  *
  * **New** — the three fields are the framework's own SKILL.md shape: the name;
@@ -41,123 +83,75 @@ function NewSkill({
   onClose: (slug: string | null) => void;
   onChanged?: () => void;
 }) {
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [instructions, setInstructions] = useState("");
+  const [content, setContent] = useState(TEMPLATE);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
     setSaving(true);
     setError(null);
-    const result = await createSkill({ name, description, instructions });
+    // The same call an upload makes, because by the time it is sent there is
+    // no difference: one box holding one file. Splitting a name, a trigger and
+    // some steps across three inputs and assembling markdown from them was
+    // machinery that existed only to produce this string.
+    const result = await createSkill({ file: content });
     setSaving(false);
-    if (result.error) setError(result.error);
-    else {
-      onChanged?.();
-      onClose(result.slug ?? null);
-    }
+    if (result.error) return setError(result.error);
+    onChanged?.();
+    onClose(result.slug ?? null);
   };
 
-  const upload = async (file: File | undefined) => {
+  // A file loads INTO the box rather than saving straight past it, so an
+  // upload is reviewable before it lands and there is exactly one save path.
+  // Still saved as written unless you change something.
+  const load = async (file: File | undefined) => {
     if (!file) return;
-    setSaving(true);
     setError(null);
-    const result = await createSkill({ file: await file.text() });
-    setSaving(false);
-    if (result.error) setError(result.error);
-    else {
-      onChanged?.();
-      onClose(result.slug ?? null);
-    }
+    setContent(await file.text());
   };
-
-  const field =
-    "mt-1 w-full rounded-md border border-stone-200 px-2.5 py-1.5 text-[13px] placeholder:text-stone-400 focus:border-stone-400 focus:outline-none";
-  const label = "text-[11px] font-medium text-stone-500";
-  const hint = "font-normal text-stone-400";
 
   return (
-    <div className="fixed inset-y-0 right-0 z-20 flex w-[380px] max-w-full flex-col border-l border-stone-200 bg-white shadow-xl">
-      <div className="flex h-14 shrink-0 items-center justify-between border-b border-stone-100 px-4">
+    <div className="fixed inset-y-0 right-0 z-20 flex w-[560px] max-w-full flex-col border-l border-stone-200 bg-white shadow-xl">
+      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-stone-100 px-4">
         <span className="text-[13.5px] font-semibold">New skill</span>
+        <label className="ml-auto inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-stone-200 px-2.5 text-[12px] text-stone-600 hover:bg-stone-50">
+          <Upload className="size-3.5" strokeWidth={2} />
+          Load a SKILL.md
+          <input
+            type="file"
+            accept=".md,text/markdown"
+            className="hidden"
+            onChange={(e) => load(e.target.files?.[0])}
+          />
+        </label>
         <button
           onClick={() => onClose(null)}
           aria-label="Close"
-          className="inline-flex size-7 items-center justify-center rounded-md text-stone-500 hover:bg-stone-100"
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-stone-500 hover:bg-stone-100"
         >
           <X className="size-4" strokeWidth={2} />
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        <div className="flex flex-col gap-3.5">
-          {/* Upload first, and large. A SKILL.md someone already has is the
-              richest thing this pane can accept — it arrives complete, with
-              its own frontmatter — where the form below can only ever produce
-              a name and a trigger. Putting it under a divider at the bottom
-              had it reading as the fallback, which is backwards. */}
-          <label className="flex cursor-pointer flex-col items-center gap-1.5 rounded-lg border border-dashed border-stone-300 px-3 py-6 text-center hover:border-stone-400 hover:bg-stone-50">
-            <Upload className="size-4 text-stone-500" strokeWidth={1.9} />
-            <span className="text-[13px] font-medium text-stone-800">Upload a SKILL.md</span>
-            <span className="text-[11.5px] text-stone-500">
-              Saved exactly as written, frontmatter and all
-            </span>
-            <input
-              type="file"
-              accept=".md,text/markdown"
-              className="hidden"
-              onChange={(e) => upload(e.target.files?.[0])}
-            />
-          </label>
-
-          <div className="my-0.5 flex items-center gap-3">
-            <span className="h-px flex-1 bg-stone-100" />
-            <span className="text-[11px] text-stone-400">or start from scratch</span>
-            <span className="h-px flex-1 bg-stone-100" />
-          </div>
-
-          <div>
-            <div className={label}>Name</div>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Summarise for a customer"
-              className={field}
-            />
-          </div>
-          <div>
-            <div className={label}>
-              When should Badger use it? <span className={hint}>— the trigger it reads to decide</span>
-            </div>
-            <input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g. When an answer will be sent to a customer"
-              className={field}
-            />
-          </div>
-          <div>
-            <div className={label}>
-              What should Badger do? <span className={hint}>— the steps once the trigger fires</span>
-            </div>
-            <textarea
-              value={instructions}
-              onChange={(e) => setInstructions(e.target.value)}
-              placeholder={"1. Answer as a short summary a customer could read.\n2. Never name internal staff or internal disagreements.\n3. Lead with what the customer gets and when."}
-              rows={7}
-              className={field + " resize-y"}
-            />
-          </div>
-          {error && <p className="text-[12px] text-amber-700">{error}</p>}
-        </div>
+      <div className="flex min-h-0 flex-1 flex-col px-4 py-4">
+        <p className="mb-2 shrink-0 text-[11.5px] text-stone-500">
+          This is the file. The name in the frontmatter becomes the slug you type after
+          <span className="font-mono"> /</span>.
+        </p>
+        <textarea
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          spellCheck={false}
+          className="min-h-0 w-full flex-1 resize-none rounded-md border border-stone-200 p-3 font-mono text-[12px]/[1.65] focus:border-stone-400 focus:outline-none"
+        />
+        {error && <p className="mt-2 shrink-0 text-[12px] text-amber-700">{error}</p>}
       </div>
 
       <div className="shrink-0 border-t border-stone-100 px-4 py-3">
         <button
           onClick={save}
-          disabled={saving || !name.trim() || !description.trim() || !instructions.trim()}
-          className="inline-flex h-8 w-full items-center justify-center rounded-md bg-stone-900 text-xs font-medium text-stone-50 disabled:opacity-40"
+          disabled={saving || !content.trim()}
+          className="inline-flex h-8 items-center justify-center rounded-md bg-stone-900 px-4 text-xs font-medium text-stone-50 disabled:opacity-40"
         >
           {saving ? "Saving…" : "Save skill"}
         </button>
@@ -165,7 +159,6 @@ function NewSkill({
     </div>
   );
 }
-
 
 function OpenSkill({
   slug,
