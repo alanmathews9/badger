@@ -1,13 +1,13 @@
 # Lifecycle hooks. Scripts resolve relative to this hooks/ directory and are
 # run with `sh`, receiving the event as JSON on stdin and replying with JSON
-# on stdout: {"action":"allow"} | {"action":"block","reason":"..."} |
-# {"action":"modify","args":{...}}.
+# on stdout: {"action":"allow"} | {"action":"block","reason":"..."}.
 #
-# pre_tool_use wraps EVERY tool — builtin, declarative, plugin and MCP alike —
-# and is the only place in gitagent 2.1.0 where a tool call can actually be
-# refused. agent.yaml's `tools:` list is ignored by the runtime and MCP servers
-# register every tool they expose, so this file is Badger's real read-only
-# boundary. RULES.md states the policy; this enforces it.
+# One hook, and it is a pre-flight rather than a constraint: the runtime is
+# fail-soft about sources (a server with no credential is skipped silently and
+# the model is never told), so without this check Badger could answer
+# "nothing found" for a source it never contacted. The pre_tool_use allowlist
+# that used to live here was removed 2026-08-19 — the agent's tool surface is
+# open, per the decision to run the framework unconstrained.
 
 hooks:
   on_session_start:
@@ -16,9 +16,3 @@ hooks:
         Refuse to start if a source declared in agent.yaml has no credential.
         The runtime skips unreachable servers silently, so without this Badger
         can report "nothing found" for a source it never contacted.
-
-  pre_tool_use:
-    - script: allow-read-only.sh
-      description: >-
-        Allow only the exact tool names in allowed-tools.txt. Everything else
-        is blocked, including tools that do not exist yet.

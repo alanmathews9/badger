@@ -8,8 +8,8 @@
 # GitHub is reached through the declarative tools in tools/*.yaml, whose scripts
 # open a Composio session. One key covers every Composio-backed source, so this
 # line is what stands between a broken connection and a confidently empty
-# answer. Comment it out only when the github_* tools are also removed from
-# agent.yaml and hooks/allowed-tools.txt.
+# answer. Comment it out only when the github_* tools are
+# also removed from tools/.
 
 github=COMPOSIO_API_KEY
 
