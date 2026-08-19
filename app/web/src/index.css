@@ -103,3 +103,163 @@
   --sidebar-border: hsl(240 3.7% 15.9%);
   --sidebar-ring: hsl(217.2 91.2% 59.8%);
 }
+
+/* ── The search home's canvas ──────────────────────────────────────────────
+   Written as plain CSS rather than as utility classes because almost all of
+   it is mask-image with a custom-property centre — expressible in Tailwind's
+   arbitrary syntax only as a wall of escaped brackets nobody could read or
+   change. See `components/SearchCanvas.tsx` for what each layer is for.
+
+   --gx/--gy are the pointer in canvas coordinates, --mx/--my the pointer in
+   the badger's own box. Both are written by one pointermove handler; neither
+   passes through React state, because this fires sixty times a second. */
+.badger-canvas {
+  --ink: 28, 25, 23; /* stone-900, as channels so masks can vary alpha */
+  --cell: 64px;
+  --gx: 50%;
+  --gy: 50%;
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  background: #fff;
+}
+
+.badger-grid,
+.badger-grid-hot,
+.badger-cell {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.badger-grid,
+.badger-grid-hot {
+  background-image:
+    linear-gradient(to right, var(--line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--line) 1px, transparent 1px);
+  background-size: var(--cell) var(--cell);
+}
+
+/* Never fully transparent: the ruling carries across the whole canvas and
+   only gets denser toward the corner the badger stands in, so that corner
+   reads as ground rather than as a separate decoration. */
+.badger-grid {
+  --line: rgba(var(--ink), 0.055);
+  -webkit-mask-image: radial-gradient(
+    125% 110% at 100% 100%,
+    #000 0 30%,
+    rgba(0, 0, 0, 0.66) 68%,
+    rgba(0, 0, 0, 0.44) 100%
+  );
+  mask-image: radial-gradient(
+    125% 110% at 100% 100%,
+    #000 0 30%,
+    rgba(0, 0, 0, 0.66) 68%,
+    rgba(0, 0, 0, 0.44) 100%
+  );
+}
+
+.badger-grid-hot {
+  --line: rgba(var(--ink), 0.11);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  -webkit-mask-image: radial-gradient(circle 200px at var(--gx) var(--gy), #000 0 35%, transparent 78%);
+  mask-image: radial-gradient(circle 200px at var(--gx) var(--gy), #000 0 35%, transparent 78%);
+}
+
+/* The cell under the pointer, snapped to the ruling. The snap is the whole
+   effect: a highlight that tracks the cursor exactly reads as a light being
+   carried, while one that jumps between gridlines reads as a floor being lit. */
+.badger-cell {
+  width: var(--cell);
+  height: var(--cell);
+  inset: 0 auto auto 0;
+  background: rgba(var(--ink), 0.022);
+  border: 1px solid rgba(var(--ink), 0.06);
+  opacity: 0;
+  transition:
+    transform 0.12s cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 0.3s ease;
+}
+
+.badger-canvas:hover .badger-grid-hot,
+.badger-canvas:hover .badger-cell {
+  opacity: 1;
+}
+
+/* Sized against viewport HEIGHT, not width: the search box is vertically
+   centred, so height is the axis on which the two collide. Below 640px the
+   badger leaves rather than overlapping the box. */
+.badger-corner {
+  --mx: 50%;
+  --my: 50%;
+  position: absolute;
+  right: 40px;
+  bottom: 24px;
+  width: clamp(340px, 50vw, 780px);
+  aspect-ratio: 66 / 32;
+  pointer-events: none;
+}
+
+@media (max-height: 780px) {
+  .badger-corner {
+    width: clamp(280px, 38vw, 560px);
+  }
+}
+
+@media (max-height: 640px) {
+  .badger-corner {
+    display: none;
+  }
+}
+
+.badger-corner svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Hairlines stay hairlines however large the drawing is scaled. */
+.badger-corner svg path {
+  vector-effect: non-scaling-stroke;
+}
+
+.badger-outline {
+  color: rgba(var(--ink), 0.28);
+}
+
+/* The fill layer IS the badger, masked to a circle at the pointer — so the
+   ink can never appear anywhere the animal is not. */
+.badger-fill {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.28s ease;
+  -webkit-mask-image: radial-gradient(circle 118px at var(--mx) var(--my), #000 0 40%, transparent 80%);
+  mask-image: radial-gradient(circle 118px at var(--mx) var(--my), #000 0 40%, transparent 80%);
+}
+
+.badger-canvas:hover .badger-fill {
+  opacity: 1;
+}
+
+.badger-fill .badger-body {
+  color: rgb(var(--ink));
+  opacity: 0.92;
+}
+
+/* The outline sharpens as the fill arrives, rather than staying at rest
+   underneath it. */
+.badger-fill .badger-edge {
+  color: rgb(var(--ink));
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .badger-fill,
+  .badger-cell,
+  .badger-grid-hot {
+    transition: none;
+  }
+}

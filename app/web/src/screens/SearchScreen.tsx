@@ -1,4 +1,5 @@
 import { ClayBars, DigInput } from "@/components/DigInput";
+import { SearchCanvas } from "@/components/SearchCanvas";
 import { ResultRow } from "@/components/ResultRow";
 import { SourceCoverage } from "@/components/SourceCoverage";
 import type { SearchResponse } from "@/lib/api";
@@ -47,45 +48,45 @@ export function SearchScreen({
       )}
 
       {!started ? (
-        // The empty state IS the home screen now, rather than a separate route.
-        <main className="relative flex flex-1 flex-col items-center justify-center px-6 pb-24">
-          <div className="w-full max-w-[640px]">
-            <h1 className="text-[34px]/[1.25] font-semibold tracking-[-0.03em] text-pretty">
-              What do you want to dig into today?
-            </h1>
-            <ClayBars />
+        // The empty state IS the home screen now, rather than a separate
+        // route — and it is the first thing an evaluator sees after the gate,
+        // so it carries the canvas: a ruled field and a badger that inks in
+        // under the pointer. See `SearchCanvas`.
+        <SearchCanvas>
+          <h1 className="text-[34px]/[1.25] font-semibold tracking-[-0.03em] text-pretty">
+            What do you want to dig into today?
+          </h1>
+          <ClayBars />
 
-            <div className="mt-6">
-              <DigInput
-                value={query}
-                onChange={onQueryChange}
-                onSubmit={onSubmit}
-                busy={busy}
-                autoFocus
-              />
-            </div>
-
-            {/* No suggested searches here.
-                There were three, hardcoded, under a "Try one of these"
-                heading. Two arguments against them, and the second is the
-                real one.
-
-                They rot. The set before this one named a consultancy that had
-                been deleted, so the first thing a visitor saw was three
-                questions returning nothing — a maintenance burden on a screen
-                that should have none.
-
-                And they belong on Chat, not here. Onyx draws exactly this
-                line: in `web/src/views/AppPage.tsx` the suggestions block and
-                the search block are mutually exclusive — `SuggestionsUI`
-                renders for `isNewSession() || isAgent()`, `SearchUI` for
-                `isSearch` — so starters appear on chat and never on search.
-                Even on chat they are conditional on an admin having written
-                them (`hasAgentStarterMessages`), never shipped by the
-                developer. A search box does not need worked examples; a
-                conversation with an agent sometimes does. */}
+          <div className="mt-6">
+            <DigInput
+              value={query}
+              onChange={onQueryChange}
+              onSubmit={onSubmit}
+              busy={busy}
+              autoFocus
+            />
           </div>
-        </main>
+
+          {/* No suggested searches here.
+              There were three, hardcoded, under a "Try one of these" heading.
+              Two arguments against them, and the second is the real one.
+
+              They rot. The set before this one named a consultancy that had
+              been deleted, so the first thing a visitor saw was three
+              questions returning nothing — a maintenance burden on a screen
+              that should have none.
+
+              And they belong on Chat, not here. Onyx draws exactly this line:
+              in `web/src/views/AppPage.tsx` the suggestions block and the
+              search block are mutually exclusive — `SuggestionsUI` renders for
+              `isNewSession() || isAgent()`, `SearchUI` for `isSearch` — so
+              starters appear on chat and never on search. Even on chat they
+              are conditional on an admin having written them
+              (`hasAgentStarterMessages`), never shipped by the developer. A
+              search box does not need worked examples; a conversation with an
+              agent sometimes does. */}
+        </SearchCanvas>
       ) : (
         <main className="min-h-0 flex-1 overflow-y-auto px-6 pt-5 pb-16">
           <div className="max-w-[820px]">
