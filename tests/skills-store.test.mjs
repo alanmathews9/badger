@@ -92,3 +92,24 @@ test("createSkill validates its inputs", () => {
     /too long/,
   );
 });
+
+test("a block-scalar description is read, folded onto one line", () => {
+  const dir = scratchSkillsDir();
+  // The hand-written skills use YAML block scalars — "description: >" with
+  // the text indented beneath — so a parser that only reads single-line
+  // values shows every one of them as blank in the picker.
+  writeSkill(
+    dir,
+    "folded",
+    "name: folded\ndescription: >\n  Who knows about a topic,\n  across all three sources.\nlicense: MIT",
+  );
+  writeSkill(
+    dir,
+    "literal",
+    "name: literal\ndescription: |\n  Summarise what happened.\nmetadata:\n  author: someone",
+  );
+
+  const bySlug = Object.fromEntries(listSkills(dir).map((s) => [s.slug, s]));
+  assert.equal(bySlug.folded.description, "Who knows about a topic, across all three sources.");
+  assert.equal(bySlug.literal.description, "Summarise what happened.");
+});

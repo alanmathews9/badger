@@ -42,12 +42,7 @@ export function listSkills(skillsDir) {
     }
     const fm = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
     if (!fm) continue;
-    const field = (key) => {
-      // First line wins; block scalars (>- / |) fall back to the slug rather
-      // than a YAML parse — descriptions we write are single-line on purpose.
-      const m = fm[1].match(new RegExp(`^${key}:\\s*(.+)$`, "m"));
-      return m ? m[1].trim().replace(/^["']|["']$/g, "") : "";
-    };
+    const field = (key) => readField(fm[1], key);
     const origin = /^learned_from:/m.test(fm[1])
       ? "learned"
       : /^added_via:/m.test(fm[1])
@@ -56,7 +51,7 @@ export function listSkills(skillsDir) {
     skills.push({
       slug: entry.name,
       name: field("name") || entry.name,
-      description: /^[>|]/.test(field("description")) ? "" : field("description"),
+      description: field("description"),
       origin,
     });
   }
@@ -118,4 +113,32 @@ export function createSkillFromFile(skillsDir, content) {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "SKILL.md"), text, "utf8");
   return { slug: name };
+}
+
+/**
+ * One frontmatter field, without a YAML dependency.
+ *
+ * Handles the two shapes that actually appear in these files: a plain value
+ * on the same line, and a block scalar ("description: >" or "|") whose text
+ * is indented beneath — which every hand-written skill here uses. Block text
+ * is folded onto one line, because the caller is labelling a menu row.
+ */
+function readField(frontmatter, key) {
+  const lines = frontmatter.split(/\r?\n/);
+  const at = lines.findIndex((line) => line.startsWith(`${key}:`));
+  if (at < 0) return "";
+
+  const inline = lines[at].slice(key.length + 1).trim();
+  if (inline && !/^[|>][-+]?\d*$/.test(inline)) {
+    return inline.replace(/^["']|["']$/g, "");
+  }
+
+  // A block scalar: every following line indented past column 0 belongs to it.
+  const block = [];
+  for (let i = at + 1; i < lines.length; i++) {
+    if (lines[i].trim() === "") continue;
+    if (!/^\s/.test(lines[i])) break;
+    block.push(lines[i].trim());
+  }
+  return block.join(" ").replace(/\s+/g, " ").trim();
 }
