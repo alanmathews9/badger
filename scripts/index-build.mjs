@@ -226,18 +226,16 @@ async function crawlDrive() {
     }),
   );
   const all = data.files ?? [];
-  const files = all.filter((f) => !String(f.mimeType ?? "").includes("folder"));
+  const isFolder = (f) => String(f.mimeType ?? "").includes("folder");
+  const files = all.filter((f) => !isFolder(f));
+  const folders = all.filter(isFolder);
   // The folders are in the SAME response we already have, and every file
   // carries its `parents` ids, so naming a file's folder costs no extra call.
   // Worth having: "Release Notes, in Releases" is how a person recognises a
   // document, and it is the only "where" Drive can answer — the toolkit
   // returns no owner and no last-modifier, probed 2026-08-19.
-  const folderName = new Map(
-    all
-      .filter((f) => String(f.mimeType ?? "").includes("folder"))
-      .map((f) => [f.id, f.name ?? ""]),
-  );
-  console.log(`  drive: ${all.length} entries listed, ${files.length} files (${all.length - files.length} folders skipped)`);
+  const folderName = new Map(folders.map((f) => [f.id, f.name ?? ""]));
+  console.log(`  drive: ${all.length} entries listed, ${files.length} files, ${folders.length} folders`);
 
   let commentThreads = 0;
   const docs = await pMap(files, 4, async (f) => {
@@ -292,7 +290,38 @@ async function crawlDrive() {
   });
   console.log(`  drive: ${commentThreads} comment threads folded in`);
 
-  return { docs, live: { files: files.length, commentThreads } };
+  // **Folders are documents too.** They were filtered out of the crawl, on the
+  // reasoning that a folder has no text to search. But a folder is a real
+  // destination — "the Product folder" is a thing people go looking for, and
+  // Glean returns them — and it has the one field that matters most for a
+  // name-shaped query: its name. They cost nothing: they are already in the
+  // listing above, and unlike files they need no export and no comment call.
+  //
+  // The body is the folder's own path, so "Releases" also answers a search for
+  // the folder it lives in. That is the whole of what Drive can tell us about
+  // a folder, and it is honest to index exactly that rather than an empty
+  // string that would rank a folder by title alone with no way to say so.
+  const folderDocs = folders.map((f) => ({
+    id: `drive-${f.id}`,
+    source: "drive",
+    type: "folder",
+    title: f.name ?? "(unnamed)",
+    body: [folderName.get((f.parents ?? [])[0]), f.name].filter(Boolean).join(" / "),
+    author: personName(f),
+    date: day(f.modifiedTime),
+    url: f.webViewLink ?? "",
+    meta: {
+      fileId: f.id,
+      mimeType: f.mimeType ?? "",
+      folder: folderName.get((f.parents ?? [])[0]) || null,
+    },
+    vector: null,
+  }));
+
+  return {
+    docs: [...docs, ...folderDocs],
+    live: { files: files.length, folders: folders.length, commentThreads },
+  };
 }
 
 function countsOf(docs) {
@@ -300,7 +329,12 @@ function countsOf(docs) {
   return {
     github: { issues: of("github", "issue"), prs: of("github", "pr"), files: of("github", "file"), commits: of("github", "commit") },
     gmail: { messages: of("gmail") },
-    drive: { files: of("drive") },
+    // Folders are counted apart from files, because the build's stored-vs-live
+    // check compares each against what the crawl reported and Drive reports
+    // the two separately. Rolling them into one number made "drive files"
+    // read 39 against a live 29 — a real mismatch, caught by that check on
+    // the first build after folders were indexed.
+    drive: { files: of("drive") - of("drive", "folder"), folders: of("drive", "folder") },
   };
 }
 
@@ -445,7 +479,12 @@ async function refreshDrive(since) {
         "files(id, name, mimeType, modifiedTime, webViewLink, parents, owners(displayName), lastModifyingUser(displayName))",
     }),
   );
-  const files = (data.files ?? []).filter((f) => !String(f.mimeType ?? "").includes("folder"));
+  const isFolder = (f) => String(f.mimeType ?? "").includes("folder");
+  const files = (data.files ?? []).filter((f) => !isFolder(f));
+  // Folders are indexed as rows in their own right — see crawlDrive. A folder
+  // renamed or created since the last build shows up here like any other
+  // changed entry.
+  const changedFolders = (data.files ?? []).filter(isFolder);
 
   // The refresh query is bounded by modifiedTime, so the folders themselves
   // are usually not in the response the way they are on a full crawl. One
@@ -453,7 +492,7 @@ async function refreshDrive(since) {
   // place — cheaper than a metadata call per file, and it keeps a refreshed
   // row from silently losing the folder a full rebuild gave it.
   let folderName = new Map();
-  if (files.length) {
+  if (files.length || changedFolders.length) {
     const folders = await counted(() =>
       goog("GOOGLEDRIVE_FIND_FILE", {
         query: "mimeType = 'application/vnd.google-apps.folder' and trashed = false",
@@ -499,8 +538,21 @@ async function refreshDrive(since) {
       vector: null,
     };
   });
-  console.log(`  drive: ${docs.length} files changed`);
-  return docs;
+  const folderDocs = changedFolders.map((f) => ({
+    id: `drive-${f.id}`, source: "drive", type: "folder",
+    title: f.name ?? "(unnamed)",
+    body: [folderName.get((f.parents ?? [])[0]), f.name].filter(Boolean).join(" / "),
+    author: personName(f), date: day(f.modifiedTime), url: f.webViewLink ?? "",
+    meta: {
+      fileId: f.id,
+      mimeType: f.mimeType ?? "",
+      folder: folderName.get((f.parents ?? [])[0]) || null,
+    },
+    vector: null,
+  }));
+
+  console.log(`  drive: ${docs.length} files changed, ${folderDocs.length} folders`);
+  return [...docs, ...folderDocs];
 }
 
 async function refresh() {
@@ -628,6 +680,7 @@ async function main() {
         ]),
     ["gmail messages", counts.gmail.messages, gmail.live.messages],
     ["drive files", counts.drive.files, drive.live.files],
+    ["drive folders", counts.drive.folders, drive.live.folders],
   ];
   console.log("\nstored vs live:");
   let ok = true;

@@ -1,7 +1,7 @@
 import { FolderOpen } from "lucide-react";
 import { Highlight } from "./Highlight";
 import { StateIcon } from "./octicons";
-import { BRAND_LOGOS, DocsLogo, SheetsLogo, GitHubLogo } from "./BrandLogos";
+import { BRAND_LOGOS, DriveMark, GitHubLogo } from "./BrandLogos";
 import type { SearchRow } from "@/lib/api";
 import { whenLabel } from "@/lib/when";
 
@@ -93,16 +93,20 @@ export function ResultRow({ row }: { row: SearchRow }) {
 /**
  * Which mark a row carries.
  *
- * Drive rows get the Docs or Sheets mark rather than the generic Drive
- * triangle: the index already knows which, and a spreadsheet and a document
- * are different things to be looking for. Anything else in Drive — a PDF, an
- * upload — keeps the Drive mark, because that is genuinely all we know.
+ * Drive rows get their own glyph — Docs, Sheets, folder — with the Drive
+ * triangle badged on the corner, which is the mark Glean draws and which says
+ * both facts at once: what the thing is, and which system it lives in. The
+ * generic triangle threw away the first, and the bare Docs glyph would throw
+ * away the second, which matters more here than it does in Drive itself
+ * because this list is merged from three systems. See `DriveMark`.
+ *
+ * Anything else in Drive — a PDF, an upload — keeps the plain Drive mark,
+ * because that is genuinely all we know.
  */
 function SourceMark({ row }: { row: SearchRow }) {
-  // Docs and Sheets are drawn slightly larger than the rest: their glyphs sit
+  // Drive marks are drawn slightly larger than the rest: their glyphs sit
   // inside more padding, so an equal number renders a visibly smaller mark.
-  if (row.source === "drive" && row.kind === "doc") return <DocsLogo size={30} />;
-  if (row.source === "drive" && row.kind === "sheet") return <SheetsLogo size={30} />;
+  if (row.source === "drive") return <DriveMark kind={row.kind} size={30} />;
   const Logo = BRAND_LOGOS[row.source];
   return <Logo size={26} />;
 }
@@ -130,6 +134,12 @@ function bestExcerpt(excerpts: string[]): string {
  * shown", never "no description".
  */
 function unlocatableText(row: SearchRow): string {
+  // A folder has no text of its own, so there is nothing to excerpt and
+  // nothing was hidden — say what it is rather than "No description.", which
+  // reads as a document whose body we failed to fetch.
+  if (row.kind === "folder") {
+    return row.folder ? `Drive folder, inside ${row.folder}.` : "A folder in Drive.";
+  }
   if (!row.matchedInDiscussionOnly) return row.snippet || "No description.";
   return row.source === "drive"
     ? "Matched inside this document."

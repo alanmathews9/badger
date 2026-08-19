@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
  * — what does this file say, versus what changed and when — and the index
  * carries both kinds distinctly.
  */
-const KINDS: { id: SearchRow["kind"][]; label: string }[] = [
+export const KINDS: { id: SearchRow["kind"][]; label: string }[] = [
   { id: ["issue"], label: "Issues" },
   { id: ["pr"], label: "Pull requests" },
   { id: ["file"], label: "Files" },
@@ -25,8 +25,20 @@ const KINDS: { id: SearchRow["kind"][]; label: string }[] = [
   { id: ["mail"], label: "Mail" },
   { id: ["doc"], label: "Documents" },
   { id: ["sheet"], label: "Spreadsheets" },
+  { id: ["folder"], label: "Folders" },
   { id: ["pdf"], label: "PDFs" },
 ];
+
+/**
+ * Which type group a row belongs to, in the same words the dropdown uses.
+ *
+ * Exported because the source rail nests Drive by type and has to agree with
+ * the dropdown exactly — two controls offering "Documents" and "Docs" for the
+ * same set would read as two different filters.
+ */
+export function kindGroupOf(row: SearchRow): string | null {
+  return KINDS.find((k) => k.id.includes(row.kind))?.label ?? null;
+}
 
 const WINDOWS: { days: number | null; label: string }[] = [
   { days: null, label: "Anytime" },

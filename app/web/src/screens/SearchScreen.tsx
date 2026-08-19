@@ -34,7 +34,13 @@ export function SearchScreen({
     setFilters(NO_FILTERS);
   }, [data]);
 
-  const shown = (data?.results ?? [])
+  // Two lists, because the rail's numbers and the results list answer
+  // different questions. `facets` is everything the time and author filters
+  // allow, which is what the rail counts: they are "how many are there of
+  // each", so choosing Documents must not zero Spreadsheets and strand the
+  // reader with no way back. `shown` is what is actually on screen.
+  const facets = (data?.results ?? []).filter((r) => passes(r, { ...filters, kind: null }));
+  const shown = facets
     .filter((r) => (source ? r.source === source : true))
     .filter((r) => passes(r, filters));
 
@@ -44,14 +50,14 @@ export function SearchScreen({
           empty state it would be a rule with a single icon under it.
 
           The box lines up with the results and runs the full width of the
-          frame beneath it — same 1000px, same left edge as the source marks on
+          frame beneath it — same 920px, same left edge as the source marks on
           the rows, same right edge as the rail. It was centred in its own
           720px, which put it out of step with everything it was searching. A
           search box has no reason to be narrower than its results: what you
           type is often longer than what you get back. */}
       {started && (
       <header className="shrink-0 border-b border-stone-200 px-6 pt-3.5 pb-3">
-        <div className="mx-auto flex w-full max-w-[1000px] flex-col gap-3">
+        <div className="mx-auto flex w-full max-w-[920px] flex-col gap-3">
           <DigInput value={query} onChange={onQueryChange} onSubmit={onSubmit} size="compact" />
           {data && data.results.length > 0 && (
             <SearchFilters rows={data.results} filters={filters} onChange={setFilters} />
@@ -101,15 +107,36 @@ export function SearchScreen({
               agent sometimes does. */}
         </SearchCanvas>
       ) : (
-        <main className="min-h-0 flex-1 overflow-y-auto px-6 pt-6 pb-16">
+        <main className="min-h-0 flex-1 overflow-y-auto px-6 pt-6 pb-16 [scrollbar-gutter:stable_both-edges]">
           {/* One centred frame holding both columns. The results column is
               capped at 640px because a line of body text past roughly 90
               characters is measurably harder to scan, and these rows were
               running to 820px against the left edge of a 1500px window — wide
               AND off-centre, which is the worst of both. The rail rides on the
               right of the same frame, so the pair stays centred at any width
-              and the results stay readable at every one. */}
-          <div className="mx-auto flex w-full max-w-[1000px] items-start gap-10">
+              and the results stay readable at every one.
+
+              **The frame is exactly what it holds: 640 + 40 + 240 = 920.** It
+              was 1000, which left ~124px of dead space to the RIGHT of the
+              rail — the row is short for its frame, and the slack in a centred
+              frame all collects at one end. The visible symptom was asymmetric
+              padding: the gap from the sidebar to the results did not equal
+              the gap from the rail to the window edge, and the search box
+              above (its own frame, same 1000) overshot the rail. Sizing the
+              frame to the row fixes all three at once, and the header's right
+              edge and the rail's right edge now agree for free. Change any of
+              the three numbers and change this one.
+
+              `scrollbar-gutter: stable both-edges` on the scroller above is
+              load-bearing too, not a flourish. `main` is the only scrolling
+              element here, so on a machine with classic space-taking
+              scrollbars its content box is ~15px narrower than the header's —
+              and because both frames are CENTRED, that lands as a ~7.5px
+              horizontal shift between the search box and the results under it,
+              measured. Reserving the gutter on BOTH edges keeps the two frames
+              on the same axis at every width and whether or not the page
+              overflows. Where scrollbars are overlays it reserves nothing. */}
+          <div className="mx-auto flex w-full max-w-[920px] items-start gap-10">
             <div className="min-w-0 max-w-[640px] flex-1">
               {error && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">
@@ -184,9 +211,27 @@ export function SearchScreen({
             {data && (
               <SourceRail
                 data={data}
-                rows={(data.results ?? []).filter((r) => passes(r, filters))}
+                rows={facets}
+                shownCount={shown.length}
                 active={source}
-                onSelect={setSource}
+                // Moving to another source drops the type filter with it:
+                // "Documents" carried over to GitHub is a filter nothing can
+                // satisfy, which reads as an empty result rather than as a
+                // stale control.
+                onSelect={(next) => {
+                  setSource(next);
+                  setFilters((f) => ({ ...f, kind: null }));
+                }}
+                kind={filters.kind}
+                // A Drive type row is visible whatever source is selected, so
+                // picking one has to move the source too — otherwise clicking
+                // "Spreadsheets" from All leaves the rail showing All selected
+                // while the list holds nothing but Drive, and the control that
+                // did the narrowing is not the one that looks active.
+                onKind={(kind) => {
+                  setSource("drive");
+                  setFilters((f) => ({ ...f, kind }));
+                }}
               />
             )}
           </div>

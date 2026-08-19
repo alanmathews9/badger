@@ -91,7 +91,11 @@ export async function searchDrive(query, { limit = 10, userId, excerpt = 5 } = {
     { query: q, page_size: Math.min(Math.max(limit, 1), 25) },
     userId,
   );
-  const files = (data.files ?? []).filter((f) => !String(f.mimeType ?? "").includes("folder"));
+  // Folders are kept, not filtered out. `fullText contains` matches a folder's
+  // name, a folder is a real destination someone searches for, and the index
+  // path indexes them — dropping them here would mean the live fallback
+  // quietly returned a different corpus from the one every other search sees.
+  const files = data.files ?? [];
 
   // Fetch text for the highest-value few. Ordered by title match first, so the
   // budget is spent on files that already look relevant rather than on

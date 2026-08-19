@@ -68,6 +68,69 @@ export function SheetsLogo({ size = 24, className }: Props) {
   );
 }
 
+/**
+ * A Drive folder.
+ *
+ * Drawn rather than vendored: neither gilbarbara/logos nor simple-icons
+ * publishes a Drive *folder* mark, and Google's own is a flat two-tone shape
+ * with no brand detail to get wrong. Painted in Drive's blue so a folder reads
+ * as belonging with the Docs and Sheets marks beside it in a mixed list.
+ */
+export function DriveFolderLogo({ size = 24, className }: Props) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path fill="#4285F4" d="M10.03 4H3.6A1.6 1.6 0 0 0 2 5.6v12.8A1.6 1.6 0 0 0 3.6 20h16.8a1.6 1.6 0 0 0 1.6-1.6V7.6A1.6 1.6 0 0 0 20.4 6h-8.24l-1.35-1.72A.8.8 0 0 0 10.03 4Z" />
+      <path fill="#1A73E8" fillOpacity=".35" d="M2 8.4h20v1.2H2z" />
+    </svg>
+  );
+}
+
+/**
+ * A Drive file's own glyph, with the Drive triangle badged on the corner.
+ *
+ * This is the mark Glean draws, and it says two things at once that neither
+ * half says alone: the glyph says WHAT the thing is — a document, a
+ * spreadsheet, a folder — and the badge says WHERE it lives. A bare Drive
+ * triangle threw away the first; a bare Docs glyph threw away the second, and
+ * a reader scanning a merged list from three systems wants both.
+ *
+ * The badge is painted on a white disc so it stays legible over whichever part
+ * of the glyph it overlaps, and it is deliberately small: it is the secondary
+ * fact, and a badge that competes with the glyph defeats the point of having
+ * one.
+ */
+export function DriveMark({
+  kind,
+  size = 30,
+  badge: withBadge = true,
+}: { kind?: string; size?: number; badge?: boolean }) {
+  const Glyph =
+    kind === "sheet" ? SheetsLogo : kind === "doc" ? DocsLogo : kind === "folder" ? DriveFolderLogo : null;
+
+  // A PDF, an upload, anything we cannot name: the plain Drive triangle, which
+  // is genuinely all we know. Badging it with itself would be noise.
+  if (!Glyph) return <DriveLogo size={Math.round(size * 0.86)} />;
+
+  // Below about 20px the badge stops reading as a Drive triangle and starts
+  // reading as a smudge, so small placements — the source rail's filter rows —
+  // take the glyph alone. They already sit under a Drive heading, so the
+  // "where" the badge carries is said by the position instead.
+  if (!withBadge) return <Glyph size={size} />;
+
+  const badge = Math.round(size * 0.46);
+  return (
+    <span className="relative inline-flex shrink-0" style={{ width: size, height: size }}>
+      <Glyph size={size} />
+      <span
+        className="absolute right-0 bottom-0 flex items-center justify-center rounded-full bg-white"
+        style={{ width: badge, height: badge, transform: "translate(18%, 14%)" }}
+      >
+        <DriveLogo size={Math.round(badge * 0.78)} />
+      </span>
+    </span>
+  );
+}
+
 /** The one place a source's mark is chosen. Every surface indexes this. */
 export const BRAND_LOGOS: Record<SourceId, (p: Props) => React.ReactElement> = {
   github: GitHubLogo,

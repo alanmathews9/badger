@@ -54,7 +54,17 @@ function DropdownMenuItem({
   )
 }
 
-/** An item that can show a tick — the shape a single-choice filter needs. */
+/**
+ * An item that can show a tick — the shape a single-choice filter needs.
+ *
+ * The tick sits in a fixed column on the LEFT, which is shadcn's own
+ * `DropdownMenuCheckboxItem` shape and is right for two reasons. It had been
+ * `ml-auto`, which floats the mark against the right edge of the menu, an
+ * arbitrary distance from the label it is marking — on a wide menu they are no
+ * longer read as one thing. And the column is reserved whether or not the item
+ * is ticked, so every label starts at the same x and ticking one does not
+ * shuffle the others.
+ */
 function DropdownMenuCheckItem({
   className,
   checked,
@@ -62,9 +72,11 @@ function DropdownMenuCheckItem({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Item> & { checked?: boolean }) {
   return (
-    <DropdownMenuItem className={cn("pr-8", className)} {...props}>
+    <DropdownMenuItem className={cn("pl-7", className)} {...props}>
+      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+        {checked && <CheckIcon className="size-3.5" />}
+      </span>
       {children}
-      {checked && <CheckIcon className="ml-auto size-3.5 shrink-0" />}
     </DropdownMenuItem>
   )
 }

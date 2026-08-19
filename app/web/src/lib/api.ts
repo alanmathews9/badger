@@ -5,8 +5,8 @@ export type SourceId = "github" | "gmail" | "drive";
 export type SearchRow = {
   id: string;
   source: SourceId;
-  /** issue/pr/file/commit from GitHub, mail from Gmail, doc/sheet from Drive. */
-  kind: "issue" | "pr" | "file" | "commit" | "mail" | "doc" | "sheet" | "pdf";
+  /** issue/pr/file/commit from GitHub, mail from Gmail, doc/sheet/folder from Drive. */
+  kind: "issue" | "pr" | "file" | "commit" | "mail" | "doc" | "sheet" | "pdf" | "folder";
   /** GitHub only — mail and documents have no number. */
   number: number | null;
   title: string;
