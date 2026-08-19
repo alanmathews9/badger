@@ -18,69 +18,136 @@ four fifths of the grade.
 
 ---
 
-# START HERE — state as of 2026-08-19, night
+# START HERE — state as of 2026-08-19, late night
 
-**Multi-turn chat is built, verified, and UNCOMMITTED in the working tree —
-first thing, confirm with Alan and commit it (he approved the build and
-called the result good; he has not yet been asked about committing). Then:
-Alan wants chat improvements ("a lot of improvements we can make" — ask him
-which), before Composio Triggers (PLAN-AGENT-ON-INDEX.md step 4), docs, and
-the single batched deploy (21+ commits waiting; Alan calls the deploy,
-never you).**
+**The framework is unsuppressed and the chat UI is rebuilt. Everything is
+committed and pushed (26 commits today, `alanmathews9/badger`). Production is
+~46 commits behind — the deploy is Alan's call and has not been made.**
 
-What the chat work is (all local, working tree only):
+## The big change today: the GAP learning loop is ON
 
-- Chat is a real conversation now: a scrolling thread of turns, each answer
-  keeping its source cards / coverage / verification badge; a New chat
-  button; tool calls persist as chips inside each answer instead of
-  vanishing off one status line.
-- `/api/ask` is a **POST** `{question, history}` (the GET is gone —
-  EventSource replaced by fetch+stream in `app/web/src/lib/ask.ts`). New
-  `app/server/transcript.mjs` builds the prompt: full history, oldest turns
-  dropped past an 8,000-char budget, prior answers re-fed without their
-  Sources/Coverage sections. 11 unit tests in `tests/transcript.test.mjs`
-  (`node --test tests/*.test.mjs`).
-- Verified: scripted 3-turn conversation (pronoun resolved from turn 1;
-  "summarise this conversation" answered with zero tool calls), browser
-  walkthrough, eval 13/15 == same-day baseline (why-late failed — the known
-  noisy question — and leave-carryover cut off mid-sentence; both on the
-  SDK path this change never touched).
-- Known wart, pre-existing: the follow-up suggestion chip can show a raw
-  Drive file id when a document failed to open (labelOpened recovered no
-  name).
-- Decided with Alan on the way in: no Vercel AI SDK / chatbot template —
-  we keep our SSE and hand-rolled UI, borrowing the template's UX only.
-  No persistence; refresh starts clean.
+Badger used to remove `task_tracker` and `skill_learner` from the model's
+schema and use `SYSTEM_SUFFIX` to countermand the runtime's own injected
+"Task Learning & Skill Discovery" instructions. **Alan's direction reversed
+that**: the framework is the graded artefact, and suppressing its central
+thesis to defend a boundary the loop was never on the wrong side of was the
+wrong trade. The line now is: **the agent may change ITSELF — memory, skills,
+task ledger, all writes to its own repo — and may never change GitHub, Gmail
+or Drive.**
 
-Also still true: PLAN-AGENT-ON-INDEX.md steps 1–3 are done and gated —
-incremental refresh on a timer (default 2h, BADGER_INDEX_REFRESH_HOURS),
-and the agent's search tools answer from the local index with the live path
-as second look — eval 14/15 against a 13/15 same-day baseline.
+What that means in the repo today:
 
-What else changed on 2026-08-19, all pushed to GitHub
-(`alanmathews9/badger`, public — pushing IS allowed on Alan's word, he asked
-for it twice today):
+- `hooks/allowed-tools.txt` is a short, plain list: all seven runtime builtins
+  (`cli`, `read`, `write`, `edit`, `memory`, `task_tracker`, `skill_learner`)
+  plus the ten source tools. Allowlist, not blocklist — it fails closed on a
+  write tool nobody thought to name. (It was briefly inverted to a blocklist
+  and reverted the same day, on Alan's call.)
+- `allowedTools` is **gone from all three SDK callers** and
+  `app/server/allowed-tools.mjs` is deleted. `agent.yaml` has no `tools:` key
+  (the runtime ignores it) and **no `skills:` key either** — that one is a
+  FILTER (`dist/loader.js:194`), so listing skills there silently hides any
+  the agent learns or a person adds. `skills/` is the whole truth.
+- `hooks/hooks.yaml` has two hooks: the allowlist gate, and `check-sources.sh`
+  (startup pre-flight, now also requiring `BADGER_USER_ID` — the variable
+  whose silent loss caused the 3/15 eval collapse).
+- `SYSTEM_SUFFIX` now **sequences** the loop rather than denying it: begin
+  once → search → end → learn sparingly → save memory if something durable →
+  answer, and never let bookkeeping displace the answer. **The sequencing is
+  load-bearing**: the raw loop scored 11/15 (one run spent itself on
+  bookkeeping, another pasted a `skill_learner` error as the answer);
+  sequenced it went to 13-14/15.
+- **`memory/MEMORY.md` started empty on purpose** (the 37 hand-written lines
+  were developer-authored and contradicted the mechanism). Cost ~2 eval
+  points. **The agent has since written and committed its own first memory** —
+  see `f4bcd47`, authored by the agent during a live run. Do not hand-edit it.
 
-- **The seed toolchain is deleted from HEAD** (Alan's call: a corpus in the
-  repo reads as answering from local files). Recoverable from git history.
-  The eval's graded facts are pinned in evals/questions.mjs.
-- **No more demo defaults in tools.** BADGER_GITHUB_REPO is REQUIRED for the
-  GitHub source (tool output says how to set it; Gmail/Drive work without
-  it); BADGER_USER_ID defaults to neutral "default". Demo identity lives in
-  .env and in the deploy command's --set-env-vars — **the next deploy MUST
-  pass BADGER_USER_ID and BADGER_GITHUB_REPO or production loses the
-  corpus** (command updated below).
-- **The harness path is first-class in the README**: clone + `claude "Be
-  Badger — follow AGENTS.md."` needs only the Composio key — no Google, no
-  model key. Verified end to end by Alan; the registry's `-a claude` adapter
-  does not exist in the shipped gitagent 2.1.0 (read from its dist), so this
-  one-liner is the adapter until theirs ships.
-- Composio Triggers verified affordable (50K events/month free) and their
-  catalogue read from the live API — coverage notes are in
-  PLAN-AGENT-ON-INDEX.md, which also records why chat-on-index went first.
+**Skills roster**: `trace-decision`, `find-expert`, `onboard-to-project`,
+`recent-activity` (renamed from activity-digest), plus agent-learned
+`diagnose-ticket-spike`. `triage-pr-feedback` was deleted — no demo question
+needed it.
+
+**Known framework limitation, seen twice**: the runtime's duplicate check
+compares description *wording*, not meaning, so `find-payments-expert` (a
+narrower `find-expert`) was learned, pruned by hand, and then **re-learned
+twice**. Pruning does not prevent recurrence. Two skill files are currently
+modified in the working tree from eval runs — reinforcement stats on
+`diagnose-ticket-spike`, and the re-learned `find-payments-expert`. **Alan has
+not decided what to do with them.**
+
+## Standing instruction from Alan — the baseline freeze
+
+**Do not touch `memory/`, `skills/`, or add hooks/guardrails unless Alan
+specifically asks.** Memory is the agent's to write; skills are the agent's to
+learn and Alan's to prune. This is the baseline he set, and it is what makes
+the agent-authored commits legible as the agent's own.
+
+## The chat UI, rebuilt today
+
+Three passes, all verified in the browser:
+
+1. **Answers read like answers.** The metrics bar (tool count, seconds, cost,
+   citation count), the tool-call pills, the source card grid, the coverage
+   paragraph and the black verification bar are all gone. What replaced them:
+   a **step trail** above the answer (one quiet live line while running, then
+   "Worked through N steps" expanding to the full trail with tool arguments,
+   the verification result and coverage), and **sources as one small line** of
+   linked names. `app/server/source-links.mjs` builds real links — GitHub from
+   the repo slug, Drive and Gmail by matching the citation back to the opened
+   item; anything unrecoverable renders as plain text.
+2. **Skill picker.** `/` or the `+` opens a compact menu (page icon, bare
+   skill name, description); arrow keys navigate, Enter picks; the choice
+   becomes a **blue `/find-expert` token** in the composer and rides the ask
+   request as a validated slug. The trail opens with "Using: <name>" — the one
+   skill-visibility the runtime cannot give us (it emits no event when the
+   model picks a skill itself; here the user picked it). "Add your own skill"
+   opens a right-hand pane writing a real SKILL.md via `POST /api/skills`, or
+   uploads an existing one.
+3. **Claude/Glean-shaped shell.** A `Chats` history pane (localStorage, 20
+   most recent, click to restore a whole thread), a Claude-style composer
+   (rounded box, "Write a message…", `+` bottom-left), and the sidebar
+   collapse fixed — its trigger used to hide itself when collapsed, leaving no
+   way to reopen.
+
+**Two defects found by the walkthrough, both fixed**: the skills menu showed
+no descriptions (every hand-written skill uses a YAML block scalar and the
+one-line regex returned nothing), and **the answer area streamed the agent's
+internal monologue** ("I will start by searching GitHub…") which was then
+discarded when the real answer landed. The fix for the second is the useful
+idea: **text written before a tool call is narration by definition** — the
+model kept working after writing it — so a tool call clears the accumulated
+text.
+
+## Fixed at the very end: the agent was inventing URLs
+
+`RULES.md` asked for citations as `[#{number} {title}]({url})` and the tools
+return no addresses, so the model guessed —
+`github.com/alan-arkind/arkind/pull/25}`, trailing brace included. The `{url}`
+slot is removed from every citation form and a rule says why. Measured: the
+failing question went from 4 invented URLs to 4 verified citations, and
+fabricated URLs across a full eval run went from one question's worth to
+**zero**.
+
+## Eval, honestly
+
+**11-14/15 across six runs today**, same-day, same code family — this set is
+noisy and a single run is a sample, never a score. Compare only against a
+re-measured same-day baseline. Current reading after the URL fix: **12/15**,
+failures all different from the previous run's. The empty memory costs ~2
+points until the agent re-earns them.
+
+## What is open
+
+1. **The deploy.** ~46 commits behind. Alan calls it; never deploy unasked.
+   The exact command with all five required env vars is under "Also
+   outstanding" — `BADGER_USER_ID` and `BADGER_GITHUB_REPO` are REQUIRED or
+   production serves a Badger that cannot reach the corpus.
+2. **The empty chat state** — Alan said he would say how he wants it. It is
+   currently a heading plus three example questions.
+3. **The two modified skill files** above, awaiting Alan's decision.
+4. **Composio Triggers** (PLAN-AGENT-ON-INDEX.md step 4) and docs, both
+   still deferred.
 
 ---
-
 # The state before that — 2026-08-18, night (still-true background)
 
 **The corpus is seeded, the eval set exists, search has been rebuilt, the app
@@ -544,7 +611,7 @@ what tools return — which is where every win so far has actually come from.
 
 ### Also outstanding
 
-- ⚠️ **Production is TWENTY-ONE commits behind as of 2026-08-19** (the
+- ⚠️ **Production is ~46 commits behind as of 2026-08-19 night** (the
   nine below plus the whole index/refresh/chat-on-index/cleanup arc). What
   follows describes the last deploy, which is revision `badger-00003-zfh` —
   accurate about that revision, and no longer a description of `main`.
