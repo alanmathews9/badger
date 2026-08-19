@@ -119,8 +119,28 @@ export function createSkillFromFile(skillsDir, content) {
   const dir = join(skillsDir, name);
   if (existsSync(dir)) throw new Error(`a skill named "${name}" already exists`);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "SKILL.md"), text, "utf8");
+  writeFileSync(join(dir, "SKILL.md"), stampOrigin(text, fm[1]), "utf8");
   return { slug: name };
+}
+
+/**
+ * Mark an uploaded file as having come in through the UI.
+ *
+ * "Written verbatim — it is their file" was the original rule and it had a
+ * trap in it. Origin is not stored anywhere but the frontmatter, so a file
+ * uploaded without `added_via` or `learned_from` reads back as hand-written —
+ * and hand-written means built-in, which means it can be neither edited nor
+ * deleted. Measured: upload a SKILL.md, then try to remove it, and the server
+ * answers "built-in skills cannot be deleted". A file you added and can never
+ * take away.
+ *
+ * One line, and only when neither marker is already there, so a genuinely
+ * learned skill exported and re-uploaded keeps saying it was learned.
+ * Everything else about the file is still untouched.
+ */
+function stampOrigin(text, frontmatter) {
+  if (/^(added_via|learned_from):/m.test(frontmatter)) return text;
+  return text.replace(/^(---\r?\n[\s\S]*?)(\r?\n---)/, "$1\nadded_via: badger-ui$2");
 }
 
 /**

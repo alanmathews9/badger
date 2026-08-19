@@ -14,6 +14,7 @@ import { join } from "node:path";
 import {
   listSkills,
   createSkill,
+  createSkillFromFile,
   deleteSkill,
   editSkill,
   readSkill,
@@ -200,4 +201,27 @@ test("a rename is refused rather than half-applied", () => {
     () => updateSkill(dir, "keep-me", "---\nname: renamed\ndescription: d\n---\n\ni\n"),
     /renaming is not supported/,
   );
+});
+
+test("an uploaded skill can be removed again", () => {
+  const dir = scratchSkillsDir();
+  // A SKILL.md someone already had. It carries no provenance line, because
+  // why would it — and that was the trap: origin is read back off the
+  // frontmatter, so the file returned as "handwritten", which means built-in,
+  // which means neither editable nor deletable. A skill you added and could
+  // never take away.
+  createSkillFromFile(dir, "---\nname: mine\ndescription: from elsewhere\nlicense: MIT\n---\n\n1. step\n");
+  const made = readSkill(dir, "mine");
+  assert.equal(made.origin, "custom");
+  assert.match(made.content, /license: MIT/, "the rest of their file is still untouched");
+  assert.doesNotThrow(() => deleteSkill(dir, "mine"));
+});
+
+test("uploading a learned skill does not restamp it as UI-added", () => {
+  const dir = scratchSkillsDir();
+  createSkillFromFile(dir, "---\nname: taught\ndescription: d\nlearned_from: a question\n---\n\n1. step\n");
+  // Export a learned skill and put it back and it is still a learned skill.
+  // The stamp is only for files that claim no origin at all.
+  assert.equal(readSkill(dir, "taught").origin, "learned");
+  assert.equal(/added_via/.test(readSkill(dir, "taught").content), false);
 });
