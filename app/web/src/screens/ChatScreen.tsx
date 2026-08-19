@@ -522,29 +522,50 @@ function AddSkillForm({ onDone }: { onDone: (slug: string | null) => void }) {
   const field =
     "w-full rounded-md border border-stone-200 px-2.5 py-1.5 text-[13px] placeholder:text-stone-400 focus:border-stone-400 focus:outline-none";
 
+  const label = "text-[11px] font-medium text-stone-500";
+  const hint = "text-[11px] text-stone-400";
+
   return (
     <div className="mb-2 rounded-lg border border-stone-200 bg-white p-3.5 shadow-sm">
       <div className="mb-2.5 text-[13px] font-medium text-stone-900">New skill</div>
-      <div className="flex flex-col gap-2">
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Name — e.g. Summarise for a customer"
-          className={field}
-        />
-        <input
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="One line on when to use it"
-          className={field}
-        />
-        <textarea
-          value={instructions}
-          onChange={(e) => setInstructions(e.target.value)}
-          placeholder={"The instructions Badger should follow.\ne.g. Never name internal people. Lead with the outcome."}
-          rows={4}
-          className={field + " resize-y"}
-        />
+      {/* The three fields are the framework's own SKILL.md shape: the name,
+          the description (the trigger — the only part the model sees before
+          deciding), and the body (the steps, loaded once the trigger fires). */}
+      <div className="flex flex-col gap-2.5">
+        <div>
+          <div className={label}>Name</div>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Summarise for a customer"
+            className={field + " mt-1"}
+          />
+        </div>
+        <div>
+          <div className={label}>
+            When should Badger use it?{" "}
+            <span className={hint}>— this is the trigger; Badger reads it to decide</span>
+          </div>
+          <input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="e.g. When an answer will be sent to a customer, or the user asks for a customer-safe version"
+            className={field + " mt-1"}
+          />
+        </div>
+        <div>
+          <div className={label}>
+            What should Badger do?{" "}
+            <span className={hint}>— the steps it follows once the trigger fires</span>
+          </div>
+          <textarea
+            value={instructions}
+            onChange={(e) => setInstructions(e.target.value)}
+            placeholder={"1. Answer as a short summary a customer could read.\n2. Never name internal staff or internal disagreements.\n3. Lead with what the customer gets and when."}
+            rows={4}
+            className={field + " mt-1 resize-y"}
+          />
+        </div>
       </div>
       {error && <p className="mt-2 text-[12px] text-amber-700">{error}</p>}
       <div className="mt-2.5 flex items-center gap-2">
