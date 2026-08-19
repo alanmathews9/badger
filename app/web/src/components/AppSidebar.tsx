@@ -54,12 +54,16 @@ export function AppSidebar({
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        <div className="flex items-center gap-2.5 px-1 py-1.5 group-data-[collapsible=icon]:px-0">
+        {/* Collapsed, the rail is too narrow to hold the mark and the toggle
+            side by side — they stack instead, so the toggle stays inside the
+            rail and reachable. It used to be hidden when collapsed, which
+            left no way at all to reopen the sidebar. */}
+        <div className="flex items-center gap-2.5 px-1 py-1.5 group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:gap-1.5 group-data-[collapsible=icon]:px-0">
           <BadgerBadge size={26} />
           <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
             <div className="truncate text-[14.5px] font-semibold tracking-[-0.01em]">badger</div>
           </div>
-          <SidebarTrigger className="shrink-0 rounded-full text-stone-500 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:border group-data-[collapsible=icon]:border-stone-200 group-data-[collapsible=icon]:bg-white" />
+          <SidebarTrigger className="shrink-0 rounded-full text-stone-500 group-data-[collapsible=icon]:border group-data-[collapsible=icon]:border-stone-200 group-data-[collapsible=icon]:bg-white" />
         </div>
       </SidebarHeader>
 

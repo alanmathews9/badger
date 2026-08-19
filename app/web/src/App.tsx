@@ -114,7 +114,17 @@ export default function App() {
         {
           onTool: (name, args) => {
             const label = describeTool(name, args);
-            patchLast((s) => ({ ...s, activity: label, steps: [...s.steps, { label, name, args }] }));
+            // Text written BEFORE a tool call is the model narrating its plan,
+            // not the answer — it kept working after writing it. The runtime
+            // streams both through one channel, so a tool call is the signal
+            // that clears it: without this the reader watches a wall of "I will
+            // now search Gmail…" that is discarded when the real answer lands.
+            patchLast((s) => ({
+              ...s,
+              activity: label,
+              text: "",
+              steps: [...s.steps, { label, name, args }],
+            }));
           },
           onDelta: (text) => patchLast((s) => ({ ...s, text: s.text + text })),
           onDone: (result) => {
