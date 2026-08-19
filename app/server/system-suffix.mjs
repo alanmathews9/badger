@@ -55,7 +55,13 @@ order, and never let it touch the answer:
 4. \`skill_learner\` only after "end", and only when the approach would repeat
    for other questions of the same shape. Routine searches are not skills;
    when unsure, skip it.
-5. Write the answer. Output from \`task_tracker\` or \`skill_learner\` must
+5. Memory, when this run taught you something durable: a nickname that maps
+   to an artefact, where a recurring answer actually lives, a term this
+   organisation uses in its own way. Call \`memory\` action "save" with the
+   ENTIRE updated memory — everything already shown in the Memory section
+   below plus your one new line. Saving less than the whole file erases the
+   rest. Most runs learn nothing durable; then skip this.
+6. Write the answer. Output from \`task_tracker\` or \`skill_learner\` must
    never appear in the answer text — the user never sees the loop, only the
    answer and its sources.
 
