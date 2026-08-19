@@ -9,11 +9,10 @@
 // than something to read and forget. This page's only job is the door — it
 // says nothing about what is behind it.
 
-const MARK = `<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
-<circle cx="6.4" cy="5.6" r="1.9" fill="#f5f5f4"></circle><circle cx="17.6" cy="5.6" r="1.9" fill="#f5f5f4"></circle>
-<path d="M12 2.4 L19.1 6.3 C19.1 13.2 16 19.6 12 21.6 C8 19.6 4.9 13.2 4.9 6.3 Z" fill="#f5f5f4"></path>
-<path d="M12 4.9 L14.3 7 C14.3 12.3 13.3 16.8 12 18.6 C10.7 16.8 9.7 12.3 9.7 7 Z" fill="#1c1917"></path>
-<circle cx="8.4" cy="9.2" r="1.05" fill="#1c1917"></circle><circle cx="15.6" cy="9.2" r="1.05" fill="#1c1917"></circle></svg>`;
+// The same lockup the app's sidebar uses, rather than a second hand-drawn
+// mark that has to be kept in step with it. `/logo.svg` is served before
+// authentication for exactly this — see the pre-auth allowlist in server.mjs.
+const LOGO = `<img src="/logo.svg" alt="Badger" class="logo">`;
 
 const escape = (s) =>
   String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -35,9 +34,8 @@ export function splashPage({ error = null } = {}) {
   body{margin:0;min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px;
        background:#fff;color:#1c1917;font-family:Geist,ui-sans-serif,system-ui,sans-serif}
   .card{width:100%;max-width:360px}
-  .brand{display:flex;align-items:center;gap:10px;margin-bottom:28px}
-  .tile{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;background:#1c1917}
-  .name{font-weight:600;font-size:16px;letter-spacing:-.01em}
+  .brand{display:flex;align-items:center;margin-bottom:28px}
+  .logo{height:38px;width:auto;display:block}
   .bars{display:flex;gap:4px;margin:16px 0 20px}
   .bars span{width:40px;height:3px;border-radius:2px}
   form{display:flex;gap:8px;margin-top:22px}
@@ -53,7 +51,7 @@ export function splashPage({ error = null } = {}) {
 </head>
 <body>
   <main class="card">
-    <div class="brand"><span class="tile">${MARK}</span><span class="name">badger</span></div>
+    <div class="brand">${LOGO}</div>
     <div class="bars"><span style="background:#d97706"></span><span style="background:#b45309"></span><span style="background:#78350f"></span></div>
 
     <form method="POST" action="/api/login" autocomplete="off">

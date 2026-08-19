@@ -23,6 +23,14 @@ The question is bounded by **time** rather than by topic: what shipped last
 week, what has moved on the mobile app this month, what someone worked on,
 catching up after leave. Also the basis for a scheduled digest.
 
+"What shipped last week?" "What has moved on the mobile app this month?"
+"What changed while I was away?" "What did the team do in March?"
+"What has Priya been working on recently?" "Where did we get to on the
+reporting work?"
+
+Not for a question about a single artefact, and not for the reasoning behind
+a choice (use **trace-decision**).
+
 ## Why this needs a procedure
 
 Raw activity is not news. Twenty commits and six merged pull requests tell the

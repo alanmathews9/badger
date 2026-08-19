@@ -21,7 +21,8 @@ negative_examples: []
 
 Someone needs a person, not a document. "Who knows payments integrations?"
 "Who owns the payment webhook?" "Who should review this?" "Do we have
-real depth in Oracle migrations?"
+real depth in Oracle migrations?" "Who has worked on this part before?"
+"Who is the right person to ask about billing?" "Who looks after this client?"
 
 ## Why this needs a procedure
 

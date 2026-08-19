@@ -30,11 +30,33 @@ function stripSections(answer) {
  * Build the prompt: prior turns as a labelled transcript, newest kept when
  * the budget forces a choice, the new question last.
  */
-export function buildPrompt(history, question, { budget = BUDGET_DEFAULT, skill = null } = {}) {
-  // A user-picked skill becomes one explicit line. The skill's own text is
-  // already in the system prompt (the runtime loads every SKILL.md), so the
-  // prompt only has to name it.
-  const ask = skill ? `Use your "${skill}" skill to answer this: ${question}` : question;
+export function buildPrompt(
+  history,
+  question,
+  { budget = BUDGET_DEFAULT, skill = null, procedure = null } = {},
+) {
+  // A skill becomes an explicit instruction, and — when we have it — the
+  // procedure itself travels with the question.
+  //
+  // **The procedure has to be sent.** This comment used to say the skill's
+  // text was "already in the system prompt (the runtime loads every
+  // SKILL.md)". It is not. `loader.js:203` injects `formatSkillsForPrompt`,
+  // which emits each skill's name, description and file location and never
+  // its body; loading the body is a `read` call the model has to decide to
+  // make, and the runtime's own matcher tells it not to bother. So naming the
+  // skill named something the model could not see.
+  //
+  // Same fix as memory, for the same reason: data the run depends on goes in
+  // the prompt, where it cannot be skipped.
+  const ask = skill
+    ? procedure
+      ? `Use your "${skill}" skill to answer this: ${question}\n\n` +
+        `Its full instructions follow. Follow them exactly — this is the ` +
+        `procedure, not background reading. Do not call a tool named ` +
+        `"${skill}"; there is no such tool, and there is nothing further to ` +
+        `load.\n\n<skill name="${skill}">\n${procedure}\n</skill>`
+      : `Use your "${skill}" skill to answer this: ${question}`
+    : question;
   if (!history?.length) return ask;
 
   const answerMax = Math.floor(budget * ANSWER_SHARE);

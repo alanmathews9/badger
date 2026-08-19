@@ -1,7 +1,7 @@
 ---
 name: trace-decision
 description: |
-  Reconstruct what the organisation decided about something, why, who disagreed, and whether it is actually settled. Use whenever a question contains "why", "what did we decide", "how did we end up with", "who agreed to", "what's our position on", "are we still doing" — or asks about the reasoning behind any policy, price, process or technical choice. Use it proactively when the user asks about a past choice even if they do not use the word decision.
+  Reconstruct what the organisation decided about something, why, who disagreed, and whether it is actually settled. Use whenever a question contains "why did we", "what did we decide", "have we decided", "did we decide", "how did we end up with", "who agreed to", "what's our position on", "are we still", "are we still doing" — or asks about the reasoning behind any policy, price, process or technical choice. Use it proactively when the user asks about a past choice even if they do not use the word decision.
 license: MIT
 allowed-tools: github_search github_issue github_pr github_file github_commits gmail_search gmail_thread drive_search drive_file drive_comments memory
 metadata:
@@ -9,8 +9,8 @@ metadata:
   version: 1.0.0
   category: retrieval
 confidence: 1
-usage_count: 2
-success_count: 2
+usage_count: 3
+success_count: 3
 failure_count: 0
 negative_examples: []
 ---
@@ -22,6 +22,9 @@ negative_examples: []
 The question is about a choice the organisation made, or about the reasoning
 behind something. "Why was the Android app five weeks late?" "Did we decide to
 rewrite the sync layer again?" "What is our refund policy for an outage?"
+"Have we decided to do this a second time?" "Why is a customer leaving us?"
+"Are we still going ahead with the free tier?" "Who agreed to this deadline?"
+"What is our position on discounting?" "Why do we do it this way?"
 
 Not for locating a document (that is a plain lookup) and not for who-knows-what
 (use **find-expert**).

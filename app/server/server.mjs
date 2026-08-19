@@ -34,6 +34,8 @@ import { buildPrompt, parseAskBody } from "./transcript.mjs";
 import { createSkill, createSkillFromFile, listSkills } from "./skills-store.mjs";
 import { annotateUnverified, extractCitations, mentions, verifyCitations } from "./verify-citations.mjs";
 import { attachSourceUrls } from "./source-links.mjs";
+import { parseToolResults } from "./tool-results.mjs";
+import { matchSkill, readProcedure } from "./skill-match.mjs";
 
 // The repo root, which is also the agent directory query() loads. The server
 // lives two levels down under app/ precisely so that this is an explicit,
@@ -65,7 +67,11 @@ const server = createServer(async (req, res) => {
     if (url.pathname === "/api/login" && req.method === "POST") return await handleLogin(req, res);
     if (url.pathname === "/api/logout") return logout(res);
     if (url.pathname === "/api/health") return json(res, 200, { ok: true, ...budgetStatus() });
+    // The splash page's own two assets. Both are brand marks and carry no
+    // information about the corpus, the sources or anything behind the gate —
+    // the door has to be able to draw itself.
     if (url.pathname === "/favicon.svg") return await serveStatic("/favicon.svg", res);
+    if (url.pathname === "/logo.svg") return await serveStatic("/logo.svg", res);
 
     if (!hasValidSession(req)) {
       // The app bundle and every API sit behind this, so an unauthenticated
@@ -267,7 +273,22 @@ async function handleAsk(req, res) {
   const slot = claimAskSlot();
   if (slot.error) return json(res, 429, { error: slot.error });
 
-  const prompt = buildPrompt(history, question, { skill });
+  // Which skill this question needs, and its procedure.
+  //
+  // A skill you picked from the composer wins outright. Otherwise we choose
+  // one — because the runtime's own matcher cannot: measured against these
+  // four skills and the fifteen eval questions, `task_tracker` finds a match
+  // for none of them and tells the model "No matching skills found. Solve
+  // from scratch." See `skill-match.mjs` for the arithmetic.
+  const matched = skill
+    ? { slug: skill, procedure: readProcedure(join(ROOT, "skills"), skill) }
+    : matchSkill(join(ROOT, "skills"), question);
+  const chosen = matched?.slug ?? null;
+
+  const prompt = buildPrompt(history, question, {
+    skill: chosen,
+    procedure: matched?.procedure ?? matched?.body ?? null,
+  });
 
   res.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
@@ -275,6 +296,14 @@ async function handleAsk(req, res) {
     connection: "keep-alive",
   });
   const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
+  // The skill in play, announced as the run's first step.
+  //
+  // It cannot come from the runtime: GAP emits no event when a skill is
+  // chosen, and now the choice is made here anyway. Sent as a `tool` frame so
+  // the trail treats it like any other step — the browser draws "Using Find
+  // an expert" and does not care who decided.
+  if (chosen) send("tool", { index: -1, name: "skill", args: { skill: chosen } });
 
   const startedAt = Date.now();
   const toolOutputs = [];
@@ -330,15 +359,29 @@ async function handleAsk(req, res) {
         case "tool_use":
           toolCalls.push(msg.toolName);
           recordOpened(opened, msg);
-          send("tool", { name: msg.toolName, args: msg.args ?? {} });
+          // The step's index travels with it, so the result frame that arrives
+          // later can be attached to the right row rather than to whatever
+          // step happens to be last when it lands.
+          send("tool", { index: toolCalls.length - 1, name: msg.toolName, args: msg.args ?? {} });
           break;
-        case "tool_result":
+        case "tool_result": {
           // Everything Badger actually retrieved. This is the corpus a
           // citation has to appear in to count as verified.
-          toolOutputs.push(
-            typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content),
-          );
+          const content =
+            typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
+          toolOutputs.push(content);
+          // …and, for a search, the documents it found, so the reader can see
+          // what Badger is working from while it is still working. The agent
+          // loop is sequential, so the result belongs to the call just made;
+          // the runtime names the tool on this message too when it can, and
+          // that is preferred over the positional guess.
+          const from = msg.toolName ?? toolCalls.at(-1);
+          const results = parseToolResults(from, content);
+          if (results.length) {
+            send("results", { index: toolCalls.length - 1, results });
+          }
           break;
+        }
         case "delta":
           if (msg.deltaType === "text" && msg.content) send("delta", { text: msg.content });
           break;

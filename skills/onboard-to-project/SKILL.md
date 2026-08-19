@@ -24,6 +24,11 @@ The user needs orientation rather than a specific fact. They are joining a
 project, taking one over, covering for someone, or walking into a meeting about
 something they do not know.
 
+"Get me up to speed on the reporting work" "What do I need to know about this
+account?" "I am taking over the mobile app — what should I know?" "Where do I
+start with the billing code?" "I have a call about this tomorrow, brief me"
+"Can you catch me up on this project before I join it?"
+
 If they asked one narrow question, answer that instead — do not force a brief.
 
 ## Why this needs a procedure
