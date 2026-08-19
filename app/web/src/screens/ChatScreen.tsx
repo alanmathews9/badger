@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, ChevronRight, ExternalLink, Loader2, MessageSquare, Plus, Sparkles, X } from "lucide-react";
+import { ArrowUp, ChevronRight, ExternalLink, Loader2, Plus, X } from "lucide-react";
 import { Markdown, type Citation } from "@/components/Markdown";
 import { BRAND_LOGOS } from "@/components/BrandLogos";
 import type { SourceId } from "@/lib/api";
@@ -18,53 +18,60 @@ import {
 /** One exchange: the question asked, and everything the run produced. */
 export type ChatTurn = { question: string; answer: AnswerState };
 
+/** What the history pane needs to list a conversation. */
+export type ChatSummary = { id: string; title: string };
+
 /**
- * The conversation screen: every exchange in a scrolling thread, and a way to
- * ask the next thing.
- *
- * Everything under an answer is derived from the run that produced it.
- * Sources are what that answer cites, verified against what the tools
- * returned, each linking to the real item for whoever has access. The step
- * trail above each answer shows the work as it happens and then collapses to
- * one quiet row — the detail (tool calls, the verification result, coverage)
- * stays reachable behind the chevron instead of being printed under every
- * answer.
+ * The conversation screen: a history pane of past chats, the thread itself,
+ * and a Claude-style composer — a rounded box with the plus for skills at the
+ * bottom left, and skills invoked as slash text ("/find-expert who owns
+ * payments?") rather than a separate chip.
  */
 export function ChatScreen({
   turns,
+  chats,
+  activeId,
   onAsk,
   onNewChat,
+  onSelectChat,
 }: {
   turns: ChatTurn[];
+  chats: ChatSummary[];
+  activeId: string | null;
   onAsk: (next: string, skill: string | null) => void;
   onNewChat: () => void;
+  onSelectChat: (id: string) => void;
 }) {
   const [draft, setDraft] = useState("");
   const [skills, setSkills] = useState<SkillInfo[]>([]);
-  const [picked, setPicked] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [paneOpen, setPaneOpen] = useState(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     fetchSkills().then(setSkills).catch(() => {});
   }, []);
 
-  // Typing "/" at the start of the input opens the picker; the rest of the
-  // line filters it. Same pattern as Onyx's prompt shortcuts.
-  const pickerOpen = draft.startsWith("/") && !adding;
-  const filter = pickerOpen ? draft.slice(1).toLowerCase() : "";
+  // Slash mode: the draft is "/" plus a token still being typed. Once the
+  // token ends in a space the command is settled and the menu closes.
+  const slashing = draft.match(/^\/(\S*)$/);
+  const menuVisible = (menuOpen || slashing != null) && !paneOpen;
+  const filter = (slashing?.[1] ?? "").toLowerCase();
 
-  // The picker shows the two skills a person would reach for, plus anything
-  // people added through the UI. The rest (trace-decision and friends, and
-  // whatever the agent has learned) still trigger on their own from the
-  // question's shape — listing everything would make the menu a manual.
   const pickable = skills
     .filter((s) => ["recent-activity", "find-expert"].includes(s.slug) || s.origin === "custom")
-    .filter((s) => skillDisplayName(s.slug).toLowerCase().includes(filter));
+    .filter(
+      (s) => s.slug.includes(filter) || skillDisplayName(s.slug).toLowerCase().includes(filter),
+    );
 
-  const pick = (slug: string) => {
-    setPicked(slug);
-    setDraft("");
+  // Picking a skill pre-fills the slash command, Claude Code style — the
+  // command is visible text the user can still edit or delete.
+  const insertSkill = (slug: string) => {
+    setDraft(`/${slug} `);
+    setMenuOpen(false);
+    inputRef.current?.focus();
   };
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const last = turns.at(-1);
   const running = last?.answer.running ?? false;
@@ -75,161 +82,172 @@ export function ChatScreen({
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [turns.length, lastTextLength]);
 
-  const submit = (text: string, skill: string | null = picked) => {
-    const next = text.trim();
-    if (!next || next.startsWith("/") || running) return;
+  const submit = (text: string) => {
+    let next = text.trim();
+    if (!next || running) return;
+    // A leading /slug that names a real skill is the skill for this question.
+    let skill: string | null = null;
+    const command = next.match(/^\/([a-z0-9-]+)\s+([\s\S]+)$/);
+    if (command && skills.some((s) => s.slug === command[1])) {
+      skill = command[1];
+      next = command[2].trim();
+    }
+    if (!next || next.startsWith("/")) return;
     setDraft("");
-    setPicked(null);
     onAsk(next, skill);
   };
 
   const uncited = !running ? (last?.answer.result?.uncited ?? []) : [];
 
   return (
-    <div className="flex h-dvh flex-col bg-white text-stone-900">
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-stone-200 px-4">
-        <span className="truncate text-[13px] font-medium text-stone-600">
-          {turns[0]?.question ?? "Chat"}
-        </span>
-        {turns.length > 0 && (
+    <div className="flex h-dvh bg-white text-stone-900">
+      {/* ── Past chats ─────────────────────────────────────────────── */}
+      <aside className="flex w-60 shrink-0 flex-col border-r border-stone-200 bg-stone-50/50">
+        <div className="p-3">
           <button
             onClick={onNewChat}
-            className="ml-auto inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-stone-200 px-2.5 text-xs text-stone-600 hover:bg-stone-50"
+            className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-stone-200 bg-white text-[12.5px] font-medium text-stone-700 hover:bg-stone-50"
           >
             <Plus className="size-3.5" strokeWidth={2} />
             New chat
           </button>
-        )}
-      </header>
-
-      <main className="min-h-0 flex-1 overflow-y-auto px-6 pt-7">
-        <div className="mx-auto max-w-[720px] pb-10">
-          {turns.length === 0 ? (
-            <div className="pt-10">
-              <h1 className="text-[24px]/[1.4] font-semibold tracking-[-0.02em]">
-                Ask Badger a question
-              </h1>
-              <p className="mt-2 text-sm text-stone-600">
-                It searches, reads the threads, and answers with citations it can verify.
-                Follow-ups carry the whole conversation, so ask the next thing in plain words.
-              </p>
-              <p className="mt-4 text-[12px] text-stone-500">
-                Conversations live in this tab only — a refresh or “New chat” starts clean.
-              </p>
-              <div className="mt-8 flex flex-col items-start gap-2">
-                {[
-                  "What changed in the last two weeks?",
-                  "Who knows about payments?",
-                  "Why was the Android app five weeks late?",
-                ].map((q) => (
-                  <button
-                    key={q}
-                    onClick={() => submit(q, null)}
-                    className="rounded-lg border border-stone-200 px-3.5 py-2 text-left text-[13px] text-stone-700 hover:bg-stone-50"
-                  >
-                    {q}
-                  </button>
-                ))}
-                <p className="mt-2 text-[12px] text-stone-400">
-                  Tip: type <span className="rounded bg-stone-100 px-1 font-mono">/</span> to pick a
-                  skill, or add your own.
-                </p>
-              </div>
-            </div>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+          {chats.length === 0 ? (
+            <p className="px-2 pt-1 text-[11.5px] text-stone-400">No chats yet</p>
           ) : (
-            turns.map((turn, i) => (
-              <TurnBlock key={i} turn={turn} first={i === 0} isLast={i === turns.length - 1} />
+            chats.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => onSelectChat(c.id)}
+                className={
+                  "block w-full truncate rounded-md px-2.5 py-1.5 text-left text-[12.5px] " +
+                  (c.id === activeId
+                    ? "bg-stone-200/70 text-stone-900"
+                    : "text-stone-600 hover:bg-stone-100")
+                }
+              >
+                {c.title}
+              </button>
             ))
           )}
-          <div ref={bottomRef} />
         </div>
-      </main>
+      </aside>
 
-      <div className="shrink-0 border-t border-stone-200 px-6 pt-3.5 pb-5">
-        <div className="mx-auto max-w-[720px]">
-          {/* Suggestions are the threads Badger read but did not cite — real
-              next steps, and free. Generating suggestions with the model would
-              be a second call to invent what we already know. */}
-          {uncited.length > 0 && (
-            <div className="mb-2.5 flex flex-wrap gap-1.5">
-              {uncited.slice(0, 3).map((item) => (
-                <button
-                  key={item.kind + item.ref}
-                  onClick={() => submit(`Tell me about ${item.label}`)}
-                  className="inline-flex h-7 items-center rounded-full border border-stone-200 bg-white px-3 text-xs text-stone-700 hover:bg-stone-50"
-                >
-                  What was in {item.label}?
-                </button>
-              ))}
-            </div>
-          )}
-
-          {pickerOpen && (
-            <SkillPicker
-              skills={pickable}
-              onPick={pick}
-              onAdd={() => {
-                setAdding(true);
-                setDraft("");
-              }}
-            />
-          )}
-
-          {adding && (
-            <AddSkillForm
-              onDone={(slug) => {
-                setAdding(false);
-                fetchSkills().then(setSkills).catch(() => {});
-                if (slug) setPicked(slug);
-              }}
-            />
-          )}
-
-          <div className="flex h-[46px] items-center gap-2.5 rounded-lg border border-stone-300 pr-2 pl-3.5">
-            <MessageSquare className="size-[17px] shrink-0 text-stone-400" strokeWidth={1.9} />
-            {picked && (
-              <span className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-stone-900 pr-1.5 pl-2.5 text-xs text-stone-50">
-                <Sparkles className="size-3" strokeWidth={2} />
-                {skillDisplayName(picked)}
-                <button
-                  onClick={() => setPicked(null)}
-                  aria-label="Remove skill"
-                  className="inline-flex size-4 items-center justify-center rounded-full hover:bg-stone-700"
-                >
-                  <X className="size-3" strokeWidth={2} />
-                </button>
-              </span>
+      {/* ── The thread ─────────────────────────────────────────────── */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <main className="min-h-0 flex-1 overflow-y-auto px-6 pt-7">
+          <div className="mx-auto max-w-[680px] pb-10">
+            {turns.length === 0 ? (
+              <div className="pt-10">
+                <h1 className="text-[24px]/[1.4] font-semibold tracking-[-0.02em]">
+                  Ask Badger a question
+                </h1>
+                <div className="mt-7 flex flex-col items-start gap-2">
+                  {[
+                    "What changed in the last two weeks?",
+                    "Who knows about payments?",
+                    "Why was the Android app five weeks late?",
+                  ].map((q) => (
+                    <button
+                      key={q}
+                      onClick={() => submit(q)}
+                      className="rounded-lg border border-stone-200 px-3.5 py-2 text-left text-[13px] text-stone-700 hover:bg-stone-50"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              turns.map((turn, i) => (
+                <TurnBlock key={i} turn={turn} first={i === 0} isLast={i === turns.length - 1} />
+              ))
             )}
-            <input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  if (pickerOpen && pickable.length > 0) pick(pickable[0].slug);
-                  else submit(draft);
-                }
-                if (e.key === "Escape" && pickerOpen) setDraft("");
-              }}
-              placeholder={
-                picked
-                  ? "What do you want to know?"
-                  : turns.length === 0
-                    ? "Ask Badger, or type / for skills"
-                    : "Ask a follow-up"
-              }
-              className="min-w-0 flex-1 bg-transparent text-sm placeholder:text-stone-400 focus:outline-none"
-            />
-            <button
-              onClick={() => submit(draft)}
-              disabled={!draft.trim() || running}
-              aria-label="Send"
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-stone-900 text-stone-50 disabled:opacity-40"
-            >
-              <ArrowUp className="size-[15px]" strokeWidth={2} />
-            </button>
+            <div ref={bottomRef} />
+          </div>
+        </main>
+
+        {/* ── Composer ─────────────────────────────────────────────── */}
+        <div className="shrink-0 border-t border-stone-100 px-6 pt-4 pb-5">
+          <div className="relative mx-auto max-w-[680px]">
+            {uncited.length > 0 && (
+              <div className="mb-2.5 flex flex-wrap gap-1.5">
+                {uncited.slice(0, 3).map((item) => (
+                  <button
+                    key={item.kind + item.ref}
+                    onClick={() => submit(`Tell me about ${item.label}`)}
+                    className="inline-flex h-7 items-center rounded-full border border-stone-200 bg-white px-3 text-xs text-stone-700 hover:bg-stone-50"
+                  >
+                    What was in {item.label}?
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {menuVisible && (
+              <SkillMenu
+                skills={pickable}
+                onPick={insertSkill}
+                onAdd={() => {
+                  setMenuOpen(false);
+                  setDraft("");
+                  setPaneOpen(true);
+                }}
+              />
+            )}
+
+            <div className="rounded-2xl border border-stone-200 shadow-sm transition-colors focus-within:border-stone-300">
+              <textarea
+                ref={inputRef}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (slashing && pickable.length > 0) insertSkill(pickable[0].slug);
+                    else submit(draft);
+                  }
+                  if (e.key === "Escape") {
+                    setMenuOpen(false);
+                    if (slashing) setDraft("");
+                  }
+                }}
+                placeholder="Write a message…"
+                rows={2}
+                className="block w-full resize-none bg-transparent px-4 pt-3.5 text-sm placeholder:text-stone-400 focus:outline-none"
+              />
+              <div className="flex items-center px-2.5 pb-2.5">
+                <button
+                  onClick={() => setMenuOpen((v) => !v)}
+                  aria-label="Skills"
+                  className="inline-flex size-8 items-center justify-center rounded-lg text-stone-500 hover:bg-stone-100"
+                >
+                  <Plus className="size-[18px]" strokeWidth={1.9} />
+                </button>
+                <button
+                  onClick={() => submit(draft)}
+                  disabled={!draft.trim() || running}
+                  aria-label="Send"
+                  className="ml-auto inline-flex size-8 items-center justify-center rounded-lg bg-stone-900 text-stone-50 disabled:opacity-30"
+                >
+                  <ArrowUp className="size-4" strokeWidth={2} />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
+
+      {paneOpen && (
+        <SkillPane
+          onClose={(slug) => {
+            setPaneOpen(false);
+            fetchSkills().then(setSkills).catch(() => {});
+            if (slug) insertSkill(slug);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -456,11 +474,11 @@ const SOURCE_OF: Record<OpenedItem["kind"], SourceId> = {
 };
 
 /**
- * The "/" menu: the skills a person can hand-pick, plus the door to adding
- * their own. Picking one puts a chip on the composer; the question itself is
- * typed normally afterwards.
+ * The compact skills menu — opened by the plus, or by typing "/". Sized to
+ * its content rather than the composer's width. Picking an item pre-fills
+ * the slash command into the input.
  */
-function SkillPicker({
+function SkillMenu({
   skills,
   onPick,
   onAdd,
@@ -470,25 +488,27 @@ function SkillPicker({
   onAdd: () => void;
 }) {
   return (
-    <div className="mb-2 overflow-hidden rounded-lg border border-stone-200 bg-white shadow-sm">
+    <div className="absolute bottom-full left-0 z-10 mb-2 w-72 overflow-hidden rounded-xl border border-stone-200 bg-white shadow-lg">
       {skills.map((s) => (
         <button
           key={s.slug}
           onClick={() => onPick(s.slug)}
-          className="flex w-full items-baseline gap-2.5 px-3.5 py-2.5 text-left hover:bg-stone-50"
+          className="block w-full px-3.5 py-2 text-left hover:bg-stone-50"
         >
-          <span className="text-[13px] font-medium text-stone-900">{skillDisplayName(s.slug)}</span>
-          <span className="min-w-0 truncate text-[12px] text-stone-500">{s.description}</span>
-          {s.origin === "custom" && (
-            <span className="ml-auto shrink-0 rounded bg-stone-100 px-1.5 font-mono text-[10px] text-stone-500">
-              yours
-            </span>
+          <span className="block text-[13px] font-medium text-stone-900">
+            {skillDisplayName(s.slug)}
+          </span>
+          {s.description && (
+            <span className="block truncate text-[11.5px] text-stone-500">{s.description}</span>
           )}
         </button>
       ))}
       <button
         onClick={onAdd}
-        className="flex w-full items-center gap-2 border-t border-stone-100 px-3.5 py-2.5 text-left text-[13px] text-stone-600 hover:bg-stone-50"
+        className={
+          "flex w-full items-center gap-2 px-3.5 py-2.5 text-left text-[12.5px] text-stone-600 hover:bg-stone-50 " +
+          (skills.length > 0 ? "border-t border-stone-100" : "")
+        }
       >
         <Plus className="size-3.5" strokeWidth={2} />
         Add your own skill
@@ -498,12 +518,13 @@ function SkillPicker({
 }
 
 /**
- * Adding a skill writes a real SKILL.md into the agent's own repository —
- * the same mechanism the agent's learning uses, driven by a person. It is
- * available to the very next question, and it shows up in git as a change
- * for a human to review and commit.
+ * The add-skill side pane. The three fields are the framework's own SKILL.md
+ * shape: the name; the description — the trigger, the only part the model
+ * sees before deciding; and the steps, loaded once the trigger fires. Saving
+ * writes a real SKILL.md into the agent's repo (the same mechanism its own
+ * learning uses) and pre-fills the new slash command into the composer.
  */
-function AddSkillForm({ onDone }: { onDone: (slug: string | null) => void }) {
+function SkillPane({ onClose }: { onClose: (slug: string | null) => void }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [instructions, setInstructions] = useState("");
@@ -516,75 +537,76 @@ function AddSkillForm({ onDone }: { onDone: (slug: string | null) => void }) {
     const result = await createSkill({ name, description, instructions });
     setSaving(false);
     if (result.error) setError(result.error);
-    else onDone(result.slug ?? null);
+    else onClose(result.slug ?? null);
   };
 
   const field =
-    "w-full rounded-md border border-stone-200 px-2.5 py-1.5 text-[13px] placeholder:text-stone-400 focus:border-stone-400 focus:outline-none";
-
+    "mt-1 w-full rounded-md border border-stone-200 px-2.5 py-1.5 text-[13px] placeholder:text-stone-400 focus:border-stone-400 focus:outline-none";
   const label = "text-[11px] font-medium text-stone-500";
-  const hint = "text-[11px] text-stone-400";
+  const hint = "font-normal text-stone-400";
 
   return (
-    <div className="mb-2 rounded-lg border border-stone-200 bg-white p-3.5 shadow-sm">
-      <div className="mb-2.5 text-[13px] font-medium text-stone-900">New skill</div>
-      {/* The three fields are the framework's own SKILL.md shape: the name,
-          the description (the trigger — the only part the model sees before
-          deciding), and the body (the steps, loaded once the trigger fires). */}
-      <div className="flex flex-col gap-2.5">
-        <div>
-          <div className={label}>Name</div>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Summarise for a customer"
-            className={field + " mt-1"}
-          />
-        </div>
-        <div>
-          <div className={label}>
-            When should Badger use it?{" "}
-            <span className={hint}>— this is the trigger; Badger reads it to decide</span>
+    <div className="fixed inset-y-0 right-0 z-20 flex w-[380px] max-w-full flex-col border-l border-stone-200 bg-white shadow-xl">
+      <div className="flex h-14 shrink-0 items-center justify-between border-b border-stone-100 px-4">
+        <span className="text-[13.5px] font-semibold">New skill</span>
+        <button
+          onClick={() => onClose(null)}
+          aria-label="Close"
+          className="inline-flex size-7 items-center justify-center rounded-md text-stone-500 hover:bg-stone-100"
+        >
+          <X className="size-4" strokeWidth={2} />
+        </button>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        <div className="flex flex-col gap-3.5">
+          <div>
+            <div className={label}>Name</div>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Summarise for a customer"
+              className={field}
+            />
           </div>
-          <input
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="e.g. When an answer will be sent to a customer, or the user asks for a customer-safe version"
-            className={field + " mt-1"}
-          />
-        </div>
-        <div>
-          <div className={label}>
-            What should Badger do?{" "}
-            <span className={hint}>— the steps it follows once the trigger fires</span>
+          <div>
+            <div className={label}>
+              When should Badger use it? <span className={hint}>— the trigger it reads to decide</span>
+            </div>
+            <input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="e.g. When an answer will be sent to a customer"
+              className={field}
+            />
           </div>
-          <textarea
-            value={instructions}
-            onChange={(e) => setInstructions(e.target.value)}
-            placeholder={"1. Answer as a short summary a customer could read.\n2. Never name internal staff or internal disagreements.\n3. Lead with what the customer gets and when."}
-            rows={4}
-            className={field + " mt-1 resize-y"}
-          />
+          <div>
+            <div className={label}>
+              What should Badger do? <span className={hint}>— the steps once the trigger fires</span>
+            </div>
+            <textarea
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              placeholder={"1. Answer as a short summary a customer could read.\n2. Never name internal staff or internal disagreements.\n3. Lead with what the customer gets and when."}
+              rows={7}
+              className={field + " resize-y"}
+            />
+          </div>
+          {error && <p className="text-[12px] text-amber-700">{error}</p>}
         </div>
       </div>
-      {error && <p className="mt-2 text-[12px] text-amber-700">{error}</p>}
-      <div className="mt-2.5 flex items-center gap-2">
+
+      <div className="shrink-0 border-t border-stone-100 px-4 py-3">
         <button
           onClick={save}
           disabled={saving || !name.trim() || !description.trim() || !instructions.trim()}
-          className="inline-flex h-8 items-center rounded-md bg-stone-900 px-3 text-xs font-medium text-stone-50 disabled:opacity-40"
+          className="inline-flex h-8 w-full items-center justify-center rounded-md bg-stone-900 text-xs font-medium text-stone-50 disabled:opacity-40"
         >
           {saving ? "Saving…" : "Save skill"}
         </button>
-        <button
-          onClick={() => onDone(null)}
-          className="inline-flex h-8 items-center rounded-md px-2.5 text-xs text-stone-600 hover:bg-stone-100"
-        >
-          Cancel
-        </button>
-        <span className="ml-auto text-[11px] text-stone-400">
-          Lands in the agent's own repo, usable on the next question
-        </span>
+        <p className="mt-2 text-center text-[11px] text-stone-400">
+          Lands in the agent's own repo — usable on the next question via /
+        </p>
       </div>
     </div>
   );

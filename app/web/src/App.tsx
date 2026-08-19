@@ -16,6 +16,7 @@ import { ask, describeTool, skillDisplayName, type Turn } from "@/lib/ask";
 import type { AnswerState } from "@/components/AnswerCard";
 import type { ChatTurn } from "@/screens/ChatScreen";
 import { useRecentDigs } from "@/lib/recentDigs";
+import { loadChats, newChatId, saveChats, type StoredChat } from "@/lib/chats";
 
 const IDLE: AnswerState = {
   running: false,
@@ -55,11 +56,28 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
+  const [chats, setChats] = useState<StoredChat[]>(() => loadChats());
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [sources, setSources] = useState<SourcesResponse>({ mode: "none", sources: [] });
   const [budget, setBudget] = useState<Budget | null>(null);
   const { digs, record } = useRecentDigs();
 
   const cancelAsk = useRef<(() => void) | null>(null);
+
+  // Persist the active conversation whenever a turn finishes. Running turns
+  // are skipped — a half-streamed answer is not worth restoring.
+  useEffect(() => {
+    if (!activeChatId || turns.length === 0) return;
+    if (turns[turns.length - 1].answer.running) return;
+    setChats((prev) => {
+      const updated: StoredChat[] = [
+        { id: activeChatId, title: turns[0].question, updatedAt: Date.now(), turns },
+        ...prev.filter((c) => c.id !== activeChatId),
+      ];
+      saveChats(updated);
+      return updated;
+    });
+  }, [turns, activeChatId]);
 
   useEffect(() => {
     fetchSources().then(setSources).catch(() => {});
@@ -77,6 +95,7 @@ export default function App() {
   const startAsk = useCallback(
     (question: string, skill: string | null = null) => {
       cancelAsk.current?.();
+      if (!activeChatId) setActiveChatId(newChatId());
       // The conversation so far, as plain text. The server strips the model's
       // Sources/Coverage boilerplate and enforces its own budget; a turn that
       // errored has nothing to contribute and is left out.
@@ -109,13 +128,25 @@ export default function App() {
         skill,
       );
     },
-    [turns, patchLast],
+    [turns, activeChatId, patchLast],
   );
 
   const newChat = useCallback(() => {
     cancelAsk.current?.();
+    setActiveChatId(null);
     setTurns([]);
   }, []);
+
+  const selectChat = useCallback(
+    (id: string) => {
+      cancelAsk.current?.();
+      const chat = chats.find((c) => c.id === id);
+      if (!chat) return;
+      setActiveChatId(id);
+      setTurns(chat.turns);
+    },
+    [chats],
+  );
 
   const dig = useCallback(
     async (raw?: string) => {
@@ -176,7 +207,14 @@ export default function App() {
             data={data}
           />
         ) : (
-          <ChatScreen turns={turns} onAsk={followUp} onNewChat={newChat} />
+          <ChatScreen
+            turns={turns}
+            chats={chats.map((c) => ({ id: c.id, title: c.title }))}
+            activeId={activeChatId}
+            onAsk={followUp}
+            onNewChat={newChat}
+            onSelectChat={selectChat}
+          />
         )}
       </SidebarInset>
     </SidebarProvider>
