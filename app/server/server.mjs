@@ -36,6 +36,7 @@ import {
   deleteSkill,
   listSkills,
   readSkill,
+  updateSkill,
 } from "./skills-store.mjs";
 import { annotateUnverified, extractCitations, mentions, verifyCitations } from "./verify-citations.mjs";
 import { attachSourceUrls } from "./source-links.mjs";
@@ -571,11 +572,12 @@ function handleSkillsList(res) {
 }
 
 /**
- * GET and DELETE /api/skills/:slug — the manage-skills page.
+ * GET, PUT and DELETE /api/skills/:slug — the manage-skills page.
  *
- * No PUT. Skills are read, downloaded and removed here; changing one means
- * downloading it, editing it and uploading it back, which keeps the file the
- * single artefact rather than something this server can partially rewrite.
+ * PUT carries a whole SKILL.md, never a set of fields. That is the difference
+ * between this and the version that was pulled: a server that merges fields
+ * into a file owns the parts of the file it never shows you, and quietly drops
+ * whatever it does not know about.
  *
  * The slug is never joined onto a path here; `skills-store` validates it
  * against a kebab-case regex first and throws otherwise, so a traversal
@@ -593,6 +595,15 @@ async function handleSkillOne(req, res, url) {
     const limited = rateLimit(req, "ask");
     if (limited) return json(res, 429, { error: limited });
 
+    if (req.method === "PUT") {
+      let body;
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        return json(res, 400, { error: "body must be JSON" });
+      }
+      return json(res, 200, updateSkill(dir, slug, body?.content));
+    }
     if (req.method === "DELETE") return json(res, 200, deleteSkill(dir, slug));
     return json(res, 405, { error: "method not allowed" });
   } catch (err) {

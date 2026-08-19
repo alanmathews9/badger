@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import { Download, MoreHorizontal, Trash2, Upload, X } from "lucide-react";
-import { createSkill, downloadSkill, fetchSkill, removeSkill, type SkillFile } from "@/lib/ask";
+import {
+  createSkill,
+  downloadSkill,
+  fetchSkill,
+  removeSkill,
+  saveSkill,
+  type SkillFile,
+} from "@/lib/ask";
 
 /**
  * What a new skill starts as.
@@ -53,13 +60,14 @@ Badger matches a real question against:
  * a real SKILL.md into the agent's repo, the same mechanism its own learning
  * uses.
  *
- * **Open** — the SKILL.md, whole, and read-only. An editor was tried and
- * pulled: splitting the file into "the trigger" and "the steps" meant two
- * boxes that hid `license`, `allowed-tools` and `metadata` while silently
- * owning them on save, and it turned one artefact into two half-views of
- * itself. The runtime reads the file, so the file is what you should see.
- * Changing one means downloading it, editing it and uploading it back — the
- * same loop, with nothing in the middle that can quietly drop a field.
+ * **Open** — the SKILL.md, whole, in the same box you write a new one in.
+ *
+ * An editor was tried and pulled once, and it is worth being clear about what
+ * was wrong with it, because this is not a reversal. That version split the
+ * file into "the trigger" and "the steps": two boxes that hid `license`,
+ * `allowed-tools` and `metadata` while silently owning them on save. The
+ * problem was the split, not the editing. One box holding the whole file
+ * cannot drop a field it never took apart.
  */
 export function SkillPane({
   slug,
@@ -170,6 +178,7 @@ function OpenSkill({
   onChanged?: () => void;
 }) {
   const [skill, setSkill] = useState<SkillFile | null>(null);
+  const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -184,13 +193,32 @@ function OpenSkill({
     setConfirming(false);
     fetchSkill(slug).then((s) => {
       if (!live) return;
-      if (s) setSkill(s);
-      else setError("that skill could not be loaded");
+      if (!s) return setError("that skill could not be loaded");
+      setSkill(s);
+      setDraft(s.content);
     });
     return () => {
       live = false;
     };
   }, [slug]);
+
+  const dirty = skill != null && draft !== skill.content;
+
+  const save = async () => {
+    setBusy(true);
+    setError(null);
+    const result = await saveSkill(slug, draft);
+    setBusy(false);
+    if (result.error) return setError(result.error);
+    // Re-read rather than assume: the server carries the provenance line back
+    // into the frontmatter, so what is on disk is not always what was sent.
+    const fresh = await fetchSkill(slug);
+    if (fresh) {
+      setSkill(fresh);
+      setDraft(fresh.content);
+    }
+    onChanged?.();
+  };
 
   const remove = async () => {
     setBusy(true);
@@ -254,10 +282,8 @@ function OpenSkill({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        {error ? (
-          <p className="text-[12.5px] text-amber-700">{error}</p>
-        ) : !skill ? (
+      <div className="flex min-h-0 flex-1 flex-col px-4 py-4">
+        {!skill && !error ? (
           <div className="flex animate-pulse flex-col gap-2">
             {[60, 90, 40, 75, 55].map((w, i) => (
               <div key={i} className="h-3.5 rounded bg-stone-200/70" style={{ width: `${w}%` }} />
@@ -265,38 +291,50 @@ function OpenSkill({
           </div>
         ) : (
           /* The file, exactly as the runtime will read it — frontmatter,
-             counters and all. `whitespace-pre-wrap` rather than a textarea:
-             this is something to read, and a textarea would invite an edit
-             that has nowhere to go. */
-          <pre className="font-mono text-[12px]/[1.65] whitespace-pre-wrap text-stone-800">
-            {skill.content}
-          </pre>
+             counters and all — and editable in place. */
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            spellCheck={false}
+            className="min-h-0 w-full flex-1 resize-none rounded-md border border-stone-200 p-3 font-mono text-[12px]/[1.65] focus:border-stone-400 focus:outline-none"
+          />
         )}
+        {error && <p className="mt-2 shrink-0 text-[12px] text-amber-700">{error}</p>}
       </div>
 
-      {confirming && (
-        <div className="shrink-0 border-t border-stone-100 px-4 py-3">
-          <p className="text-[12.5px] text-stone-700">
-            Delete <span className="font-mono">{slug}</span>? The file is removed from the agent's
-            repository.
-          </p>
-          <div className="mt-2.5 flex items-center gap-3">
-            <button
-              onClick={remove}
-              disabled={busy}
-              className="inline-flex h-9 flex-1 items-center justify-center rounded-md bg-red-700 text-[13px] font-medium text-white hover:bg-red-800 disabled:opacity-40"
-            >
-              {busy ? "Deleting…" : "Delete skill"}
-            </button>
-            <button
-              onClick={() => setConfirming(false)}
-              className="text-[12.5px] text-stone-500 hover:text-stone-900"
-            >
-              Cancel
-            </button>
+      <div className="shrink-0 border-t border-stone-100 px-4 py-3">
+        {confirming ? (
+          <div>
+            <p className="text-[12.5px] text-stone-700">
+              Delete <span className="font-mono">{slug}</span>? The file is removed from the
+              agent's repository.
+            </p>
+            <div className="mt-2.5 flex items-center gap-3">
+              <button
+                onClick={remove}
+                disabled={busy}
+                className="inline-flex h-9 flex-1 items-center justify-center rounded-md bg-red-700 text-[13px] font-medium text-white hover:bg-red-800 disabled:opacity-40"
+              >
+                {busy ? "Deleting…" : "Delete skill"}
+              </button>
+              <button
+                onClick={() => setConfirming(false)}
+                className="text-[12.5px] text-stone-500 hover:text-stone-900"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        ) : (
+          <button
+            onClick={save}
+            disabled={busy || !dirty}
+            className="inline-flex h-8 items-center justify-center rounded-md bg-stone-900 px-4 text-xs font-medium text-stone-50 disabled:opacity-40"
+          >
+            {busy ? "Saving…" : "Save changes"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

@@ -16,6 +16,7 @@ import {
   createSkillFromFile,
   deleteSkill,
   readSkill,
+  updateSkill,
 } from "../app/server/skills-store.mjs";
 
 function scratchSkillsDir() {
@@ -174,4 +175,50 @@ test("two skills cannot claim the same name", () => {
   const file = "---\nname: taken\ndescription: d\n---\n\nbody\n";
   createSkillFromFile(dir, file);
   assert.throws(() => createSkillFromFile(dir, file), /already exists/);
+});
+
+// ── Editing ───────────────────────────────────────────────────────────────
+//
+// One box holding the whole file, so a save is a replacement rather than a
+// merge. The earlier editor took a description and a body and stitched them
+// into the existing frontmatter, which meant it owned `license`,
+// `allowed-tools` and `metadata` without ever showing them. Nothing here can
+// drop a field it never took apart — but two things still have to hold.
+
+test("an edit replaces the file and keeps what the pane never shows", () => {
+  const dir = scratchSkillsDir();
+  createSkillFromFile(dir, "---\nname: mine\ndescription: first\nlicense: MIT\n---\n\nold body\n");
+  updateSkill(dir, "mine", "---\nname: mine\ndescription: second\nlicense: MIT\n---\n\nnew body\n");
+
+  const after = readSkill(dir, "mine");
+  assert.equal(after.description, "second");
+  assert.match(after.content, /new body/);
+  assert.equal(/old body/.test(after.content), false);
+  assert.match(after.content, /license: MIT/);
+});
+
+test("an edit does not change where a skill came from", () => {
+  const dir = scratchSkillsDir();
+  createSkillFromFile(dir, "---\nname: mine\ndescription: d\n---\n\nbody\n");
+  // The whole point of carrying the provenance line: origin lives only in the
+  // frontmatter, so a replacement drops it and the skill starts reporting as
+  // built-in — the file lying about where it came from, and the list tagging
+  // it wrongly.
+  updateSkill(dir, "mine", "---\nname: mine\ndescription: d\n---\n\nedited\n");
+  assert.equal(readSkill(dir, "mine").origin, "custom");
+  assert.match(readSkill(dir, "mine").content, /added_via: badger-ui/);
+});
+
+test("an edit cannot rename a skill, or empty it", () => {
+  const dir = scratchSkillsDir();
+  createSkillFromFile(dir, "---\nname: mine\ndescription: d\n---\n\nbody\n");
+  // The runtime keys a skill by its directory, so a file whose name disagrees
+  // with its folder is a skill the picker still offers under the old name.
+  assert.throws(
+    () => updateSkill(dir, "mine", "---\nname: renamed\ndescription: d\n---\n\nbody\n"),
+    /renaming is not supported/,
+  );
+  assert.throws(() => updateSkill(dir, "mine", ""), /cannot be empty/);
+  assert.throws(() => updateSkill(dir, "mine", "no frontmatter"), /frontmatter/);
+  assert.throws(() => updateSkill(dir, "nope", "---\nname: nope\ndescription: d\n---\n\nx\n"), /no such skill/);
 });

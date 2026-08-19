@@ -525,6 +525,24 @@ export async function fetchSkill(slug: string): Promise<SkillFile | null> {
   return res.ok ? await res.json() : null;
 }
 
+/**
+ * Overwrite a skill's file.
+ *
+ * The whole SKILL.md, because that is what the editor holds. Sending fields
+ * and letting the server stitch them into the existing frontmatter was the
+ * earlier design, and it meant the server owned `license`, `allowed-tools` and
+ * `metadata` on every save while the pane never showed them.
+ */
+export async function saveSkill(slug: string, content: string): Promise<{ error?: string }> {
+  const res = await fetch(`/api/skills/${encodeURIComponent(slug)}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+  const data = await res.json().catch(() => ({}));
+  return res.ok ? {} : { error: data.error ?? "could not save the skill" };
+}
+
 export async function removeSkill(slug: string): Promise<{ error?: string }> {
   const res = await fetch(`/api/skills/${encodeURIComponent(slug)}`, { method: "DELETE" });
   const data = await res.json().catch(() => ({}));

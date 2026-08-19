@@ -185,6 +185,69 @@ export function readSkill(skillsDir, slug) {
 // drop a field.
 
 /**
+ * Overwrite a skill's SKILL.md with a new one.
+ *
+ * The whole file, the same string the editor holds — there is no merging here
+ * and that is the point. An earlier version of this took a description and a
+ * body and stitched them into the existing frontmatter, which meant this
+ * function silently owned `license`, `allowed-tools` and `metadata` on every
+ * save while the pane never showed them. One box, one string, nothing in
+ * between.
+ *
+ * The frontmatter `name` must still equal the slug. The runtime keys a skill
+ * by its DIRECTORY, so renaming in place would leave a skill whose file calls
+ * it one thing and whose folder calls it another, and the picker lists
+ * directories. Renaming is a move, and is refused rather than half-done.
+ */
+export function updateSkill(skillsDir, slug, content) {
+  const dir = skillDir(skillsDir, slug);
+  const file = join(dir, "SKILL.md");
+  if (!existsSync(file)) throw new Error("no such skill");
+
+  const text = String(content ?? "");
+  if (!text.trim()) throw new Error("a skill cannot be empty");
+  if (text.length > 50000) throw new Error("too long (50k chars max)");
+  const fm = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!fm) throw new Error("missing the --- frontmatter block");
+  if (readField(fm[1], "name") !== slug)
+    throw new Error(`name: must stay "${slug}" — renaming is not supported here`);
+  if (!readField(fm[1], "description"))
+    throw new Error("frontmatter needs a description: line — it is the trigger");
+
+  writeFileSync(file, carryOrigin(readFileSync(file, "utf8"), text), "utf8");
+  return { slug };
+}
+
+/**
+ * Keep the provenance line an edit would otherwise drop.
+ *
+ * Origin is not stored anywhere but the frontmatter — `added_via: badger-ui`
+ * for a skill added here, `learned_from:` for one the agent taught itself — so
+ * an edit that replaces the whole file replaces that too, and the skill
+ * silently becomes hand-written. Measured before the fix: add a skill, edit
+ * it, and it reports as built-in afterwards. Nothing depends on that any more
+ * for permissions, but the file would still be lying about where it came
+ * from, and the list would tag it wrongly.
+ *
+ * Put back rather than refused. Demanding someone preserve a line they never
+ * wrote and cannot see the purpose of is a worse trade than keeping the file
+ * honest for them.
+ */
+function carryOrigin(previous, text) {
+  const oldFm = previous.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const newFm = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!oldFm || !newFm) return text;
+
+  const carry = oldFm[1]
+    .split(/\r?\n/)
+    .filter((line) => /^(added_via|learned_from|added_at):/.test(line))
+    .filter((line) => !new RegExp(`^${line.split(":")[0]}:`, "m").test(newFm[1]));
+  if (!carry.length) return text;
+
+  return text.replace(/^(---\r?\n[\s\S]*?)(\r?\n---)/, `$1\n${carry.join("\n")}$2`);
+}
+
+/**
  * Remove a skill.
  *
  * Any skill, including the ones that ship with Badger. They are files in a git
