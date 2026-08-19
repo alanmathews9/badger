@@ -1,6 +1,6 @@
 // The index-first path for the agent's three search tools.
 //
-// The decision this implements (PLAN-AGENT-ON-INDEX.md, settled with Alan
+// The decision this implements (settled with Alan
 // 2026-08-19): chat retrieves from the local index — the Onyx/Glean shape,
 // retrieval from the copy with the LLM on top — and falls back to the live
 // tools when the index misses, which is deliberately MORE than either of

@@ -7,8 +7,31 @@ your Google Drive **at the moment you ask**, opens the threads that look
 relevant, and answers with citations it then verifies against what it actually
 retrieved.
 
-**Live:** https://badger-1033557908241.us-central1.run.app — the passphrase is
-sent with the submission, not committed here.
+**Live:** https://badger-1033557908241.us-central1.run.app — the passphrase
+travels with the submission rather than in this repository.
+
+### Three questions to ask it
+
+The demo corpus is a fictional clinic-booking company across all three sources.
+These three are where the point of the thing is visible:
+
+| Ask it | Why this one |
+|---|---|
+| *Why was the Android app five weeks late?* | Three sources answer differently and only the disagreement is the truth. A good answer does **not** blame App Store review. |
+| *Did we tell Brightsmile the app would be ready in March?* | Mail answers it and nothing else records it. A customer was given a date sixteen days before the VP was told it would not hold. |
+| *What is the leave carry-over policy?* | Drive says 10 days expiring in March; the GitHub handbook still says 5 with no deadline. Returning one and not the other is lying by omission. |
+
+### If you have five minutes
+
+1. **[The question this was built to answer](#the-question-this-was-built-to-answer)** — the product thesis in one diagram.
+2. **[Read-only, and the honest limit](#read-only-and-the-honest-limit)** — enforcement at four layers, and a plain admission that the credential underneath is not read-only and cannot be.
+3. **[Measuring whether the answers are right](#measuring-whether-the-answers-are-right)** — fifteen questions with known answers, graded deterministically, and what still fails.
+4. **[Known limits](#known-limits)** — everything wrong with it, written down before you find it.
+
+If you have one minute instead, read the second and third of those. They are
+the two things this project is actually about.
+
+### Running it
 
 ```
 ./scripts/badger.sh -p "Who knows about payments?"          # CLI
@@ -33,11 +56,18 @@ Bengaluru and Lisbon. The worked example is an Android release that shipped five
 weeks late. Ask **"why was the app five weeks late?"** and three sources answer
 differently:
 
-| Source | What it says |
-|---|---|
-| **Drive** — the customer-facing release notes | "Delayed by App Store review." |
-| **GitHub** — issue #8 | Review took 4 of the 35 days. The rest was a sync layer written twice — and PR #30 sits closed and unmerged as proof of the first attempt. |
-| **Gmail** — the April thread | The team chose that wording deliberately, over an objection, and agreed to keep the real arithmetic in an internal issue. |
+```mermaid
+flowchart LR
+    Q(["<b>“Why was the Android app<br/>five weeks late?”</b>"])
+
+    Q --> D["<b>Drive</b> · release notes<br/>“Delayed by App Store review.”<br/><i>the version that gets forwarded</i>"]
+    Q --> G["<b>GitHub</b> · issue 8<br/>review took 4 of the 35 days.<br/>the sync layer was written twice<br/><i>PR 30 sits closed and unmerged</i>"]
+    Q --> M["<b>Gmail</b> · the April thread<br/>the team chose that wording,<br/>over an objection<br/><i>arithmetic kept internal, on purpose</i>"]
+
+    D --> A(["<b>None of the three is a lie.</b><br/>Only the three together are the answer."])
+    G --> A
+    M --> A
+```
 
 None of those is a lie. The Drive document is the one that gets forwarded, and
 it is the one that teaches the wrong lesson.
@@ -65,6 +95,34 @@ no longer all describe the same abstraction.
 Two passes, which is the split [Glean](https://www.glean.com/) and
 [Onyx](https://github.com/onyx-dot-app/onyx) both use — read from Onyx's source
 rather than its docs.
+
+```mermaid
+flowchart TB
+    Q(["a question, in plain English"])
+    Q --> PLAN["<b>query planner</b>, shared by both passes<br/>strip stopwords, OR the terms,<br/>then translate into each engine's own syntax"]
+
+    PLAN --> P1
+    PLAN --> P2
+
+    subgraph P1["<b>Pass one · retrieval</b> — no model anywhere on this path"]
+        direction TB
+        IDX{"local index present<br/>and less than 24h old?"}
+        IDX -->|yes| B["BM25 with real IDF<br/>trigram typo correction<br/><b>3 ms · 0 API calls</b>"]
+        IDX -->|"no, or stale"| L["live fan-out to all three sources<br/><b>~5 s · ~17 API calls</b><br/><i>a background rebuild starts</i>"]
+        L --> R["re-score every row locally.<br/>each engine's own ranking is discarded —<br/>three incomparable scores cannot be merged"]
+    end
+
+    subgraph P2["<b>Pass two · the agent</b>"]
+        direction TB
+        S["picks a skill<br/><i>trace-decision · find-expert · onboard-to-project</i>"]
+        S --> O["opens the threads, issues and documents<br/>it judges worth reading in full"]
+        O --> W["writes the answer, with citations"]
+        W --> V["<b>verify-citations.mjs</b> checks every citation<br/>against what the tools actually returned"]
+    end
+
+    P1 --> UI(["results appear immediately"])
+    P2 --> AN(["the answer streams in beside them.<br/>anything never retrieved is marked UNVERIFIED"])
+```
 
 **Pass one — retrieval, no model.** `POST /api/search` answers from a small
 local index when one exists — single-digit milliseconds, zero API calls, typo
@@ -158,10 +216,14 @@ and runs a tool there. If the boundary rots, the check fails.
 
 ### Skills decompose by task, never by source
 
-Five skills: `trace-decision`, `find-expert`, `onboard-to-project`,
-`triage-pr-feedback`, `activity-digest`. Named for the user's job, following
+Four skills ship in the repository: `trace-decision`, `find-expert`,
+`onboard-to-project`, `recent-activity`. Named for the user's job, following
 the idiom in the framework authors' own published agents (see
-`RESEARCH-GAP-IDIOM.md`).
+`docs/RESEARCH-GAP-IDIOM.md`).
+
+`agent.yaml` deliberately does **not** list them. That key is a *filter*
+(`dist/loader.js:194`), so naming skills there silently hides any the agent
+learns for itself or a person drops in. `skills/` is the whole truth.
 
 Adding Gmail did not add a skill. It added tools, and changed what
 `trace-decision` has to do — its thesis used to be "files hold the official
@@ -170,13 +232,16 @@ procedure for crossing them.
 
 ### The rest of the framework surface — used or declined, never silent
 
-Badger uses more of GAP than the tree above shows. `memory/` is live:
-`MEMORY.md` holds vocabulary and where answers to recurring questions turned
-out to live — pointers, never content, so memory cannot become an index by the
-back door. Two of its entries came from measured eval misses, which is the
-learning loop doing real work. On the SDK paths the file is injected into the
-prompt as data, because a prose "load memory first" rule was watched being
-skipped on its first live run. `examples/` carries one calibration example on
+Badger uses more of GAP than the tree above shows. `memory/` is live, and it is the
+agent's to write rather than the developer's. `MEMORY.md` shipped **empty on
+purpose** — thirty-seven hand-written lines were deleted, because a memory
+file authored by a developer contradicts the very mechanism it is meant to
+demonstrate. The agent has since written its own first entry and committed it
+during a live run: where the current leave carry-over policy lives, and that
+a stale copy of it survives in GitHub. It stores pointers, never content, so
+memory cannot become an index by the back door. On the SDK paths the file is
+injected into the prompt as data, because a prose "load memory first" rule
+was watched being skipped on its first live run. `examples/` carries one calibration example on
 a deliberately fictional subject, teaching the answer shape the eval caught
 Badger missing: a policy answer is incomplete until the exceptions granted sit
 next to the rule. And the compliance block's `audit_logging: true` is honoured
@@ -208,8 +273,25 @@ omission:
 
 ## Read-only, and the honest limit
 
-Badger never sends, writes, edits, deletes or shares. That holds at four
-independent layers:
+Badger never sends, writes, edits, deletes or shares **to your sources**. That
+holds at four independent layers, and the diagram is the whole argument: the
+agent has real agency over itself, and none at all over your data.
+
+```mermaid
+flowchart TB
+    M(["the model asks for a tool"]) --> H
+
+    H{"<b>1 ·</b> hooks/allow-tools.sh<br/>is this exact name in allowed-tools.txt?"}
+    H -->|"no — anything unlisted"| X(["<b>blocked.</b> the list is an allowlist,<br/>so an unknown write tool fails closed"])
+    H -->|yes| K{"what does that name reach?"}
+
+    K -->|"cli · read · write · edit · memory<br/>task_tracker · skill_learner"| SELF(["<b>the agent's own git repository</b><br/>memory, learned skills, the task ledger<br/><i>writes allowed — this is GAP's learning loop,<br/>and suppressing it would suppress the framework</i>"])
+
+    K -->|"github_* · gmail_* · drive_*"| S2["<b>2 ·</b> the tool scripts under tools/scripts<br/>can only issue the operations below"]
+    S2 --> S3["<b>3 ·</b> Composio's per-tool enable list<br/>8 of GitHub's 823 · 3 of Gmail's 63 · 5 of Drive's 90"]
+    S3 --> S4["<b>4 ·</b> the DIRECT_TOOLS preset<br/>drops the generic executor, one name that could<br/>invoke anything and defeat name-gating entirely"]
+    S4 --> SRC(["<b>your GitHub, Gmail and Drive</b><br/><i>read only — no write operation is reachable,<br/>whatever the model asks for</i>"])
+```
 
 1. Composio's `DIRECT_TOOLS` preset, which drops the generic meta-tools. Without
    it a session registers `COMPOSIO_MULTI_EXECUTE_TOOL` — one name that can
@@ -217,9 +299,22 @@ independent layers:
 2. A per-tool enable list: **8** of GitHub's 823 actions, **3** of Gmail's 63,
    **5** of Drive's 90.
 3. The tool scripts can only call those names.
-4. `hooks/allow-read-only.sh` gates by exact tool name, and both SDK callers
-   pass the same list as `allowedTools` — which removes everything else from the
-   model's schema and cannot fail open.
+4. `hooks/allow-tools.sh` gates every call by exact tool name against
+   `hooks/allowed-tools.txt`. Anything unlisted fails closed.
+
+**The line is not "the agent cannot write" — it is "the agent cannot write to
+your sources."** The allowlist permits the runtime's own builtins, learning
+loop included, because `task_tracker`, `skill_learner` and `memory` write to
+the agent's own git repository and nowhere else. What no layer permits at all
+is a write to GitHub, Gmail or Drive: layers 1 to 3 mean no such operation is
+reachable, whatever the model asks for.
+
+An earlier design did the opposite. It stripped the learning tools from the
+model's schema and used a prompt suffix to countermand the runtime's own
+instructions to use them — an agent ordered in capitals to call a tool it
+could not see, then told in a postscript to ignore the order. That suppressed
+the framework's central thesis to defend a boundary the loop was never on the
+wrong side of, and it was reversed.
 
 ### Allow-by-name, not deny-by-verb
 
@@ -404,9 +499,10 @@ findings on correctly-cited documents, because it only understood canonical
 wolf on correct answers is worse than no verifier: it teaches the reader to
 ignore the badge.
 
-Current baseline is 14/15. The model is non-deterministic, so which question
-fails varies between runs — a single run is a sample, not a score, and the set
-says so rather than implying a precision it does not have.
+Across six runs of the current code the set reads **11–14 of 15**, and which
+question fails changes between them. That spread is the honest number: the
+model is non-deterministic, so one run is a sample rather than a score, and
+the set says so rather than implying a precision it does not have.
 
 ---
 
@@ -448,28 +544,19 @@ the repository handbook still says 5 with no deadline — both reachable, neithe
 pointing at the other. A search tool that returns one and not the other is lying
 by omission.
 
-**The corpus is source code, not a thing someone clicked into existence.**
-`scripts/seed/company.mjs` holds the cast, the customers and `FACTS` — every
-date and number the three sources are built to disagree about. Every corpus
-module imports from it and restates nothing, which is what keeps the authored
-contradictions authored rather than accidental. `npm run seed:github` rebuilds
-the repository from scratch in about five minutes; `scripts/seed-google.mjs`
-does Drive and Gmail. A corpus that is the ground truth for an eval set has to
-be reproducible, reviewable as a diff, and correctable without a browser.
+Arkind does not exist, and the addresses are on RFC 2606 reserved domains
+(`@arkind.example`, `@brightsmile.example`) rather than plausible-looking ones.
+`brightsmile.com` is a real registered domain — checked — and an earlier draft
+of this corpus would have shown a real company being misled about a delivery
+date.
 
-Two things the seeders had to work around, both measured rather than assumed.
-GitHub will not let `created_at` be backdated on an issue or a pull request at
-all, so every date that matters lives in body text and the README says so rather
-than hiding it — only **commits** can be backdated, via the Git Data API, which
-is why history spans sixteen real days. And addresses are on RFC 2606 reserved
-domains (`@arkind.example`, `@brightsmile.example`): `brightsmile.com` is a real
-registered domain, checked, and the first corpus would have shown a real company
-being misled about a delivery date.
-
-Seeding runs from write-capable scripts whose tools appear nowhere in the
-agent's allowlist. `GMAIL_IMPORT_MESSAGE` places mail in a mailbox **without
-sending it**, which is what allows an inbox to hold mail from people whose
-addresses we do not own. Nothing is ever sent.
+**The generator is deliberately not in this repository.** The corpus was
+written as code and seeded through the APIs once; those scripts were then
+removed from `HEAD`, because a corpus sitting in the tree reads as an agent
+answering from local files, which is the opposite of what Badger does. They
+remain in git history for anyone who wants to see how the seams were authored.
+The four facts the eval set grades against are pinned in `evals/questions.mjs`
+instead, so a question cannot quietly drift away from the corpus it tests.
 
 ---
 
@@ -482,7 +569,10 @@ demo will not approach.
 ```bash
 gcloud run deploy badger --source . --region us-central1 \
   --service-account badger-run@$PROJECT.iam.gserviceaccount.com \
-  --allow-unauthenticated --max-instances 1 --concurrency 20
+  --allow-unauthenticated --max-instances 1 --concurrency 20 \
+  --set-env-vars GOOGLE_CLOUD_PROJECT=$PROJECT,GOOGLE_CLOUD_LOCATION=us-central1,\
+NODE_ENV=production,BADGER_USER_ID=...,BADGER_GITHUB_REPO=owner/repo \
+  --set-secrets COMPOSIO_API_KEY=...,BADGER_SESSION_SECRET=...,BADGER_PASSPHRASE=...
 ```
 
 `--max-instances 1` does double duty: it caps cost absolutely, and it makes the
@@ -582,20 +672,24 @@ matter what the brain asks for.
 ```
 agent.yaml              identity, model, runtime config
 SOUL.md  RULES.md       who Badger is, and what it must never do
-skills/                 five procedures, decomposed by task
+skills/                 four procedures by task, plus whatever it learns
 tools/*.yaml            ten tools; scripts in tools/scripts/
 hooks/allowed-tools.txt the allowlist, and the single source of truth for it
 app/server/             the two passes, the gate, ranking, verification
 app/web/                Vite + React + Tailwind + shadcn
 scripts/                dev tooling, corpus seeding, the eval runner
 evals/                  fifteen questions with known answers and known sources
+docs/                   the research record — see below
 ```
 
-**Where the research lives.** `RESEARCH-GAP-IDIOM.md` is how the framework's
-authors actually write agents, from 17 of their published repos plus the formal
-spec. `NOTES.md` records what the *installed runtime* does, which has differed
-from the published documentation every single time it mattered. `CLAUDE.md` is
-the working state and the decision log.
+**Where the research lives.** [`docs/RESEARCH-GAP-IDIOM.md`](docs/RESEARCH-GAP-IDIOM.md)
+is how the framework's authors actually write agents, read from 17 of their
+published repositories plus the formal spec.
+[`docs/NOTES.md`](docs/NOTES.md) records what the *installed runtime* does,
+which has differed from the published documentation every single time it has
+mattered. Both are working notes rather than prose — they are the evidence
+behind the decisions on this page, kept because the reasoning is worth more
+than the conclusions.
 
 ---
 

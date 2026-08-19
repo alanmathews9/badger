@@ -158,7 +158,7 @@ const driveEscape = (s) => String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'")
  * natural-language query puts GitHub into semantic mode, and semantic mode
  * cannot see issue comments — which is where this corpus keeps its real
  * answers. Any qualifier switches GitHub to classic keyword search, which does
- * reach comment text. See NOTES.md §4f.
+ * reach comment text. See docs/NOTES.md §4f.
  *
  * @param {string} raw            the query as written
  * @param {ReturnType<planQuery>} plan

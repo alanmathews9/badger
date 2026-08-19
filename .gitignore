@@ -27,3 +27,8 @@ workspace/
 .agents/
 .claude/
 skills-lock.json
+
+# Session handoff and submission planning. Development notes, not the
+# deliverable. See README.md for what Badger is.
+CLAUDE.md
+SUBMISSION-PLAN.md

@@ -8,9 +8,9 @@
 //      fires without await, discards its result, and never receives the
 //      response text. The only place with both the tool outputs and the final
 //      answer is the SDK caller — here.
-//   2. The SDK path carries enforcement the CLI path cannot: allowedTools and
-//      disallowedTools are applied in-process, so unlike hooks/allow-read-only.sh
-//      they cannot fail open if a shell script crashes.
+//   2. Verification belongs where the tool results and the final answer meet,
+//      and only this caller holds both. Tool gating itself is the hook's job
+//      on every path — see hooks/allow-tools.sh.
 //
 // This is the seed of the product backend. The web UI will do exactly this,
 // then render the answer plus its verification badge.

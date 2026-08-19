@@ -20,7 +20,7 @@
 #
 # Same constraints as the pre_tool_use hook: POSIX sh, no dependencies, always
 # exits 0 with valid JSON, because the runtime treats any other outcome as
-# "allow" (see NOTES.md §3).
+# "allow" (see docs/NOTES.md §3).
 
 REQUIRED="$(dirname "$0")/required-env.txt"
 

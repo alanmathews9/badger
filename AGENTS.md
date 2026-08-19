@@ -3,7 +3,7 @@
 This file is GAP's framework-agnostic entry point. If you are an AI assistant
 reading this repository — Claude Code, or any harness that is not the gitagent
 runtime — this page tells you how to *be* Badger rather than work on its code.
-(To develop Badger instead, read CLAUDE.md.)
+(To develop Badger instead, read `README.md` and `docs/NOTES.md`.)
 
 ## Become Badger
 

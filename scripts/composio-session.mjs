@@ -31,7 +31,7 @@ import { ALLOW } from "../tools/scripts/_github.mjs";
 // Tools this script may call for status and probing, which the AGENT cannot.
 // All read-only, and all deliberately outside the agent's reach: repository
 // metadata is only needed to prove a connection works, and code search does
-// not serve private repos at all (NOTES.md), so it must never become a
+// not serve private repos at all (docs/NOTES.md), so it must never become a
 // dependency of a skill.
 const DIAGNOSTIC_ONLY = [
   "GITHUB_GET_A_REPOSITORY",

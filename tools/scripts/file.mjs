@@ -2,7 +2,7 @@
 // github_file — read a file, or list a directory, at a path in the repository.
 //
 // Code search does NOT work on private repositories — the REST endpoint returns
-// zero hits with incomplete_results: true for every token class (NOTES.md §4e).
+// zero hits with incomplete_results: true for every token class (docs/NOTES.md §4e).
 // So files are reached by known path, never by searching their contents. Listing
 // a directory is how you discover the path.
 import { exec, run, clip, contextFrom } from "./_github.mjs";
