@@ -48,7 +48,12 @@ export function DigInput({
         "flex items-center rounded-[10px] border bg-white",
         large
           ? "h-[58px] gap-3 border-stone-900 pr-2.5 pl-[18px] ring-4 ring-stone-900/[0.06]"
-          : "h-9 w-full max-w-[560px] gap-2.5 rounded-lg border-stone-300 px-3",
+          // No max-width on the compact size. It had 560px, which kept the
+          // results bar narrower than the results underneath it — and a search
+          // box has no reason to be narrower than what it returns, since what
+          // you type is often longer than what comes back. The caller decides
+          // the width now, and on the results screen that is the full frame.
+          : "h-9 w-full gap-2.5 rounded-lg border-stone-300 px-3",
       )}
     >
       <Search

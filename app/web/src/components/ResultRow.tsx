@@ -1,7 +1,9 @@
+import { FolderOpen } from "lucide-react";
 import { Highlight } from "./Highlight";
 import { StateIcon } from "./octicons";
-import { BRAND_LOGOS } from "./BrandLogos";
+import { BRAND_LOGOS, DocsLogo, SheetsLogo, GitHubLogo } from "./BrandLogos";
 import type { SearchRow } from "@/lib/api";
+import { whenLabel } from "@/lib/when";
 
 /**
  * One hit, from any of the three sources.
@@ -22,8 +24,19 @@ import type { SearchRow } from "@/lib/api";
 export function ResultRow({ row }: { row: SearchRow }) {
   return (
     <li className="flex gap-3 border-t border-stone-100 py-3 first:border-t-0">
-      <span className="mt-0.5 shrink-0">
-        <SourceMark source={row.source} />
+      {/* Sized to span the title AND the metadata beneath it: 21px of title
+          line plus 16px of metadata is about 37px, so a 32px mark sits across
+          both and reads as belonging to the row rather than to its first line.
+          Glean's are this size for the same reason.
+
+          The box is fixed at 32px and each mark is centred in it, because the
+          glyphs do not fill their viewBoxes equally — the simple-icons Docs
+          and Sheets marks carry more internal padding than the gilbarbara
+          GitHub and Gmail ones, so at an identical `size` they LOOK smaller.
+          Matching the boxes rather than the numbers is what makes a mixed
+          list line up. */}
+      <span className="mt-px flex size-8 shrink-0 items-center justify-center">
+        <SourceMark row={row} />
       </span>
 
       <div className="min-w-0 flex-1">
@@ -39,9 +52,11 @@ export function ResultRow({ row }: { row: SearchRow }) {
             rel="noreferrer"
             className="font-medium text-blue-700 visited:text-blue-700 hover:underline"
           >
-            <Highlight text={row.titleMarked || row.title} />
+            <Highlight text={row.titleMarked || row.title} tone="inherit" />
           </a>
         </h3>
+
+        <MetaLine row={row} />
 
         {row.discussion ? (
           /* The match was in the thread, and we went and got it. Quoted so the
@@ -55,26 +70,55 @@ export function ResultRow({ row }: { row: SearchRow }) {
         ) : (
           <div className="mt-1 text-[12.5px]/[1.6] text-stone-600">
             {row.matchHighlights.length > 0 ? (
-              row.matchHighlights.map((excerpt, i) => (
-                <p key={i} className={i > 0 ? "mt-1" : undefined}>
-                  <Highlight text={excerpt} />
-                </p>
-              ))
+              /* ONE excerpt, the densest. Every match used to get its own
+                 paragraph, so a row could run to eight lines and four rows
+                 filled the screen. A second excerpt rarely changes the
+                 decision the reader is making — whether to open the thing —
+                 and a row that answers that in three lines beats one that
+                 argues it in eight. A document with more matches ranks higher
+                 anyway, so nothing is hidden that was not already surfaced. */
+              <p>
+                <Highlight text={bestExcerpt(row.matchHighlights)} />
+              </p>
             ) : (
               <p className="line-clamp-2">{unlocatableText(row)}</p>
             )}
           </div>
         )}
-
-        <div className="mt-1.5 font-mono text-[11px] text-stone-500">{metaLine(row)}</div>
       </div>
     </li>
   );
 }
 
-function SourceMark({ source }: { source: SearchRow["source"] }) {
-  const Logo = BRAND_LOGOS[source];
-  return <Logo size={16} />;
+/**
+ * Which mark a row carries.
+ *
+ * Drive rows get the Docs or Sheets mark rather than the generic Drive
+ * triangle: the index already knows which, and a spreadsheet and a document
+ * are different things to be looking for. Anything else in Drive — a PDF, an
+ * upload — keeps the Drive mark, because that is genuinely all we know.
+ */
+function SourceMark({ row }: { row: SearchRow }) {
+  // Docs and Sheets are drawn slightly larger than the rest: their glyphs sit
+  // inside more padding, so an equal number renders a visibly smaller mark.
+  if (row.source === "drive" && row.kind === "doc") return <DocsLogo size={30} />;
+  if (row.source === "drive" && row.kind === "sheet") return <SheetsLogo size={30} />;
+  const Logo = BRAND_LOGOS[row.source];
+  return <Logo size={26} />;
+}
+
+/** The most matches in one excerpt — the passage that best answers the query. */
+function bestExcerpt(excerpts: string[]): string {
+  let best = excerpts[0] ?? "";
+  let most = -1;
+  for (const excerpt of excerpts) {
+    const hits = (excerpt.match(/<hi>/g) ?? []).length;
+    if (hits > most) {
+      most = hits;
+      best = excerpt;
+    }
+  }
+  return best;
 }
 
 /**
@@ -92,33 +136,83 @@ function unlocatableText(row: SearchRow): string {
     : "Matched somewhere in this thread's comments.";
 }
 
-/** The metadata line, which differs per source because the facts differ. */
-function metaLine(row: SearchRow): string {
-  const parts: string[] = [];
+/**
+ * The metadata line, which differs per source because the facts differ.
+ *
+ * It sits directly under the title rather than under the snippet — who wrote
+ * a thing and when is how a reader decides whether to read the excerpt at
+ * all, so it belongs above it. Glean orders it the same way and its rows are
+ * far easier to scan for it.
+ *
+ * Every source answers the same three questions in the same order — who, when,
+ * where — so the eye lands in the same place down a mixed list. The "where"
+ * carries a small icon because it is the one part whose KIND is not obvious
+ * from the words: "Product" could be a folder or a label until a folder icon
+ * says which, and "alan-arkind/arkind" is a repository.
+ *
+ * A person gets no avatar. Drive returns a `photoLink` and GitHub has one per
+ * login, but both are remote images on a page whose CSP allows `img-src 'self'
+ * data:` only — so it would mean proxying and caching faces to decorate a line
+ * that already says the name.
+ *
+ * **Drive names a person after all, and the first answer here was wrong.**
+ * A probe of `GOOGLEDRIVE_FIND_FILE` and `GOOGLEDRIVE_GET_FILE_METADATA`
+ * showed no `owners` and no `lastModifyingUser`, and this comment said so.
+ * The mistake was probing the DEFAULT response: Drive's files.list returns a
+ * minimal field set and returns the rest only when asked. Onyx does ask —
+ * `backend/onyx/connectors/google_drive/file_retrieval.py` spells out
+ * `owners(emailAddress)` in its FILE_FIELDS mask — and Composio forwards the
+ * mask, so the crawl now asks too and it costs no extra call. Reading how
+ * someone else solved it was worth more than one more probe of our own.
+ */
+function MetaLine({ row }: { row: SearchRow }) {
+  const when = whenLabel(row.updatedAt);
+  const bits: React.ReactNode[] = [];
 
   if (row.source === "github") {
-    // Files and commits only appear on the index path — live GitHub search
-    // cannot reach them (code search does not serve private repos).
-    if (row.kind === "file") {
-      parts.push("file");
-    } else if (row.kind === "commit") {
-      parts.push("commit");
-      if (row.author) parts.push(row.author);
-      if (row.updatedAt) parts.push(row.updatedAt);
-    } else {
-      parts.push(`${row.kind === "pr" ? "PR" : "issue"} #${row.number}`);
-      if (row.author) parts.push(`@${row.author}`);
-      if (row.updatedAt) parts.push(row.updatedAt);
-      parts.push(`${row.comments} ${row.comments === 1 ? "comment" : "comments"}`);
+    if (row.author) bits.push(`@${row.author}`);
+    if (when) bits.push(row.kind === "file" || row.kind === "commit" ? when : `updated ${when}`);
+    if (row.kind === "issue" || row.kind === "pr") {
+      bits.push(`${row.comments} ${row.comments === 1 ? "comment" : "comments"}`);
+    }
+    if (row.repo) {
+      bits.push(
+        <span className="inline-flex items-center gap-1">
+          <GitHubLogo size={11} className="opacity-70" />
+          {row.repo}
+        </span>,
+      );
     }
   } else if (row.source === "gmail") {
-    parts.push("mail");
-    if (row.author) parts.push(row.author);
-    if (row.updatedAt) parts.push(row.updatedAt);
+    // Both the name and the address: two colleagues share a first name far
+    // more often than they share a mailbox.
+    if (row.author) bits.push(row.authorEmail ? `${row.author} <${row.authorEmail}>` : row.author);
+    if (when) bits.push(when);
   } else {
-    parts.push(row.kind === "sheet" ? "spreadsheet" : "document");
-    if (row.updatedAt) parts.push(`modified ${row.updatedAt}`);
+    if (row.author) bits.push(row.author);
+    if (when) bits.push(`updated ${when}`);
+    if (row.folder) {
+      bits.push(
+        <span className="inline-flex items-center gap-1">
+          <FolderOpen className="size-3 text-stone-400" strokeWidth={2} />
+          {row.folder}
+        </span>,
+      );
+    } else {
+      bits.push(row.kind === "sheet" ? "Spreadsheet" : "Document");
+    }
   }
 
-  return parts.join(" · ");
+  if (bits.length === 0) return null;
+
+  return (
+    <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[12px] text-stone-500">
+      {bits.map((bit, i) => (
+        <span key={i} className="inline-flex items-center gap-1.5">
+          {i > 0 && <span className="text-stone-300">·</span>}
+          {bit}
+        </span>
+      ))}
+    </div>
+  );
 }

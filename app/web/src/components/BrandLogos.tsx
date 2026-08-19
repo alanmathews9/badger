@@ -38,6 +38,36 @@ export function GmailLogo({ size = 24, className }: Props) {
   );
 }
 
+
+/**
+ * Google Docs and Sheets, for Drive rows that are one or the other.
+ *
+ * A generic Drive triangle on every Drive row throws away something the index
+ * already knows — a spreadsheet and a document are different things to look
+ * for, and the reader can tell them apart at a glance if we let them.
+ *
+ * These come from simple-icons rather than gilbarbara/logos, which has no
+ * Docs or Sheets mark. They are single-path monochrome glyphs, so each is
+ * painted in its own brand hex (simple-icons publishes those too) rather than
+ * redrawn in colour — a badly-redrawn brand mark looks worse than no logo,
+ * and an official glyph in the official colour is neither.
+ */
+export function DocsLogo({ size = 24, className }: Props) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path fill="#4285F4" d="M14.727 6.727H14V0H4.91c-.905 0-1.637.732-1.637 1.636v20.728c0 .904.732 1.636 1.636 1.636h14.182c.904 0 1.636-.732 1.636-1.636V6.727h-6zm-.545 10.455H7.09v-1.364h7.09v1.364zm2.727-3.273H7.091v-1.364h9.818v1.364zm0-3.273H7.091V9.273h9.818v1.363zM14.727 6h6l-6-6v6z" />
+    </svg>
+  );
+}
+
+export function SheetsLogo({ size = 24, className }: Props) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path fill="#34A853" d="M11.318 12.545H7.91v-1.909h3.41v1.91zM14.728 0v6h6l-6-6zm1.363 10.636h-3.41v1.91h3.41v-1.91zm0 3.273h-3.41v1.91h3.41v-1.91zM20.727 6.5v15.864c0 .904-.732 1.636-1.636 1.636H4.909a1.636 1.636 0 0 1-1.636-1.636V1.636C3.273.732 4.005 0 4.909 0h9.318v6.5h6.5zm-3.273 2.773H6.545v7.909h10.91v-7.91zm-6.136 4.636H7.91v1.91h3.41v-1.91z" />
+    </svg>
+  );
+}
+
 /** The one place a source's mark is chosen. Every surface indexes this. */
 export const BRAND_LOGOS: Record<SourceId, (p: Props) => React.ReactElement> = {
   github: GitHubLogo,
