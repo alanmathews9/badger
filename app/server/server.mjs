@@ -6,7 +6,7 @@
 // the built frontend and exposes Badger's two passes as two endpoints.
 //
 //   POST /api/search   deterministic. GitHub, Gmail and Drive, live, no model.
-//   GET  /api/ask      the agent, streamed over SSE.
+//   POST /api/ask      the agent, streamed over SSE.
 //
 // Deliberately plain node:http. The repo's only dependencies are the agent's
 // own; adding a web framework to a submission whose thesis is "the agent is a
@@ -30,6 +30,7 @@ import { TOOLKITS, TOOLKIT_LABELS, accountFor, listConnections, resolveContext }
 import { budgetStatus, claimAskSlot, clientIp, rateLimit } from "./limits.mjs";
 import { splashPage } from "./splash.mjs";
 import { buildSystemSuffix } from "./system-suffix.mjs";
+import { buildPrompt, parseAskBody } from "./transcript.mjs";
 import { annotateUnverified, extractCitations, mentions, verifyCitations } from "./verify-citations.mjs";
 
 // The repo root, which is also the agent directory query() loads. The server
@@ -73,7 +74,7 @@ const server = createServer(async (req, res) => {
 
     if (url.pathname === "/api/search" && req.method === "POST") return await handleSearch(req, res);
     if (url.pathname === "/api/sources" && req.method === "GET") return await handleSources(req, res);
-    if (url.pathname === "/api/ask" && req.method === "GET") return await handleAsk(url, req, res);
+    if (url.pathname === "/api/ask" && req.method === "POST") return await handleAsk(req, res);
     if (url.pathname.startsWith("/api/")) return json(res, 404, { error: "no such endpoint" });
     return await serveStatic(url.pathname, res);
   } catch (err) {
@@ -223,7 +224,7 @@ async function handleSearch(req, res) {
 const ALLOWED_TOOLS = readAllowedTools();
 
 /**
- * GET /api/ask?q=… — the second pass, streamed.
+ * POST /api/ask  {question, history} — the second pass, streamed over SSE.
  *
  * This is scripts/badger-sdk.mjs with an HTTP wrapper, deliberately: same
  * allowlist, same verification, same refusal to trust a citation nobody
@@ -235,18 +236,24 @@ const ALLOWED_TOOLS = readAllowedTools();
  * the CLI entry point (dist/index.js), and dist/sdk.js contains no git calls
  * at all. query() will not commit to the repo on each request.
  */
-async function handleAsk(url, req, res) {
-  const question = (url.searchParams.get("q") ?? "").trim();
-  if (!question) return json(res, 400, { error: "q is required" });
-
-  // Follow-ups carry their own context, because the runtime has nowhere to
-  // keep it. `sessionId` looks like conversation resumption but is only a
-  // logging label — dist/sdk.js never loads prior messages. Real multi-turn
-  // would mean holding one query() open and feeding it the AsyncIterable
-  // prompt form, which needs server-side session state and its own expiry;
-  // this is the honest version until that exists. Each follow-up re-retrieves,
-  // which costs about a third of a cent.
-  if (question.length > 500) return json(res, 400, { error: "that question is too long" });
+async function handleAsk(req, res) {
+  // Follow-ups carry the conversation in the request, because the runtime has
+  // nowhere to keep it — dist/sdk.js never loads prior messages, `sessionId`
+  // is only a logging label. Real multi-turn would mean holding one query()
+  // open and feeding it the AsyncIterable prompt form, which needs
+  // server-side session state and its own expiry; this is the honest version
+  // until that exists. Each follow-up re-retrieves, which costs about a third
+  // of a cent. POST rather than GET so a long conversation is not squeezed
+  // through a URL; transcript.mjs owns validation and the character budget.
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return json(res, 400, { error: "body must be JSON" });
+  }
+  const parsed = parseAskBody(body);
+  if (parsed.error) return json(res, 400, { error: parsed.error });
+  const { question, history } = parsed;
 
   const limited = rateLimit(req, "ask");
   if (limited) return json(res, 429, { error: limited });
@@ -256,8 +263,7 @@ async function handleAsk(url, req, res) {
   const slot = claimAskSlot();
   if (slot.error) return json(res, 429, { error: slot.error });
 
-  const context = (url.searchParams.get("context") ?? "").trim().slice(0, 4000);
-  const prompt = context ? `${context}\n\nFollow-up question: ${question}` : question;
+  const prompt = buildPrompt(history, question);
 
   res.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",

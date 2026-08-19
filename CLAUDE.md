@@ -18,15 +18,44 @@ four fifths of the grade.
 
 ---
 
-# START HERE — state as of 2026-08-19
+# START HERE — state as of 2026-08-19, night
 
-**The next build is PLAN-AGENT-ON-INDEX.md step 4 — Composio Triggers —
-then that plan's docs step, then the single batched deploy (21+ commits
-waiting; Alan calls the deploy, never you). Steps 1–3 of that plan are done
-and gated: incremental refresh on a timer (default 2h,
-BADGER_INDEX_REFRESH_HOURS), and the agent's search tools answer from the
-local index with the live path as second look — eval 14/15 against a 13/15
-same-day baseline.**
+**Multi-turn chat is built, verified, and UNCOMMITTED in the working tree —
+first thing, confirm with Alan and commit it (he approved the build and
+called the result good; he has not yet been asked about committing). Then:
+Alan wants chat improvements ("a lot of improvements we can make" — ask him
+which), before Composio Triggers (PLAN-AGENT-ON-INDEX.md step 4), docs, and
+the single batched deploy (21+ commits waiting; Alan calls the deploy,
+never you).**
+
+What the chat work is (all local, working tree only):
+
+- Chat is a real conversation now: a scrolling thread of turns, each answer
+  keeping its source cards / coverage / verification badge; a New chat
+  button; tool calls persist as chips inside each answer instead of
+  vanishing off one status line.
+- `/api/ask` is a **POST** `{question, history}` (the GET is gone —
+  EventSource replaced by fetch+stream in `app/web/src/lib/ask.ts`). New
+  `app/server/transcript.mjs` builds the prompt: full history, oldest turns
+  dropped past an 8,000-char budget, prior answers re-fed without their
+  Sources/Coverage sections. 11 unit tests in `tests/transcript.test.mjs`
+  (`node --test tests/*.test.mjs`).
+- Verified: scripted 3-turn conversation (pronoun resolved from turn 1;
+  "summarise this conversation" answered with zero tool calls), browser
+  walkthrough, eval 13/15 == same-day baseline (why-late failed — the known
+  noisy question — and leave-carryover cut off mid-sentence; both on the
+  SDK path this change never touched).
+- Known wart, pre-existing: the follow-up suggestion chip can show a raw
+  Drive file id when a document failed to open (labelOpened recovered no
+  name).
+- Decided with Alan on the way in: no Vercel AI SDK / chatbot template —
+  we keep our SSE and hand-rolled UI, borrowing the template's UX only.
+  No persistence; refresh starts clean.
+
+Also still true: PLAN-AGENT-ON-INDEX.md steps 1–3 are done and gated —
+incremental refresh on a timer (default 2h, BADGER_INDEX_REFRESH_HOURS),
+and the agent's search tools answer from the local index with the live path
+as second look — eval 14/15 against a 13/15 same-day baseline.
 
 What else changed on 2026-08-19, all pushed to GitHub
 (`alanmathews9/badger`, public — pushing IS allowed on Alan's word, he asked

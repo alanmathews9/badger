@@ -37,54 +37,98 @@ export type AskHandlers = {
   onError: (message: string) => void;
 };
 
+/** One completed exchange, as the server wants it re-sent: plain text only. */
+export type Turn = { question: string; answer: string };
+
 /**
  * Stream one agent run.
  *
- * EventSource rather than fetch+ReadableStream: the endpoint is a GET, the
- * browser handles reconnection semantics, and closing it aborts the run
- * server-side — the agent stops rather than burning tokens into a socket
- * nobody is reading.
+ * fetch + ReadableStream rather than EventSource: the endpoint is a POST now,
+ * because a whole conversation travels in the body and would not reliably fit
+ * in a URL. The response is still SSE — the small parser below understands
+ * exactly the frames our own server sends. Aborting the fetch closes the
+ * socket, which the server treats as "stop the agent" — the run aborts rather
+ * than burning tokens into a socket nobody is reading.
  *
  * Returns a function that cancels the run.
  */
-export function ask(question: string, handlers: AskHandlers, context?: string): () => void {
-  const url =
-    `/api/ask?q=${encodeURIComponent(question)}` +
-    (context ? `&context=${encodeURIComponent(context)}` : "");
-  const source = new EventSource(url);
+export function ask(question: string, handlers: AskHandlers, history: Turn[] = []): () => void {
+  const controller = new AbortController();
   let finished = false;
 
-  source.addEventListener("tool", (e) => {
-    const data = JSON.parse((e as MessageEvent).data);
-    handlers.onTool(data.name, data.args ?? {});
-  });
-
-  source.addEventListener("delta", (e) => {
-    handlers.onDelta(JSON.parse((e as MessageEvent).data).text ?? "");
-  });
-
-  source.addEventListener("done", (e) => {
+  const fail = (message: string) => {
+    if (finished) return;
     finished = true;
-    handlers.onDone(JSON.parse((e as MessageEvent).data));
-    source.close();
-  });
+    handlers.onError(message);
+  };
 
-  source.addEventListener("error", (e) => {
-    // Two different things arrive here: an "error" event the server sent with
-    // a message, and EventSource's own transport failure, which carries none.
-    const data = (e as MessageEvent).data;
-    if (data) {
-      finished = true;
-      handlers.onError(JSON.parse(data).message ?? "the agent failed");
-    } else if (!finished) {
-      handlers.onError("lost the connection to Badger");
+  const dispatch = (frame: string) => {
+    let event = "message";
+    const dataLines: string[] = [];
+    for (const line of frame.split("\n")) {
+      if (line.startsWith("event:")) event = line.slice(6).trim();
+      else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
     }
-    source.close();
-  });
+    if (dataLines.length === 0) return;
+    const data = JSON.parse(dataLines.join("\n"));
+    if (event === "tool") handlers.onTool(data.name, data.args ?? {});
+    else if (event === "delta") handlers.onDelta(data.text ?? "");
+    else if (event === "done") {
+      finished = true;
+      handlers.onDone(data);
+    } else if (event === "error") fail(data.message ?? "the agent failed");
+    // "warning" frames exist and are deliberately not surfaced here, same as
+    // the EventSource version never listened for them.
+  };
+
+  (async () => {
+    let response: Response;
+    try {
+      response = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ question, history }),
+        signal: controller.signal,
+      });
+    } catch {
+      if (!controller.signal.aborted) fail("lost the connection to Badger");
+      return;
+    }
+
+    if (!response.ok || !response.body) {
+      let message = "the agent failed";
+      try {
+        message = (await response.json()).error ?? message;
+      } catch {
+        // a non-JSON error page keeps the generic message
+      }
+      return fail(message);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let at: number;
+        while ((at = buffer.indexOf("\n\n")) >= 0) {
+          const frame = buffer.slice(0, at);
+          buffer = buffer.slice(at + 2);
+          if (frame.trim()) dispatch(frame);
+        }
+      }
+      if (!finished) fail("lost the connection to Badger");
+    } catch {
+      if (!controller.signal.aborted) fail("lost the connection to Badger");
+    }
+  })();
 
   return () => {
     finished = true;
-    source.close();
+    controller.abort();
   };
 }
 

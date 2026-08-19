@@ -12,11 +12,19 @@ import {
   type SearchResponse,
   type SourcesResponse,
 } from "@/lib/api";
-import { ask, describeTool } from "@/lib/ask";
+import { ask, describeTool, type Turn } from "@/lib/ask";
 import type { AnswerState } from "@/components/AnswerCard";
+import type { ChatTurn } from "@/screens/ChatScreen";
 import { useRecentDigs } from "@/lib/recentDigs";
 
-const IDLE: AnswerState = { running: false, activity: null, text: "", result: null, error: null };
+const IDLE: AnswerState = {
+  running: false,
+  activity: null,
+  tools: [],
+  text: "",
+  result: null,
+  error: null,
+};
 
 /**
  * The shell: a rail, and one of three modes beside it.
@@ -43,11 +51,10 @@ const IDLE: AnswerState = { running: false, activity: null, text: "", result: nu
 export default function App() {
   const [mode, setMode] = useState<Mode>("search");
   const [query, setQuery] = useState("");
-  const [asked, setAsked] = useState("");
   const [data, setData] = useState<SearchResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [answer, setAnswer] = useState<AnswerState>(IDLE);
+  const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [sources, setSources] = useState<SourcesResponse>({ mode: "none", sources: [] });
   const [budget, setBudget] = useState<Budget | null>(null);
   const { digs, record } = useRecentDigs();
@@ -59,24 +66,48 @@ export default function App() {
     fetchBudget().then(setBudget).catch(() => {});
   }, []);
 
-  const startAsk = useCallback((question: string, context?: string) => {
-    cancelAsk.current?.();
-    setAsked(question);
-    setAnswer({ ...IDLE, running: true });
-    cancelAsk.current = ask(
-      question,
-      {
-        onTool: (name, args) => setAnswer((s) => ({ ...s, activity: describeTool(name, args) })),
-        onDelta: (text) => setAnswer((s) => ({ ...s, text: s.text + text })),
-        onDone: (result) => {
-          setAnswer((s) => ({ ...s, running: false, activity: null, text: result.answer, result }));
-          // The budget just moved. Re-read it rather than decrementing a guess.
-          fetchBudget().then(setBudget).catch(() => {});
-        },
-        onError: (message) => setAnswer((s) => ({ ...s, running: false, error: message })),
-      },
-      context,
+  // Every stream event lands on the newest turn — the only one that can be
+  // running, because startAsk cancels any run in flight before appending.
+  const patchLast = useCallback((fn: (s: AnswerState) => AnswerState) => {
+    setTurns((ts) =>
+      ts.length === 0 ? ts : [...ts.slice(0, -1), { ...ts[ts.length - 1], answer: fn(ts[ts.length - 1].answer) }],
     );
+  }, []);
+
+  const startAsk = useCallback(
+    (question: string) => {
+      cancelAsk.current?.();
+      // The conversation so far, as plain text. The server strips the model's
+      // Sources/Coverage boilerplate and enforces its own budget; a turn that
+      // errored has nothing to contribute and is left out.
+      const history: Turn[] = turns
+        .map((t) => ({ question: t.question, answer: t.answer.result?.answer ?? t.answer.text }))
+        .filter((t) => t.answer.trim().length > 0);
+      setTurns((ts) => [...ts, { question, answer: { ...IDLE, running: true } }]);
+      cancelAsk.current = ask(
+        question,
+        {
+          onTool: (name, args) => {
+            const described = describeTool(name, args);
+            patchLast((s) => ({ ...s, activity: described, tools: [...s.tools, described] }));
+          },
+          onDelta: (text) => patchLast((s) => ({ ...s, text: s.text + text })),
+          onDone: (result) => {
+            patchLast((s) => ({ ...s, running: false, activity: null, text: result.answer, result }));
+            // The budget just moved. Re-read it rather than decrementing a guess.
+            fetchBudget().then(setBudget).catch(() => {});
+          },
+          onError: (message) => patchLast((s) => ({ ...s, running: false, error: message })),
+        },
+        history,
+      );
+    },
+    [turns, patchLast],
+  );
+
+  const newChat = useCallback(() => {
+    cancelAsk.current?.();
+    setTurns([]);
   }, []);
 
   const dig = useCallback(
@@ -106,14 +137,10 @@ export default function App() {
 
   const followUp = useCallback(
     (next: string) => {
-      const context =
-        answer.text && asked
-          ? `Earlier in this conversation you were asked: "${asked}"\n\nYou answered:\n${answer.text}`
-          : undefined;
       setMode("chat");
-      startAsk(next, context);
+      startAsk(next);
     },
-    [answer.text, asked, startAsk],
+    [startAsk],
   );
 
   return (
@@ -142,7 +169,7 @@ export default function App() {
             data={data}
           />
         ) : (
-          <ChatScreen question={asked} answer={answer} onFollowUp={followUp} />
+          <ChatScreen turns={turns} onAsk={followUp} onNewChat={newChat} />
         )}
       </SidebarInset>
     </SidebarProvider>

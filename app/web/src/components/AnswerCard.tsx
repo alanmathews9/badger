@@ -4,6 +4,8 @@ import type { AskResult } from "@/lib/ask";
 export type AnswerState = {
   running: boolean;
   activity: string | null;
+  /** Every tool call this run made, described — the trail stays on screen. */
+  tools: string[];
   text: string;
   result: AskResult | null;
   error: string | null;

@@ -1,0 +1,84 @@
+/**
+ * The chat transcript: conversation history in, one agent prompt out.
+ *
+ * The runtime keeps no conversation state — dist/sdk.js never loads prior
+ * messages — so every follow-up re-sends the conversation as text. Two rules
+ * keep that honest and affordable: prior answers are re-fed without their
+ * Sources/Coverage boilerplate (the model would only be quoting itself), and
+ * the whole transcript lives under a character budget where the oldest turns
+ * fall off first, because the newest turn is the one a follow-up usually
+ * leans on.
+ */
+
+const QUESTION_MAX = 500;
+const TURNS_MAX = 20;
+const BUDGET_DEFAULT = 8000;
+// A single answer may not eat the whole budget: an oversize one is truncated
+// so its own question — and the turns after it — survive.
+const ANSWER_SHARE = 0.6;
+
+/** Drop the model's trailing **Sources** / **Coverage** sections. */
+function stripSections(answer) {
+  const source = String(answer ?? "");
+  const cuts = ["Sources", "Coverage"]
+    .map((h) => source.match(new RegExp(`^\\s*\\*\\*${h}\\b.*?\\*\\*:?`, "im"))?.index)
+    .filter((i) => i != null && i >= 0);
+  return (cuts.length ? source.slice(0, Math.min(...cuts)) : source).trim();
+}
+
+/**
+ * Build the prompt: prior turns as a labelled transcript, newest kept when
+ * the budget forces a choice, the new question last.
+ */
+export function buildPrompt(history, question, { budget = BUDGET_DEFAULT } = {}) {
+  if (!history?.length) return question;
+
+  const answerMax = Math.floor(budget * ANSWER_SHARE);
+  const blocks = [];
+  let used = 0;
+  // Walk newest-first so the budget spends itself on the turns a follow-up
+  // actually refers to; reverse at the end to restore conversation order.
+  for (const turn of [...history].reverse()) {
+    let answer = stripSections(turn.answer);
+    if (answer.length > answerMax) answer = answer.slice(0, answerMax) + " […]";
+    const block = `You were asked: "${turn.question}"\n\nYou answered:\n${answer}`;
+    if (used + block.length > budget && blocks.length > 0) break;
+    blocks.push(block);
+    used += block.length;
+    if (used > budget) break;
+  }
+  blocks.reverse();
+
+  return (
+    "Earlier in this conversation:\n\n" +
+    blocks.join("\n\n---\n\n") +
+    `\n\nFollow-up question: ${question}`
+  );
+}
+
+/**
+ * Validate a POST /api/ask body. Returns { question, history } or { error }.
+ *
+ * Malformed history turns are dropped rather than failing the request — the
+ * client is ours, but a stale tab mid-deploy should degrade to a shallower
+ * conversation, not a dead one. Only the question is load-bearing.
+ */
+export function parseAskBody(body) {
+  const question = typeof body?.question === "string" ? body.question.trim() : "";
+  if (!question) return { error: "question is required" };
+  if (question.length > QUESTION_MAX) return { error: "that question is too long" };
+
+  const raw = Array.isArray(body.history) ? body.history : [];
+  const history = raw
+    .filter(
+      (turn) =>
+        turn &&
+        typeof turn === "object" &&
+        typeof turn.question === "string" &&
+        typeof turn.answer === "string",
+    )
+    .slice(-TURNS_MAX)
+    .map((turn) => ({ question: turn.question, answer: turn.answer }));
+
+  return { question, history };
+}
