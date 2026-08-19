@@ -3,6 +3,7 @@ import { ArrowUp, ChevronRight, ExternalLink, FileText, Loader2, Plus, Upload, X
 import { Markdown, type Citation } from "@/components/Markdown";
 import { BRAND_LOGOS } from "@/components/BrandLogos";
 import type { SourceId } from "@/lib/api";
+import type { ChatSummary } from "@/lib/history";
 import { VerificationBadge } from "@/components/AnswerCard";
 import type { AnswerState } from "@/components/AnswerCard";
 import {
@@ -17,9 +18,6 @@ import {
 
 /** One exchange: the question asked, and everything the run produced. */
 export type ChatTurn = { question: string; answer: AnswerState };
-
-/** What the history pane needs to list a conversation. */
-export type ChatSummary = { id: string; title: string };
 
 /**
  * The conversation screen: a history pane of past chats, the thread itself,
@@ -321,12 +319,23 @@ function TurnBlock({ turn, first, isLast }: { turn: ChatTurn; first: boolean; is
           {answer.error}
         </p>
       ) : (
-        <article className="mt-4 text-[15px]/[1.8] text-stone-800">
-          <Markdown text={body} citations={citations} />
-          {answer.running && answer.text && (
-            <Loader2 className="mt-2 size-3.5 animate-spin text-stone-400" />
-          )}
-        </article>
+        // NOTHING is rendered here while the run is live.
+        //
+        // Streaming text straight into the answer area was the bug: the model
+        // interleaves narration with tool calls, and a tool call clears the
+        // buffer, so the reader watched prose appear, vanish, appear again and
+        // vanish again before the real answer landed. Moving the cleared text
+        // into the trail was not enough — the vanishing was the complaint, and
+        // it kept happening.
+        //
+        // So the answer slot only ever holds a finished answer. In-flight text
+        // is shown by StepTrail as what it actually is: work in progress, in
+        // the place where work is reported.
+        !answer.running && (
+          <article className="mt-4 text-[15px]/[1.8] text-stone-800">
+            <Markdown text={body} citations={citations} />
+          </article>
+        )
       )}
 
       {result && cited.length > 0 && (
@@ -365,10 +374,24 @@ function StepTrail({ answer, coverage }: { answer: AnswerState; coverage: string
     // trail is one click away the moment the answer lands.
     const current = steps.at(-1) ?? null;
     return (
-      <div className="mt-4 flex items-center gap-1.5 text-[12.5px] text-stone-500">
-        <Loader2 className="size-3 shrink-0 animate-spin text-stone-400" />
-        {current ? current.label : "Thinking"}…
-        {steps.length > 1 && <span className="text-stone-400">· step {steps.length}</span>}
+      <div className="mt-4 flex flex-col gap-1 text-[12.5px] text-stone-500">
+        <div className="flex items-center gap-1.5">
+          <Loader2 className="size-3 shrink-0 animate-spin text-stone-400" />
+          {current ? current.label : "Thinking"}…
+          {steps.length > 1 && <span className="text-stone-400">· step {steps.length}</span>}
+        </div>
+        {/* Whatever the model is writing right now, or its reason for the step
+            it is on. A run takes fifteen seconds; "Searching Gmail" for all of
+            it reads as a hang, and this is the one thing on screen that says
+            why the wait is happening.
+        
+            It sits HERE rather than in the answer area deliberately. This is a
+            live scratchpad and it is allowed to change; an answer is not. */}
+        {(answer.text.trim() || current?.narration) && (
+          <p className="pl-[18px] text-[12px]/[1.7] text-stone-400 italic line-clamp-3">
+            {answer.text.trim() || current?.narration}
+          </p>
+        )}
       </div>
     );
   }
@@ -438,8 +461,13 @@ function StepRow({ step, live }: { step: ToolStep | null; live: boolean }) {
         )}
       </button>
       {open && step && (
-        <div className="mb-1 ml-[18px] max-w-full overflow-x-auto rounded-md bg-stone-50 px-2.5 py-1.5 font-mono text-[11px] text-stone-600">
-          {step.name} {formatArgs(step.args)}
+        <div className="mb-1 ml-[18px] flex flex-col gap-1.5">
+          {step.narration && (
+            <p className="text-[12px]/[1.6] text-stone-500 italic">{step.narration}</p>
+          )}
+          <div className="max-w-full overflow-x-auto rounded-md bg-stone-50 px-2.5 py-1.5 font-mono text-[11px] text-stone-600">
+            {step.name} {formatArgs(step.args)}
+          </div>
         </div>
       )}
     </div>
@@ -483,6 +511,16 @@ function SourceLink({
     </>
   );
 
+  // Every source link resolves only for someone holding the account behind it
+  // — the repository is private, the Drive and the mailbox are one demo
+  // account. That is inherent to citing federated sources, not a bug, but a
+  // reader who clicks and gets Google's account chooser deserves to know why
+  // rather than concluding the citation was invented. Mail is the case that
+  // needs saying out loud, because Gmail answers with a chooser rather than a
+  // recognisable "you do not have access" page.
+  const mailbox = mailboxOf(item.url);
+  const title = mailbox ? `Opens in ${mailbox} — the mailbox Badger indexed` : undefined;
+
   return (
     <span
       id={anchored ? `source-${index}` : undefined}
@@ -494,6 +532,7 @@ function SourceLink({
           href={item.url}
           target="_blank"
           rel="noopener noreferrer"
+          title={title}
           className="inline-flex items-center gap-1.5 text-stone-600 underline decoration-stone-300 underline-offset-2 hover:text-stone-900 hover:decoration-stone-500"
         >
           {inner}
@@ -504,6 +543,19 @@ function SourceLink({
       )}
     </span>
   );
+}
+
+
+/** The mailbox a Gmail citation opens in, read back out of its own link. The
+ *  server put it there as `authuser`; parsing it here beats threading the
+ *  address through every layer for one tooltip. */
+function mailboxOf(url?: string): string | null {
+  if (!url?.startsWith("https://mail.google.com/")) return null;
+  try {
+    return new URL(url).searchParams.get("authuser");
+  } catch {
+    return null;
+  }
 }
 
 /** Which system an item came from. GitHub is the default, not the only one. */

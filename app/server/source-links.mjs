@@ -12,16 +12,21 @@
 // permissions stay enforced at the source, exactly as federation promises.
 import { mentions } from "./verify-citations.mjs";
 
-/** Attach a `url` to each cited item that the run gave us enough to address. */
-export function attachSourceUrls(items, opened, repo) {
+/**
+ * Attach a `url` to each cited item that the run gave us enough to address.
+ *
+ * `mailbox` is the address of the connected Gmail account. Without it, mail
+ * citations get no link at all — see the note on the mail case below.
+ */
+export function attachSourceUrls(items, opened, repo, { mailbox = null } = {}) {
   for (const item of items) {
-    const url = sourceUrl(item, opened, repo);
+    const url = sourceUrl(item, opened, repo, mailbox);
     if (url) item.url = url;
   }
   return items;
 }
 
-function sourceUrl(item, opened, repo) {
+function sourceUrl(item, opened, repo, mailbox) {
   switch (item.kind) {
     case "issue":
       return repo && `https://github.com/${repo}/issues/${item.ref}`;
@@ -31,7 +36,24 @@ function sourceUrl(item, opened, repo) {
       return repo && `https://github.com/${repo}/blob/main/${item.ref}`;
     case "mail": {
       const thread = findOpened(opened, "mail", item.label);
-      return thread && `https://mail.google.com/mail/u/0/#all/${thread.ref}`;
+      if (!thread) return null;
+      // `/mail/u/0/` — which is what this used to emit, and what Onyx still
+      // emits (`_build_document_link` in their gmail connector) — addresses a
+      // mailbox by its POSITION in whatever Google accounts the reader happens
+      // to be signed into. Position 0 is the reader's first account, which is
+      // almost never the mailbox we indexed. The link does not fail; it opens
+      // someone else's inbox, or a "no such conversation" page, and looks like
+      // our data is wrong.
+      //
+      // `authuser=<address>` addresses it by identity instead. A reader signed
+      // into that account lands on the thread whatever position it occupies;
+      // one who is not gets Google's account chooser, which is an honest
+      // outcome rather than a silently wrong one.
+      //
+      // With no mailbox known we emit NO link. A citation with no address
+      // renders as plain text, and plain text beats a link that lies.
+      if (!mailbox) return null;
+      return `https://mail.google.com/mail/u/?authuser=${encodeURIComponent(mailbox)}#all/${thread.ref}`;
     }
     case "doc": {
       const doc = findOpened(opened, "doc", item.label);

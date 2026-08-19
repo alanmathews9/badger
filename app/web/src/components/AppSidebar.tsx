@@ -1,4 +1,5 @@
 import { MessagesSquare, Search, Wrench } from "lucide-react";
+import { NavLink, useLocation } from "react-router-dom";
 import { BadgerBadge } from "./BadgerMark";
 import { BRAND_LOGOS } from "./BrandLogos";
 import {
@@ -15,11 +16,9 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
-import type { Dig } from "@/lib/recentDigs";
+import type { SearchEntry } from "@/lib/history";
 import type { SourceId, SourcesResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";
-
-export type Mode = "search" | "chat" | "tools";
 
 /** Fixed order, so the marks do not reshuffle when a source reconnects. */
 const SOURCE_ORDER: SourceId[] = ["github", "drive", "gmail"];
@@ -27,9 +26,13 @@ const SOURCE_ORDER: SourceId[] = ["github", "drive", "gmail"];
 /**
  * The left rail.
  *
- * Two destinations, not one: Search is the fast keyword pass, Chat is the
- * agent. They were fused before — one Dig ran both — which made it impossible
- * to say which half was slow or which half you were looking at.
+ * Three destinations, and they are **real links** rather than buttons that set
+ * state. That is not decoration: an `onClick` that flips a variable cannot be
+ * middle-clicked into a new tab, cannot be copied out of the address bar, and
+ * leaves the back button pointing out of the application. `NavLink` also
+ * decides "active" from the current path, so the highlight cannot drift out of
+ * step with what is on screen — the class of bug this project keeps finding in
+ * status displays that were never seen wrong.
  *
  * The usage meter at the bottom reports the real answer budget from
  * /api/health rather than being decoration. It is the one number that decides
@@ -37,20 +40,16 @@ const SOURCE_ORDER: SourceId[] = ["github", "drive", "gmail"];
  * visible.
  */
 export function AppSidebar({
-  mode,
-  onModeChange,
-  digs,
-  onPickDig,
+  searches,
   budget,
   sources,
 }: {
   sources?: SourcesResponse;
-  mode: Mode;
-  onModeChange: (next: Mode) => void;
-  digs: Dig[];
-  onPickDig: (query: string) => void;
+  searches: SearchEntry[];
   budget: { answersRemaining: number; answersToday: number } | null;
 }) {
+  const { pathname } = useLocation();
+
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -72,85 +71,84 @@ export function AppSidebar({
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton
-                  isActive={mode === "search"}
-                  onClick={() => onModeChange("search")}
-                  tooltip="Search"
-                >
-                  <Search />
-                  <span>Search</span>
-                  <span className="ml-auto font-mono text-[10.5px] text-stone-400 group-data-[collapsible=icon]:hidden">
-                    ⌘K
-                  </span>
+                {/* Active on every /search URL, so a results page keeps the
+                    rail highlighted the same way the empty box does. */}
+                <SidebarMenuButton asChild isActive={pathname.startsWith("/search")} tooltip="Search">
+                  <NavLink to="/search">
+                    <Search />
+                    <span>Search</span>
+                    <span className="ml-auto font-mono text-[10.5px] text-stone-400 group-data-[collapsible=icon]:hidden">
+                      ⌘K
+                    </span>
+                  </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+
               <SidebarMenuItem>
-                <SidebarMenuButton
-                  isActive={mode === "chat"}
-                  onClick={() => onModeChange("chat")}
-                  tooltip="Chat"
-                >
-                  <MessagesSquare />
-                  <span>Chat</span>
+                {/* /chat and /chat/<id> are the same destination. */}
+                <SidebarMenuButton asChild isActive={pathname.startsWith("/chat")} tooltip="Chat">
+                  <NavLink to="/chat">
+                    <MessagesSquare />
+                    <span>Chat</span>
+                  </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+
               <SidebarMenuItem>
-                <SidebarMenuButton
-                  isActive={mode === "tools"}
-                  onClick={() => onModeChange("tools")}
-                  tooltip="Tools"
-                >
-                  <Wrench />
-                  <span>Tools</span>
-                  {/*
-                    The three marks, rather than a status dot.
-                
-                    A dot says "something is connected" and this one said it
-                    unconditionally — it was a hard-coded emerald circle that
-                    stayed green whether or not anything was reachable. The marks
-                    say *which* sources, which is the thing worth knowing at a
-                    glance, and they are driven by /api/sources so a source that
-                    drops out fades instead of lying.
-                
-                    Kept deliberately quiet: 13px, dimmed, and behind the label.
-                    This is a status indicator that happens to be legible, not a
-                    row of logos competing with the navigation.
-                  */}
-                  <span className="ml-auto flex shrink-0 items-center gap-1 group-data-[collapsible=icon]:hidden">
-                    {SOURCE_ORDER.map((id) => {
-                      const Logo = BRAND_LOGOS[id];
-                      const live = sources?.sources.find((s) => s.id === id)?.connected ?? false;
-                      return (
-                        <Logo
-                          key={id}
-                          size={13}
-                          className={cn(
-                            "transition-opacity",
-                            live ? "opacity-60" : "opacity-20 grayscale",
-                          )}
-                        />
-                      );
-                    })}
-                  </span>
+                <SidebarMenuButton asChild isActive={pathname.startsWith("/tools")} tooltip="Tools">
+                  <NavLink to="/tools">
+                    <Wrench />
+                    <span>Tools</span>
+                    {/*
+                      The three marks, rather than a status dot.
+
+                      A dot says "something is connected" and this one said it
+                      unconditionally — it was a hard-coded emerald circle that
+                      stayed green whether or not anything was reachable. The
+                      marks say *which* sources, which is the thing worth
+                      knowing at a glance, and they are driven by /api/sources
+                      so a source that drops out fades instead of lying.
+
+                      Kept deliberately quiet: 13px, dimmed, and behind the
+                      label. A status indicator that happens to be legible, not
+                      a row of logos competing with the navigation.
+                    */}
+                    <span className="ml-auto flex shrink-0 items-center gap-1 group-data-[collapsible=icon]:hidden">
+                      {SOURCE_ORDER.map((id) => {
+                        const Logo = BRAND_LOGOS[id];
+                        const live = sources?.sources.find((s) => s.id === id)?.connected ?? false;
+                        return (
+                          <Logo
+                            key={id}
+                            size={13}
+                            className={cn(
+                              "transition-opacity",
+                              live ? "opacity-60" : "opacity-20 grayscale",
+                            )}
+                          />
+                        );
+                      })}
+                    </span>
+                  </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 
-
-        {digs.length > 0 && (
+        {searches.length > 0 && (
           <SidebarGroup className="group-data-[collapsible=icon]:hidden">
             <SidebarGroupLabel>Recent digs</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {digs.slice(0, 6).map((dig) => (
-                  <SidebarMenuItem key={dig.query}>
-                    <SidebarMenuButton
-                      onClick={() => onPickDig(dig.query)}
-                      className="text-stone-600"
-                    >
-                      <span className="truncate">{dig.query}</span>
+                {searches.slice(0, 6).map((entry) => (
+                  <SidebarMenuItem key={entry.query}>
+                    {/* A past search is a URL, so it can be opened in a tab or
+                        bookmarked like any other. */}
+                    <SidebarMenuButton asChild className="text-stone-600">
+                      <NavLink to={`/search?q=${encodeURIComponent(entry.query)}`}>
+                        <span className="truncate">{entry.query}</span>
+                      </NavLink>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ))}
@@ -182,7 +180,6 @@ export function AppSidebar({
             </p>
           </div>
         )}
-
       </SidebarFooter>
 
       <SidebarRail />

@@ -1,0 +1,12 @@
+-- Carry the index's own metadata on the run that produced it.
+--
+-- The JSON index is an object with a docs array and a header — version,
+-- builtAt, refreshedAt, repo, counts, apiCalls, buildMs. The `document` table
+-- holds the docs; this holds the header, so an index pulled back out of
+-- Postgres is byte-for-byte the same shape the searcher and the agent's tools
+-- already read. Without it, `pullIndex` would have to invent a builtAt, and a
+-- freshness figure the UI prints on every search is not a thing to invent.
+--
+-- One jsonb column rather than a column per field, for the same reason as
+-- chat_message.result: this is a payload we write and read whole.
+alter table index_run add column if not exists meta jsonb;

@@ -18,6 +18,7 @@
 import { exec as gh, asList, REPO_SLUG } from "../tools/scripts/_github.mjs";
 import { exec as goog, exportText, isWorkspaceFile, kindOf } from "../tools/scripts/_google.mjs";
 import { loadIndex, saveIndex, indexStatus, INDEX_FILE } from "../tools/scripts/_index.mjs";
+import { pushIndex, dbConfigured } from "../tools/scripts/_index-db.mjs";
 import { fileURLToPath } from "node:url";
 
 // GitHub is optional: with no BADGER_GITHUB_REPO the crawl covers Gmail and
@@ -477,6 +478,7 @@ async function refresh() {
   index.counts = countsOf(index.docs);
   index.refreshedAt = new Date().toISOString();
   saveIndex(index);
+  await store(index);
 
   console.log(
     `\n${updated} updated, ${added} added, ${index.docs.length} docs total — ` +
@@ -484,6 +486,31 @@ async function refresh() {
     `Full rebuild (the deletion sweep) last ran ${index.builtAt}.`,
   );
   return true;
+}
+
+/**
+ * Write the index to Postgres as well as to disk, when a database is
+ * configured. The file is what gets read — by the server's searcher and by
+ * every agent tool subprocess — and Postgres is what lets that file be
+ * recreated in one query after a container dies, instead of by crawling three
+ * APIs again.
+ *
+ * A database failure is reported and does not fail the build: the index on
+ * disk is complete and usable, and taking the build down over its backup
+ * would be the tail wagging the dog.
+ */
+async function store(index) {
+  if (!dbConfigured()) {
+    console.log("\n  no DATABASE_URL — index written to disk only");
+    return;
+  }
+  try {
+    const { docs } = await pushIndex(index);
+    console.log(`\n  stored ${docs} docs in Postgres`);
+  } catch (err) {
+    console.error(`\n  WARNING: could not store the index in Postgres: ${err.message}`);
+    console.error("  The index on disk is fine. A cold start will rebuild by crawling instead.");
+  }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────
@@ -523,7 +550,7 @@ async function main() {
   const counts = countsOf(docs);
 
   const buildMs = Date.now() - startedAt;
-  const bytes = saveIndex({
+  const index = {
     version: 1,
     builtAt: new Date().toISOString(),
     repo: REPO_SLUG,
@@ -531,7 +558,9 @@ async function main() {
     apiCalls,
     counts,
     docs,
-  });
+  };
+  const bytes = saveIndex(index);
+  await store(index);
 
   // Stored vs what the live APIs reported during the crawl. A mismatch is a
   // build defect; say so and fail, rather than leaving a quietly partial index

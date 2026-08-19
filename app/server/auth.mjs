@@ -110,6 +110,20 @@ function readSession(req) {
   return { uid };
 }
 
+/**
+ * Whose browser this is — the opaque uid from the signed cookie, and what
+ * every stored conversation is keyed on.
+ *
+ * With the gate switched off there is no cookie and no session, which is the
+ * localhost development case; everything lands under one well-known id rather
+ * than being unattributable. This is deliberately NOT an account: the uid is
+ * random per sign-in with nothing behind it, so "your history" means "this
+ * browser's history" and the UI must not imply more.
+ */
+export function sessionUid(req) {
+  return readSession(req)?.uid ?? "local";
+}
+
 /** Does this request carry a valid, unexpired session? */
 export function hasValidSession(req) {
   if (!authEnabled) return true;

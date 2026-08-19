@@ -16,7 +16,8 @@
 import { statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { loadIndex, createSearcher, INDEX_FILE } from "../../tools/scripts/_index.mjs";
+import { loadIndex, saveIndex, createSearcher, INDEX_FILE } from "../../tools/scripts/_index.mjs";
+import { pullIndex, dbConfigured } from "../../tools/scripts/_index-db.mjs";
 import { highlight, markTerms } from "./rank.mjs";
 import { clip } from "../../tools/scripts/_github.mjs";
 
@@ -41,6 +42,61 @@ function current() {
     cache = { mtimeMs, searcher: createSearcher(index), index };
   }
   return cache;
+}
+
+
+/**
+ * Rebuild the on-disk index from Postgres, before the server takes traffic.
+ *
+ * This is the whole point of the database. Cloud Run's filesystem dies with
+ * the container, so before this existed every cold start meant the next
+ * visitor waited 5.4s for a live federated search while a 40-second, 173-call
+ * crawl ran behind them. Now it costs one query.
+ *
+ * It writes the FILE rather than only filling memory, deliberately: the
+ * agent's tools are one-shot subprocesses that read the file, so hydrating
+ * memory alone would leave the agent crawling live while the web UI was fast.
+ *
+ * Skipped when the disk already holds something fresher — a restart inside the
+ * refresh window has nothing to gain, and re-reading is not free.
+ *
+ * Every failure path is a no-op with a log line. Neither an absent database
+ * nor an unreachable one is an error: the existing fallback chain (disk, then
+ * live) is what runs, exactly as it did before.
+ */
+export async function hydrateFromDb() {
+  if (!dbConfigured()) {
+    console.log("[index] no DATABASE_URL — the index lives on disk only");
+    return false;
+  }
+
+  const onDisk = current();
+  if (onDisk) {
+    const freshAt = onDisk.index.refreshedAt ?? onDisk.index.builtAt;
+    if (Date.now() - Date.parse(freshAt) <= MAX_AGE_MS) {
+      console.log("[index] disk copy is fresh — not pulling from Postgres");
+      return false;
+    }
+  }
+
+  const startedAt = Date.now();
+  try {
+    const index = await pullIndex();
+    if (!index) {
+      console.log("[index] nothing stored in Postgres yet — first search will build");
+      return false;
+    }
+    saveIndex(index);
+    const ageMs = Date.now() - Date.parse(index.refreshedAt ?? index.builtAt);
+    console.log(
+      `[index] pulled ${index.docs.length} docs from Postgres in ${Date.now() - startedAt}ms ` +
+        `(copy is ${(ageMs / 3_600_000).toFixed(1)}h old)`,
+    );
+    return true;
+  } catch (err) {
+    console.log(`[index] could not pull from Postgres: ${err.message}`);
+    return false;
+  }
 }
 
 // One build at a time, and after a failure a cooldown rather than a retry

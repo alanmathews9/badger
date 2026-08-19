@@ -143,8 +143,29 @@ const CORRECTION_THRESHOLD = 0.5;
 const MIN_CORRECTABLE = 4;
 
 const BM25_K1 = 1.2;
-const BM25_B = 0.75;
-const TITLE_BOOST = 3; // same weight the live path gives a title hit
+
+// BM25F, not plain BM25: title and body are scored as SEPARATE fields, each
+// normalised by its own length, then combined.
+//
+// Pooling them was a real defect, found by hand on "refund policy": the Drive
+// document actually titled "Refund Policy" — every query term, and nothing but
+// the query terms — came FOURTH, behind three documents that merely mention
+// the words. Two things did it. The 3x title weight was applied as a term
+// FREQUENCY multiplier inside one pooled field, so a long body could out-count
+// it; and the length penalty used title+body together, so the longest document
+// of the five was penalised for its body on a hit that was in its title.
+//
+// Per-field normalisation fixes both at once. A two-word title is short
+// against the average title, so a hit in it is strong; the body's length is
+// no longer able to dilute it.
+const W_TITLE = 3;
+const W_BODY = 1;
+// Titles are nearly uniform in length, so normalising them hard punishes
+// detail for no reason — a document called "Refund Policy for Deposits" is not
+// less about refunds than one called "Refund Policy". Bodies vary by orders of
+// magnitude and get the standard 0.75.
+const B_TITLE = 0.5;
+const B_BODY = 0.75;
 
 /**
  * Build a searcher over one loaded index. Construction tokenises every doc
@@ -158,12 +179,15 @@ export function createSearcher(index) {
   const fields = docs.map((d) => {
     const title = countInto(new Map(), tokenize(d.title));
     const body = countInto(new Map(), tokenize(d.body));
-    let len = 0;
-    for (const n of title.values()) len += n;
-    for (const n of body.values()) len += n;
-    return { title, body, len };
+    let lenTitle = 0;
+    let lenBody = 0;
+    for (const n of title.values()) lenTitle += n;
+    for (const n of body.values()) lenBody += n;
+    return { title, body, lenTitle, lenBody };
   });
-  const avgLen = fields.reduce((a, f) => a + f.len, 0) / N || 1;
+  // One average per field, because that is what per-field normalisation means.
+  const avgTitle = fields.reduce((a, f) => a + f.lenTitle, 0) / N || 1;
+  const avgBody = fields.reduce((a, f) => a + f.lenBody, 0) / N || 1;
 
   // The corpus vocabulary: token -> document frequency. This is both BM25's
   // IDF input and the typo layer's dictionary — the whole reason typo
@@ -252,11 +276,17 @@ export function createSearcher(index) {
             tfTitle += f.title.get(t) ?? 0;
             tfBody += f.body.get(t) ?? 0;
           }
-          const tf = tfBody + TITLE_BOOST * tfTitle;
-          if (!tf) continue;
+          if (!tfTitle && !tfBody) continue;
           matchedTerms.push(term);
           if (tfTitle) matchedInTitle.push(term);
-          score += (idf * (tf * (BM25_K1 + 1))) / (tf + BM25_K1 * (1 - BM25_B + (BM25_B * f.len) / avgLen));
+          // Each field's term frequency is normalised by ITS OWN length before
+          // the weights combine them; saturation then applies once to the sum.
+          // This is Robertson's BM25F, and the ordering it produces is the
+          // whole reason the fields are kept apart.
+          const tf =
+            W_TITLE * (tfTitle / (1 - B_TITLE + (B_TITLE * f.lenTitle) / avgTitle)) +
+            W_BODY * (tfBody / (1 - B_BODY + (B_BODY * f.lenBody) / avgBody));
+          score += (idf * (tf * (BM25_K1 + 1))) / (tf + BM25_K1);
         }
         if (score > 0) rows.push({ ...doc, score: Number(score.toFixed(4)), matchedTerms, matchedInTitle });
       });

@@ -16,10 +16,13 @@
     "web:install": "npm --prefix app/web install",
     "check:agent": "./scripts/check-agent-standalone.sh",
     "index": "node scripts/index-build.mjs",
-    "test:index": "node --test tests/index.test.mjs"
+    "db:migrate": "node scripts/db-migrate.mjs",
+    "test:index": "node --test tests/index.test.mjs",
+    "test:db": "node --test tests/db.test.mjs"
   },
   "dependencies": {
     "@composio/core": "^0.16.0",
-    "@open-gitagent/gitagent": "^2.1.0"
+    "@open-gitagent/gitagent": "^2.1.0",
+    "pg": "^8.23.0"
   }
 }

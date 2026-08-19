@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppSidebar, type Mode } from "@/components/AppSidebar";
+import { Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { ChatScreen } from "@/screens/ChatScreen";
 import { SearchScreen } from "@/screens/SearchScreen";
@@ -15,8 +16,13 @@ import {
 import { ask, describeTool, skillDisplayName, type Turn } from "@/lib/ask";
 import type { AnswerState } from "@/components/AnswerCard";
 import type { ChatTurn } from "@/screens/ChatScreen";
-import { useRecentDigs } from "@/lib/recentDigs";
-import { loadChats, newChatId, saveChats, type StoredChat } from "@/lib/chats";
+import {
+  history,
+  newChatId,
+  type ChatSummary,
+  type SearchEntry,
+  type SearchFacts,
+} from "@/lib/history";
 
 const IDLE: AnswerState = {
   running: false,
@@ -28,87 +34,132 @@ const IDLE: AnswerState = {
 };
 
 /**
- * The shell: a rail, and one of three modes beside it.
+ * The shell: a rail, and one of three destinations beside it.
  *
- * Search and Chat used to be one screen — a Dig ran both passes and the answer
- * landed on top of the results. They are separate destinations now, which is
- * how Glean and Onyx both do it, and it makes each half legible: Search is the
- * second it takes to retrieve, Chat is the fifteen it takes to answer.
+ * **Those destinations are URLs now, not `useState`.** They were a `mode`
+ * string held in this component, which meant the address bar said `/` no
+ * matter where you were: a reload dropped you back on Search, the back button
+ * left the app entirely, and a conversation could not be linked to at all.
+ * Onyx keeps the chat id in the URL for the same reason — their
+ * `services/searchParams.ts` names `chatId` and `searchId` as first-class
+ * params. The server has always been ready for this; `serveStatic` falls back
+ * to index.html so any path serves the app.
  *
- * **A Dig no longer starts the agent.** It did — the answer began writing itself
+ *   /search        the box, empty
+ *   /search?q=…    results for a query
+ *   /chat          a new conversation
+ *   /chat/:id      one conversation, linkable and reloadable
+ *   /tools         what Badger can reach
+ *
+ * A reloaded `/search?q=…` **re-runs the search** rather than restoring stored
+ * results. That is Onyx's rule too, and their `search_query` table says why in
+ * a comment: less is stored "because the reply functionality is simply to
+ * rerun the search query again as things may have changed". Retrieval costs no
+ * model call, so re-running is cheap and never stale.
+ *
+ * **A Dig does not start the agent.** It did — the answer began writing itself
  * above the results on every search — and it was the wrong default three times
- * over. It spent a model call and a slot from the daily answer budget on every
+ * over: it spent a model call and a slot from the daily answer budget on every
  * search including the ones that were a lookup, it put fifteen seconds of
- * streaming above a list that was already complete in one, and it made the two
- * halves impossible to judge separately: a bad answer made good retrieval look
- * broken.
- *
- * Search is now retrieval and nothing else — no model on the path, free, and as
- * fast as the slowest of three APIs. Chat is a destination you go to, with its
- * own composer. Whether the agent should be involved in search at all is a real
- * question and deliberately still open; this makes it answerable by removing the
- * assumption rather than deciding it.
+ * streaming above a list already complete in one, and it made the two halves
+ * impossible to judge separately. Search is retrieval; Chat is the agent.
  */
 export default function App() {
-  const [mode, setMode] = useState<Mode>("search");
-  const [query, setQuery] = useState("");
-  const [data, setData] = useState<SearchResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [turns, setTurns] = useState<ChatTurn[]>([]);
-  const [chats, setChats] = useState<StoredChat[]>(() => loadChats());
-  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const navigate = useNavigate();
+
   const [sources, setSources] = useState<SourcesResponse>({ mode: "none", sources: [] });
   const [budget, setBudget] = useState<Budget | null>(null);
-  const { digs, record } = useRecentDigs();
+  const [chats, setChats] = useState<ChatSummary[]>([]);
+  const [searches, setSearches] = useState<SearchEntry[]>([]);
 
+  // The run lives above the routes on purpose: switching to Search mid-answer
+  // must not cancel it. Only starting another question does that.
+  const [turns, setTurns] = useState<ChatTurn[]>([]);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const cancelAsk = useRef<(() => void) | null>(null);
 
-  // Persist the active conversation whenever a turn finishes. Running turns
-  // are skipped — a half-streamed answer is not worth restoring.
-  useEffect(() => {
-    if (!activeChatId || turns.length === 0) return;
-    if (turns[turns.length - 1].answer.running) return;
-    setChats((prev) => {
-      const updated: StoredChat[] = [
-        { id: activeChatId, title: turns[0].question, updatedAt: Date.now(), turns },
-        ...prev.filter((c) => c.id !== activeChatId),
-      ];
-      saveChats(updated);
-      return updated;
-    });
-  }, [turns, activeChatId]);
+  // The id is also read inside callbacks that must not be rebuilt on every
+  // change — a route effect that fires whenever its handler's identity moves
+  // would reload the conversation mid-stream.
+  const activeIdRef = useRef<string | null>(null);
+  const setActive = useCallback((id: string | null) => {
+    activeIdRef.current = id;
+    setActiveChatId(id);
+  }, []);
 
   useEffect(() => {
     fetchSources().then(setSources).catch(() => {});
     fetchBudget().then(setBudget).catch(() => {});
+    history.listChats().then(setChats).catch(() => {});
+    history.listSearches().then(setSearches).catch(() => {});
   }, []);
+
+  /**
+   * Has anything been ASKED in this conversation since it was opened?
+   *
+   * Without this, opening a chat wrote it straight back: loading set `turns`,
+   * the effect below saw turns change, and saved with a fresh `updatedAt` —
+   * so clicking any conversation in the history jumped it to the top of the
+   * list. Reading is not writing, and the list orders by when a conversation
+   * was last *used*.
+   */
+  const dirty = useRef(false);
+
+  // Persist a conversation whenever a turn finishes. Running turns are skipped
+  // — a half-streamed answer is not worth restoring.
+  useEffect(() => {
+    if (!dirty.current) return;
+    if (!activeChatId || turns.length === 0) return;
+    if (turns[turns.length - 1].answer.running) return;
+    const record = { id: activeChatId, title: turns[0].question, updatedAt: Date.now(), turns };
+    history
+      .saveChat(record)
+      .then(() => history.listChats())
+      .then(setChats)
+      .catch(() => {});
+  }, [turns, activeChatId]);
 
   // Every stream event lands on the newest turn — the only one that can be
   // running, because startAsk cancels any run in flight before appending.
   const patchLast = useCallback((fn: (s: AnswerState) => AnswerState) => {
     setTurns((ts) =>
-      ts.length === 0 ? ts : [...ts.slice(0, -1), { ...ts[ts.length - 1], answer: fn(ts[ts.length - 1].answer) }],
+      ts.length === 0
+        ? ts
+        : [...ts.slice(0, -1), { ...ts[ts.length - 1], answer: fn(ts[ts.length - 1].answer) }],
     );
   }, []);
 
   const startAsk = useCallback(
     (question: string, skill: string | null = null) => {
       cancelAsk.current?.();
-      if (!activeChatId) setActiveChatId(newChatId());
+      dirty.current = true;
+
+      // The first question in a new conversation mints its id and puts it in
+      // the address bar, so the answer being written is already linkable.
+      // `replace`, not `push`: /chat and /chat/<id> are the same conversation,
+      // and back should leave it rather than land on an empty composer.
+      if (!activeIdRef.current) {
+        const id = newChatId();
+        setActive(id);
+        navigate(`/chat/${id}`, { replace: true });
+      }
+
       // The conversation so far, as plain text. The server strips the model's
       // Sources/Coverage boilerplate and enforces its own budget; a turn that
       // errored has nothing to contribute and is left out.
-      const history: Turn[] = turns
+      const priorTurns: Turn[] = turns
         .map((t) => ({ question: t.question, answer: t.answer.result?.answer ?? t.answer.text }))
         .filter((t) => t.answer.trim().length > 0);
+
       // A hand-picked skill opens the trail as its own step, because the one
       // thing the runtime cannot tell us — which skill is in play — is known
       // here for certain: the user chose it.
       const seed = skill
         ? [{ label: `Using: ${skillDisplayName(skill)}`, name: "skill", args: { skill } }]
         : [];
+
       setTurns((ts) => [...ts, { question, answer: { ...IDLE, running: true, steps: seed } }]);
+
       cancelAsk.current = ask(
         question,
         {
@@ -117,13 +168,19 @@ export default function App() {
             // Text written BEFORE a tool call is the model narrating its plan,
             // not the answer — it kept working after writing it. The runtime
             // streams both through one channel, so a tool call is the signal
-            // that clears it: without this the reader watches a wall of "I will
-            // now search Gmail…" that is discarded when the real answer lands.
+            // that moves it out of the answer area.
+            //
+            // MOVED, not deleted. Clearing it outright was the earlier fix and
+            // it caused a worse bug: a model that wrote prose and then called
+            // one more tool had that prose disappear from the screen, so the
+            // answer looked like it arrived, vanished, and arrived again.
+            // Attaching it to the step it was explaining keeps the answer area
+            // clean and loses nothing.
             patchLast((s) => ({
               ...s,
               activity: label,
               text: "",
-              steps: [...s.steps, { label, name, args }],
+              steps: [...s.steps, { label, name, args, narration: s.text.trim() || undefined }],
             }));
           },
           onDelta: (text) => patchLast((s) => ({ ...s, text: s.text + text })),
@@ -134,99 +191,182 @@ export default function App() {
           },
           onError: (message) => patchLast((s) => ({ ...s, running: false, error: message })),
         },
-        history,
+        priorTurns,
         skill,
       );
     },
-    [turns, activeChatId, patchLast],
+    [turns, navigate, patchLast, setActive],
   );
 
-  const newChat = useCallback(() => {
-    cancelAsk.current?.();
-    setActiveChatId(null);
-    setTurns([]);
-  }, []);
-
-  const selectChat = useCallback(
-    (id: string) => {
+  /**
+   * Point the conversation state at whatever `/chat/:id` currently names.
+   *
+   * Deliberately a no-op when the id is already open, which is what keeps a
+   * running answer alive: `startAsk` navigates to the id it just minted, and
+   * without this guard the route change would immediately reload that
+   * conversation from storage and throw away the stream.
+   */
+  const openChat = useCallback(
+    async (id: string | null) => {
+      if (id === activeIdRef.current) return;
       cancelAsk.current?.();
-      const chat = chats.find((c) => c.id === id);
-      if (!chat) return;
-      setActiveChatId(id);
+      dirty.current = false;
+      if (!id) {
+        setActive(null);
+        setTurns([]);
+        return;
+      }
+      const chat = await history.getChat(id);
+      // A link to a conversation this browser has never held — someone else's
+      // id, or one cleared since. Say so by landing on a new chat rather than
+      // showing an empty thread that pretends to be theirs.
+      if (!chat) {
+        navigate("/chat", { replace: true });
+        return;
+      }
+      setActive(id);
       setTurns(chat.turns);
     },
-    [chats],
+    [navigate, setActive],
   );
 
-  const dig = useCallback(
-    async (raw?: string) => {
-      // Guard the argument rather than trusting callers. An event handler that
-      // forwards its MouseEvent here fails silently inside React.
-      const q = (typeof raw === "string" ? raw : query).trim();
-      if (!q) return;
-
-      setMode("search");
-      setBusy(true);
-      setError(null);
-      setData(null);
-
-      try {
-        const response = await search(q);
-        setData(response);
-        record(q);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "search failed");
-      } finally {
-        setBusy(false);
-      }
-    },
-    [query, record],
-  );
-
-  const followUp = useCallback(
-    (next: string, skill: string | null = null) => {
-      setMode("chat");
-      startAsk(next, skill);
-    },
-    [startAsk],
-  );
+  const recordSearch = useCallback((query: string, facts: SearchFacts) => {
+    history
+      .recordSearch(query, facts)
+      .then(() => history.listSearches())
+      .then(setSearches)
+      .catch(() => {});
+  }, []);
 
   return (
     <SidebarProvider>
-      <AppSidebar
-        mode={mode}
-        sources={sources}
-        onModeChange={setMode}
-        digs={digs}
-        onPickDig={(q) => {
-          setQuery(q);
-          dig(q);
-        }}
-        budget={budget}
-      />
+      <AppSidebar sources={sources} searches={searches} budget={budget} />
       <SidebarInset>
-        {mode === "tools" ? (
-          <ToolsScreen sources={sources} />
-        ) : mode === "search" ? (
-          <SearchScreen
-            query={query}
-            onQueryChange={setQuery}
-            onSubmit={dig}
-            busy={busy}
-            error={error}
-            data={data}
+        <Routes>
+          <Route path="/" element={<Navigate to="/search" replace />} />
+          <Route path="/search" element={<SearchRoute onSearched={recordSearch} />} />
+          <Route
+            path="/chat"
+            element={<ChatRoute turns={turns} chats={chats} onOpen={openChat} onAsk={startAsk} />}
           />
-        ) : (
-          <ChatScreen
-            turns={turns}
-            chats={chats.map((c) => ({ id: c.id, title: c.title }))}
-            activeId={activeChatId}
-            onAsk={followUp}
-            onNewChat={newChat}
-            onSelectChat={selectChat}
+          <Route
+            path="/chat/:id"
+            element={<ChatRoute turns={turns} chats={chats} onOpen={openChat} onAsk={startAsk} />}
           />
-        )}
+          <Route path="/tools" element={<ToolsScreen sources={sources} />} />
+          {/* An unknown path is a typo or a stale link, not an error worth a
+              page of its own. */}
+          <Route path="*" element={<Navigate to="/search" replace />} />
+        </Routes>
       </SidebarInset>
     </SidebarProvider>
+  );
+}
+
+/**
+ * Search, with the query in the URL.
+ *
+ * The URL is the single source of truth for what has been searched; the box
+ * holds a draft, which is a different thing — you can type without having
+ * searched. Submitting writes `?q=`, and the effect below is what actually
+ * runs it, so a typed search, a suggestion click, a sidebar history item, the
+ * back button and a pasted link all take exactly one path.
+ */
+function SearchRoute({ onSearched }: { onSearched: (query: string, facts: SearchFacts) => void }) {
+  const [params, setParams] = useSearchParams();
+  const query = params.get("q") ?? "";
+
+  const [draft, setDraft] = useState(query);
+  const [data, setData] = useState<SearchResponse | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Arriving from anywhere that is not the box — back button, a link, the
+  // sidebar — the box has to catch up with the address bar.
+  useEffect(() => setDraft(query), [query]);
+
+  useEffect(() => {
+    if (!query) {
+      setData(null);
+      setError(null);
+      return;
+    }
+    // Two searches can be in flight when someone types fast or holds the back
+    // button; the older one must not land on top of the newer.
+    let live = true;
+    setBusy(true);
+    setError(null);
+    setData(null);
+    search(query)
+      .then((response) => {
+        if (!live) return;
+        setData(response);
+        // Record what the search actually cost, not just that it happened.
+        // `path` is the load-bearing one: index and live disagree between
+        // refreshes, so a history entry that did not say which answered
+        // could not be judged later.
+        onSearched(query, {
+          resultCount: response.total,
+          path: response.path,
+          tookMs: response.tookMs,
+          apiCalls: response.apiCalls,
+        });
+      })
+      .catch((err) => {
+        if (live) setError(err instanceof Error ? err.message : "search failed");
+      })
+      .finally(() => {
+        if (live) setBusy(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [query, onSearched]);
+
+  return (
+    <SearchScreen
+      query={draft}
+      onQueryChange={setDraft}
+      onSubmit={(raw) => {
+        // Guard the argument rather than trusting callers. An event handler
+        // that forwards its MouseEvent here fails silently inside React.
+        const next = (typeof raw === "string" ? raw : draft).trim();
+        if (next) setParams({ q: next });
+      }}
+      busy={busy}
+      error={error}
+      data={data}
+    />
+  );
+}
+
+/** Chat, pointed at whichever conversation the path names. */
+function ChatRoute({
+  turns,
+  chats,
+  onOpen,
+  onAsk,
+}: {
+  turns: ChatTurn[];
+  chats: ChatSummary[];
+  onOpen: (id: string | null) => void;
+  onAsk: (question: string, skill: string | null) => void;
+}) {
+  const { id } = useParams();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    onOpen(id ?? null);
+  }, [id, onOpen]);
+
+  return (
+    <ChatScreen
+      turns={turns}
+      chats={chats}
+      activeId={id ?? null}
+      onAsk={onAsk}
+      onNewChat={() => navigate("/chat")}
+      onSelectChat={(next) => navigate(`/chat/${next}`)}
+    />
   );
 }

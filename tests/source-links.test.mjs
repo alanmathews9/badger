@@ -47,11 +47,24 @@ test("a spreadsheet links to the spreadsheets endpoint", () => {
   assert.equal(items[0].url, "https://docs.google.com/spreadsheets/d/1Sheet");
 });
 
-test("a mail thread cited by subject recovers its thread id", () => {
+test("a mail thread is addressed by mailbox identity, not by account position", () => {
+  // `/mail/u/0/` names whichever Google account the READER signed into first,
+  // so the link opened the wrong inbox for everyone but the demo account
+  // owner. Onyx still emits that form; `authuser` names the mailbox instead.
+  const items = [{ kind: "mail", ref: "Re: March delivery", label: "Re: March delivery" }];
+  const opened = [{ kind: "mail", ref: "18f2ab9cd", label: "Re: March delivery" }];
+  attachSourceUrls(items, opened, REPO, { mailbox: "badger.demo@gmail.com" });
+  assert.equal(
+    items[0].url,
+    "https://mail.google.com/mail/u/?authuser=badger.demo%40gmail.com#all/18f2ab9cd",
+  );
+});
+
+test("with no mailbox known, a mail citation is left unlinked rather than guessed", () => {
   const items = [{ kind: "mail", ref: "Re: March delivery", label: "Re: March delivery" }];
   const opened = [{ kind: "mail", ref: "18f2ab9cd", label: "Re: March delivery" }];
   attachSourceUrls(items, opened, REPO);
-  assert.equal(items[0].url, "https://mail.google.com/mail/u/0/#all/18f2ab9cd");
+  assert.equal(items[0].url, undefined);
 });
 
 test("no matching opened item: mail and documents stay unlinked", () => {

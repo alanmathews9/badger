@@ -23,8 +23,9 @@ import { fileURLToPath } from "node:url";
 import { query } from "@open-gitagent/gitagent";
 import { openAuditLog } from "./audit.mjs";
 import { searchAll, SearchError } from "./search.mjs";
-import { startRefreshTimer } from "./index-search.mjs";
-import { authEnabled, clearSessionCookie, hasValidSession, issueSessionCookie, passphraseMatches } from "./auth.mjs";
+import { hydrateFromDb, startRefreshTimer } from "./index-search.mjs";
+import { authEnabled, clearSessionCookie, hasValidSession, issueSessionCookie, passphraseMatches, sessionUid } from "./auth.mjs";
+import * as historyStore from "./history.mjs";
 import { TOOLKITS, TOOLKIT_LABELS, accountFor, listConnections, resolveContext } from "./connections.mjs";
 import { budgetStatus, claimAskSlot, clientIp, rateLimit } from "./limits.mjs";
 import { splashPage } from "./splash.mjs";
@@ -78,6 +79,8 @@ const server = createServer(async (req, res) => {
     if (url.pathname === "/api/skills" && req.method === "POST") return await handleSkillsCreate(req, res);
     if (url.pathname === "/api/sources" && req.method === "GET") return await handleSources(req, res);
     if (url.pathname === "/api/ask" && req.method === "POST") return await handleAsk(req, res);
+    if (url.pathname.startsWith("/api/chats")) return await handleChats(req, res, url);
+    if (url.pathname === "/api/searches") return await handleSearches(req, res);
     if (url.pathname.startsWith("/api/")) return json(res, 404, { error: "no such endpoint" });
     return await serveStatic(url.pathname, res);
   } catch (err) {
@@ -378,6 +381,9 @@ async function handleAsk(req, res) {
       resolveCitations(cited, toolOutputs),
       opened,
       process.env.BADGER_GITHUB_REPO ?? null,
+      // The mailbox we actually indexed, so a mail citation can be addressed
+      // by identity rather than by position. Cached after the first lookup.
+      { mailbox: await accountFor(resolveContext().userId, "gmail").catch(() => null) },
     ),
     // Threads Badger opened in full and then did not cite. This is the gap the
     // design asks for: "N items were opened but not cited". It is deliberately
@@ -540,6 +546,96 @@ async function handleSkillsCreate(req, res) {
   }
 }
 
+
+/**
+ * Chat history.
+ *
+ *   GET    /api/chats        this browser's conversations, titles only
+ *   GET    /api/chats/<id>   one conversation, as turns
+ *   PUT    /api/chats/<id>   write it, replacing what was there
+ *
+ * **`persisted: false` is a normal answer, not an error.** With no
+ * DATABASE_URL the client keeps its history in localStorage and the product
+ * works unchanged — which is what lets a clone of this repo run with nothing
+ * but a Composio key. Every response carries the flag so the client never has
+ * to guess from a status code.
+ */
+async function handleChats(req, res, url) {
+  if (!historyStore.dbConfigured()) return json(res, 200, { persisted: false, chats: [] });
+
+  const uid = sessionUid(req);
+  const id = url.pathname.slice("/api/chats/".length);
+
+  if (url.pathname === "/api/chats" && req.method === "GET") {
+    return json(res, 200, { persisted: true, chats: await historyStore.listChats(uid) });
+  }
+
+  // Ids are minted in the browser and travel in a path segment, so they are
+  // checked rather than trusted: anything but the base36 shape newChatId
+  // produces is refused before it reaches a query.
+  if (!/^[a-z0-9]{6,32}$/.test(id)) return json(res, 400, { error: "bad chat id" });
+
+  if (req.method === "GET") {
+    const chat = await historyStore.getChat(uid, id);
+    return json(res, 200, { persisted: true, chat });
+  }
+
+  if (req.method === "PUT") {
+    const body = JSON.parse(await readBody(req, 512 * 1024));
+    const title = String(body?.title ?? "").slice(0, 300);
+    const turns = Array.isArray(body?.turns) ? body.turns : [];
+    if (!title || !turns.length) return json(res, 400, { error: "title and turns are required" });
+    const ok = await historyStore.saveChat(uid, id, { title, turns });
+    // A false here means the id exists under a different uid. Same answer as
+    // a malformed request rather than "that one is someone else's", which
+    // would confirm the id exists.
+    return json(res, ok ? 200 : 400, { persisted: true, saved: ok });
+  }
+
+  return json(res, 405, { error: "method not allowed" });
+}
+
+/**
+ * Search history.
+ *
+ *   GET  /api/searches   recent queries, newest first
+ *   POST /api/searches   record one
+ *
+ * The query and the facts already displayed — never the results. Onyx's
+ * search_query table gives the reason in its own comment: the reply to a past
+ * search is to run it again, because the corpus may have changed since.
+ */
+async function handleSearches(req, res) {
+  if (!historyStore.dbConfigured()) return json(res, 200, { persisted: false, searches: [] });
+
+  const uid = sessionUid(req);
+
+  if (req.method === "GET") {
+    return json(res, 200, { persisted: true, searches: await historyStore.listSearches(uid) });
+  }
+
+  if (req.method === "POST") {
+    const body = JSON.parse(await readBody(req, 8 * 1024));
+    const text = String(body?.query ?? "").trim().slice(0, 500);
+    if (!text) return json(res, 400, { error: "query is required" });
+    await historyStore.recordSearch(uid, {
+      query: text,
+      resultCount: numberOrNull(body?.resultCount),
+      path: body?.path === "index" || body?.path === "live" ? body.path : null,
+      tookMs: numberOrNull(body?.tookMs),
+      apiCalls: numberOrNull(body?.apiCalls),
+    });
+    return json(res, 200, { persisted: true });
+  }
+
+  return json(res, 405, { error: "method not allowed" });
+}
+
+/** Numbers arriving from a client are advisory: keep them only if they are. */
+function numberOrNull(value) {
+  return Number.isFinite(value) ? Math.trunc(value) : null;
+}
+
 /**
  * Serve the Vite build, falling back to index.html so client-side routes
  * survive a reload. Before `npm run build` has ever run there is no dist, and
@@ -555,8 +651,39 @@ async function serveStatic(pathname, res) {
       error: "the frontend has not been built yet — run `npm run build` in web/, or use the Vite dev server",
     });
   }
-  res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream" });
+  res.writeHead(200, {
+    "content-type": MIME[extname(file)] ?? "application/octet-stream",
+    "cache-control": cacheControl(file),
+  });
   res.end(await readFile(file));
+}
+
+
+/**
+ * How long the browser may keep this file.
+ *
+ * There were no cache headers at all, which is not "no caching" — with nothing
+ * said, a browser applies its own heuristic, and the file it guesses wrong
+ * about is index.html. That page names the hashed bundle to load, so a stale
+ * copy of it pins the whole app to a previous build: new code deploys, the
+ * browser keeps running the old one, and the mismatch shows up as features
+ * that silently do nothing. It cost us a test session — the UI kept its
+ * history in localStorage while the database sat there working.
+ *
+ * So the two kinds of file get opposite treatment, which is only safe because
+ * Vite content-hashes the assets:
+ *
+ *   index.html   revalidate every time. It is small, and it is the only thing
+ *                that knows which bundle is current.
+ *   /assets/*    cache for a year. The filename contains a hash of the
+ *                contents, so a changed file is a different URL and a cached
+ *                one can never be stale.
+ */
+function cacheControl(file) {
+  if (extname(file) === ".html") return "no-cache";
+  return file.includes("/assets/")
+    ? "public, max-age=31536000, immutable"
+    : "public, max-age=3600";
 }
 
 async function isFile(path) {
@@ -615,6 +742,13 @@ server.on("error", (err) => {
 // server refuses to accept connections from anywhere but this machine. The
 // alternative — a default passphrase — is how a gate becomes decorative.
 const HOST = authEnabled ? (process.env.BADGER_HOST ?? "0.0.0.0") : "127.0.0.1";
+
+// Recreate the index from Postgres BEFORE the port opens, not after. Cloud Run
+// starts sending traffic the moment the socket is listening, and a request
+// that arrives during hydration would find no index, answer live, and spawn a
+// crawl — spending forty seconds of API calls to rebuild something that was
+// two hundred milliseconds away. Boot pays the query; nobody else does.
+await hydrateFromDb();
 
 server.listen(PORT, HOST, async () => {
   console.log(`badger  http://localhost:${PORT}`);

@@ -18,6 +18,22 @@ export type ToolStep = {
   label: string;
   name: string;
   args: Record<string, unknown>;
+  /**
+   * Whatever the model wrote immediately before making this call — its own
+   * account of why it is about to do this.
+   *
+   * It used to be thrown away. Text arriving before a tool call is narration
+   * by definition (the model kept working after writing it), so the answer
+   * area was cleared to stop a wall of "I will now search Gmail…" standing
+   * where the answer belongs. But deleting it meant that a model which wrote
+   * real prose and *then* called another tool had its words vanish from the
+   * screen mid-run — text appearing, disappearing and reappearing, which
+   * reads as a bug because it is one.
+   *
+   * Moving it here fixes both: the answer area still shows only the answer,
+   * and the narration becomes the step's own explanation instead of loss.
+   */
+  narration?: string;
 };
 
 export type Verification = {

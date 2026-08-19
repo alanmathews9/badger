@@ -37,6 +37,14 @@ COPY tools/ ./tools/
 COPY hooks/ ./hooks/
 COPY memory/ ./memory/
 
+# The index builder, and only it. `ensureIndexBuild` spawns this file by path
+# when the index is missing or stale, so an image without it can never rebuild
+# — the spawn fails, the cooldown starts, and search silently stays live for
+# the life of the container. It imports nothing outside tools/, so one file is
+# the whole dependency; the rest of scripts/ is seeding and evaluation, which
+# has no business in a production image.
+COPY scripts/index-build.mjs ./scripts/
+
 # The product that consumes it.
 COPY app/server/ ./app/server/
 COPY --from=web /build/dist ./app/web/dist

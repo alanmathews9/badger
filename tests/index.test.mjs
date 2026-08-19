@@ -94,3 +94,58 @@ test("a term already in the vocabulary is never rewritten", () => {
   const { corrections } = s.search("reminder");
   assert.deepEqual(corrections, []);
 });
+
+// ── BM25F: fields are scored separately ───────────────────────────────────
+
+test("a document titled exactly the query wins, however long its body", () => {
+  // The bug this protects against, found by hand on the real corpus: the Drive
+  // document called "Refund Policy" ranked FOURTH for "refund policy", behind
+  // three documents that merely mention the words. Title and body were pooled
+  // into one field and normalised by the combined length, so having the
+  // longest body of the five penalised a hit that was in the title.
+  const s = createSearcher({
+    version: 1,
+    builtAt: "2026-08-18T00:00:00.000Z",
+    counts: {},
+    docs: [
+      // Exactly the query as its title, and the longer body of the two —
+      // the shape of the real Drive document (1888 chars) that lost.
+      doc(
+        "doc-exact",
+        "Refund Policy",
+        `a patient who cancels is refunded automatically. ${"deposits appointments clinics patients diary ".repeat(30)}`,
+      ),
+      // Mentions both terms several times in a body of comparable length —
+      // the shape of the real GitHub issue (1116 chars) that beat it. Both
+      // bodies are substantial, so the comparison is about the title, which
+      // is what the fix is about.
+      doc(
+        "doc-mentions",
+        "Deposit refunds take nine days",
+        `the refund policy says five working days. the policy was written by someone reading our code. refund calls succeed. ${"deposits provider payout terms measured across the quarter ".repeat(18)}`,
+      ),
+      doc("doc-other", "Reminder timing bug", "reminders fired at 3am for a week"),
+    ],
+  });
+
+  const { rows } = s.search("refund policy");
+  assert.equal(rows[0].id, "doc-exact");
+  assert.equal(rows[1].id, "doc-mentions");
+});
+
+test("a longer title is not punished for being descriptive", () => {
+  // B_TITLE is 0.5, not 0.75: "Refund Policy for Deposits" is not less about
+  // refunds than "Refund Policy", and normalising titles hard would say it is.
+  const s = createSearcher({
+    version: 1,
+    builtAt: "2026-08-18T00:00:00.000Z",
+    counts: {},
+    docs: [
+      doc("doc-long-title", "Refund Policy for Deposits and Cancellations", "how deposits work"),
+      doc("doc-unrelated", "Reminder timing bug", "reminders fired at 3am for the refund team"),
+    ],
+  });
+
+  const { rows } = s.search("refund policy");
+  assert.equal(rows[0].id, "doc-long-title");
+});
