@@ -59,7 +59,7 @@ export function AppSidebar({
           <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
             <div className="truncate text-[14.5px] font-semibold tracking-[-0.01em]">badger</div>
           </div>
-          <SidebarTrigger className="shrink-0 text-stone-500 group-data-[collapsible=icon]:hidden" />
+          <SidebarTrigger className="shrink-0 rounded-full text-stone-500 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:border group-data-[collapsible=icon]:border-stone-200 group-data-[collapsible=icon]:bg-white" />
         </div>
       </SidebarHeader>
 

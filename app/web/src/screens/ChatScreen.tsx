@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, ChevronRight, ExternalLink, Loader2, Plus, X } from "lucide-react";
+import { ArrowUp, ChevronRight, ExternalLink, Loader2, Plus, Sparkles, Upload, X } from "lucide-react";
 import { Markdown, type Citation } from "@/components/Markdown";
 import { BRAND_LOGOS } from "@/components/BrandLogos";
 import type { SourceId } from "@/lib/api";
@@ -103,6 +103,9 @@ export function ChatScreen({
     <div className="flex h-dvh bg-white text-stone-900">
       {/* ── Past chats ─────────────────────────────────────────────── */}
       <aside className="flex w-60 shrink-0 flex-col border-r border-stone-200 bg-stone-50/50">
+        <div className="px-4 pt-3.5 text-[11px] font-medium tracking-[0.08em] text-stone-400 uppercase">
+          Chats
+        </div>
         <div className="p-3">
           <button
             onClick={onNewChat}
@@ -240,13 +243,19 @@ export function ChatScreen({
       </div>
 
       {paneOpen && (
-        <SkillPane
-          onClose={(slug) => {
-            setPaneOpen(false);
-            fetchSkills().then(setSkills).catch(() => {});
-            if (slug) insertSkill(slug);
-          }}
-        />
+        <>
+          <div
+            className="fixed inset-0 z-10 bg-stone-900/25"
+            onClick={() => setPaneOpen(false)}
+          />
+          <SkillPane
+            onClose={(slug) => {
+              setPaneOpen(false);
+              fetchSkills().then(setSkills).catch(() => {});
+              if (slug) insertSkill(slug);
+            }}
+          />
+        </>
       )}
     </div>
   );
@@ -493,14 +502,17 @@ function SkillMenu({
         <button
           key={s.slug}
           onClick={() => onPick(s.slug)}
-          className="block w-full px-3.5 py-2 text-left hover:bg-stone-50"
+          className="flex w-full items-start gap-2.5 px-3.5 py-2 text-left hover:bg-stone-50"
         >
-          <span className="block text-[13px] font-medium text-stone-900">
-            {skillDisplayName(s.slug)}
+          <Sparkles className="mt-0.5 size-3.5 shrink-0 text-stone-400" strokeWidth={1.9} />
+          <span className="min-w-0">
+            <span className="block font-mono text-[12.5px] font-medium text-stone-900">
+              /{s.slug}
+            </span>
+            {s.description && (
+              <span className="block truncate text-[11.5px] text-stone-500">{s.description}</span>
+            )}
           </span>
-          {s.description && (
-            <span className="block truncate text-[11.5px] text-stone-500">{s.description}</span>
-          )}
         </button>
       ))}
       <button
@@ -535,6 +547,16 @@ function SkillPane({ onClose }: { onClose: (slug: string | null) => void }) {
     setSaving(true);
     setError(null);
     const result = await createSkill({ name, description, instructions });
+    setSaving(false);
+    if (result.error) setError(result.error);
+    else onClose(result.slug ?? null);
+  };
+
+  const upload = async (file: File | undefined) => {
+    if (!file) return;
+    setSaving(true);
+    setError(null);
+    const result = await createSkill({ file: await file.text() });
     setSaving(false);
     if (result.error) setError(result.error);
     else onClose(result.slug ?? null);
@@ -593,6 +615,23 @@ function SkillPane({ onClose }: { onClose: (slug: string | null) => void }) {
             />
           </div>
           {error && <p className="text-[12px] text-amber-700">{error}</p>}
+
+          <div className="mt-1 flex items-center gap-3">
+            <span className="h-px flex-1 bg-stone-100" />
+            <span className="text-[11px] text-stone-400">or</span>
+            <span className="h-px flex-1 bg-stone-100" />
+          </div>
+
+          <label className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-stone-300 px-3 py-2.5 text-[12.5px] text-stone-600 hover:bg-stone-50">
+            <Upload className="size-3.5" strokeWidth={2} />
+            Upload your own SKILL.md
+            <input
+              type="file"
+              accept=".md,text/markdown"
+              className="hidden"
+              onChange={(e) => upload(e.target.files?.[0])}
+            />
+          </label>
         </div>
       </div>
 

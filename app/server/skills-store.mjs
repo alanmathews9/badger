@@ -97,3 +97,25 @@ export function createSkill(skillsDir, { name, description, instructions }) {
   writeFileSync(join(dir, "SKILL.md"), content, "utf8");
   return { slug };
 }
+
+/**
+ * Add a skill from a raw SKILL.md the user already has. Written verbatim —
+ * it is their file — after checking it is a skill the runtime will actually
+ * load: frontmatter with a kebab-case name and a description, no collision.
+ */
+export function createSkillFromFile(skillsDir, content) {
+  const text = String(content ?? "");
+  if (text.length > 50000) throw new Error("file too long (50k chars max)");
+  const fm = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!fm) throw new Error("not a SKILL.md — missing the --- frontmatter block");
+  const name = fm[1].match(/^name:\s*(.+)$/m)?.[1]?.trim();
+  const description = fm[1].match(/^description:\s*(.+)$/m)?.[1]?.trim();
+  if (!name || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name))
+    throw new Error("frontmatter needs a kebab-case name: (e.g. name: my-skill)");
+  if (!description) throw new Error("frontmatter needs a description: line — it is the trigger");
+  const dir = join(skillsDir, name);
+  if (existsSync(dir)) throw new Error(`a skill named "${name}" already exists`);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "SKILL.md"), text, "utf8");
+  return { slug: name };
+}

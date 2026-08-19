@@ -30,7 +30,7 @@ import { budgetStatus, claimAskSlot, clientIp, rateLimit } from "./limits.mjs";
 import { splashPage } from "./splash.mjs";
 import { buildSystemSuffix } from "./system-suffix.mjs";
 import { buildPrompt, parseAskBody } from "./transcript.mjs";
-import { createSkill, listSkills } from "./skills-store.mjs";
+import { createSkill, createSkillFromFile, listSkills } from "./skills-store.mjs";
 import { annotateUnverified, extractCitations, mentions, verifyCitations } from "./verify-citations.mjs";
 import { attachSourceUrls } from "./source-links.mjs";
 
@@ -525,11 +525,15 @@ async function handleSkillsCreate(req, res) {
     return json(res, 400, { error: "body must be JSON" });
   }
   try {
-    const { slug } = createSkill(join(ROOT, "skills"), {
-      name: body?.name,
-      description: body?.description,
-      instructions: body?.instructions,
-    });
+    // Two ways in: the three-field form, or a raw SKILL.md the user uploads.
+    const { slug } =
+      typeof body?.file === "string"
+        ? createSkillFromFile(join(ROOT, "skills"), body.file)
+        : createSkill(join(ROOT, "skills"), {
+            name: body?.name,
+            description: body?.description,
+            instructions: body?.instructions,
+          });
     return json(res, 201, { slug });
   } catch (err) {
     return json(res, 400, { error: err.message });

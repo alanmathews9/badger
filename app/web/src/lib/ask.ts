@@ -256,11 +256,9 @@ export async function fetchSkills(): Promise<SkillInfo[]> {
   return (await res.json()).skills ?? [];
 }
 
-export async function createSkill(input: {
-  name: string;
-  description: string;
-  instructions: string;
-}): Promise<{ slug?: string; error?: string }> {
+export async function createSkill(
+  input: { name: string; description: string; instructions: string } | { file: string },
+): Promise<{ slug?: string; error?: string }> {
   const res = await fetch("/api/skills", {
     method: "POST",
     headers: { "content-type": "application/json" },
