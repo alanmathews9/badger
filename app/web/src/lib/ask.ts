@@ -1,3 +1,5 @@
+import type { SourceId } from "@/lib/api";
+
 /** What a tool call opened or the answer cited, across all three sources. */
 export type OpenedItem = {
   kind: "issue" | "pr" | "file" | "mail" | "doc";
@@ -10,6 +12,22 @@ export type OpenedItem = {
       one. Resolves only for someone with access to the underlying account —
       permissions stay enforced at the source. */
   url?: string;
+};
+
+/**
+ * One document a search turned up, as the step that found it lists it.
+ *
+ * These are *found*, not cited and not necessarily read — they are what
+ * Badger had in front of it. `OpenedItem` above is a different thing: what it
+ * opened in full, and what the answer went on to cite.
+ */
+export type FoundDoc = {
+  source: SourceId;
+  kind: OpenedItem["kind"];
+  ref: string;
+  title: string;
+  /** "issue · open", the sender, "spreadsheet" — whatever the row can say. */
+  detail?: string;
 };
 
 /** One tool call, kept whole so the step trail can show its detail on demand. */
@@ -34,6 +52,11 @@ export type ToolStep = {
    * and the narration becomes the step's own explanation instead of loss.
    */
   narration?: string;
+  /** The run's tool-call number — see `onTool`. Absent on the skill row,
+      which is added here rather than emitted by the server. */
+  index?: number;
+  /** For a search: what it found. Arrives after the step, in its own frame. */
+  found?: FoundDoc[];
 };
 
 export type Verification = {
@@ -59,7 +82,13 @@ export type AskResult = {
 };
 
 export type AskHandlers = {
-  onTool: (name: string, args: Record<string, unknown>) => void;
+  /** `index` is the run's own tool-call counter, and it counts calls the
+      trail hides too — so it is the only safe key for matching a later
+      results frame to its step. Array position is not: hidden steps and the
+      picked-skill row both shift it. */
+  onTool: (name: string, args: Record<string, unknown>, index: number) => void;
+  /** The documents step `index` found. Always arrives after that step's call. */
+  onResults: (index: number, results: FoundDoc[]) => void;
   onDelta: (text: string) => void;
   onDone: (result: AskResult) => void;
   onError: (message: string) => void;
@@ -104,7 +133,8 @@ export function ask(
     }
     if (dataLines.length === 0) return;
     const data = JSON.parse(dataLines.join("\n"));
-    if (event === "tool") handlers.onTool(data.name, data.args ?? {});
+    if (event === "tool") handlers.onTool(data.name, data.args ?? {}, data.index ?? -1);
+    else if (event === "results") handlers.onResults(data.index ?? -1, data.results ?? []);
     else if (event === "delta") handlers.onDelta(data.text ?? "");
     else if (event === "done") {
       finished = true;
@@ -212,50 +242,154 @@ export function splitAnswer(text: string): { body: string; coverage: string | nu
  *
  * Mail and Drive are opened by opaque id, so there is nothing readable to name
  * — the line says what is being done rather than showing a raw id.
+ *
+ * **A search does not name its query.** It used to — `Searched Gmail for
+ * “brightsmile march”` — and the query is the least useful thing on the row:
+ * it is a keyword-reduced version of the question the reader just typed, so
+ * it reads as the machine repeating them back, and it made the one row that
+ * carries a result card the widest and noisiest in the trail. The query is
+ * still one click away in the step's own arguments, where someone auditing
+ * the work will look for it.
  */
 export function describeTool(name: string, args: Record<string, unknown>): string {
-  const q = typeof args.query === "string" ? args.query.replace(/\s*in:[\w,]+/g, "").trim() : "";
-  const searching = (where: string) => (q ? `Searching ${where} for “${q}”` : `Searching ${where}`);
-
   switch (name) {
     case "github_search":
-      return searching("GitHub");
+      return "Searched GitHub";
     case "github_issue":
-      return `Reading issue #${args.number} and its comments`;
+      return `Read issue #${args.number}`;
     case "github_pr":
-      return `Reading PR #${args.number} and its review`;
+      return `Read PR #${args.number}`;
     case "github_file":
-      return `Opening ${args.path}`;
+      return `Opened ${args.path}`;
     case "github_commits":
-      return "Reading recent commits";
+      return "Read recent commits";
     case "gmail_search":
-      return searching("Gmail");
+      return "Searched Gmail";
     case "gmail_thread":
-      return "Reading a mail thread";
+      return "Read a mail thread";
     case "drive_search":
-      return searching("Drive");
+      return "Searched Drive";
     case "drive_file":
-      return "Reading a document";
+      return "Read a document";
     case "drive_comments":
-      return "Reading the comments on a document";
-    // The learning loop and the runtime's own tools, phrased as what the
-    // agent is doing rather than as internal slugs.
-    case "task_tracker":
-      return args.action === "end" ? "Wrapping up" : "Noting the task";
-    case "skill_learner":
-      return "Reflecting on what worked";
+      return "Read the comments on a document";
     case "memory":
-      return args.action === "save" ? "Saving to memory" : "Checking memory";
-    case "read":
-      return "Reading a file";
-    case "write":
-    case "edit":
-      return "Writing a file";
-    case "cli":
-      return "Running a command";
+      return args.action === "save" ? "Saved to memory" : "Recalled memory";
+    // A skill the MODEL chose. See `skillFromRead` — this is a plain file
+    // read, and the path is what makes it a skill.
+    case "read": {
+      const slug = skillFromRead(args);
+      return slug ? `Using ${skillDisplayName(slug)}` : "Read a file";
+    }
+    // The skill the USER chose, seeded by the composer rather than emitted by
+    // the runtime. Same wording, so the two are indistinguishable on screen —
+    // which is right, because to the reader they are the same event.
+    case "skill":
+      return `Using ${skillDisplayName(String(args.skill ?? ""))}`;
     default:
       return name;
   }
+}
+
+/**
+ * The skill a `read` call is loading, if that is what it is doing.
+ *
+ * **This is how a self-chosen skill becomes visible, and it took reading the
+ * runtime to find.** GAP has no skill concept at the tool layer: no skill
+ * tool, no skill event, nothing to subscribe to. What it has is a block in
+ * the system prompt — `formatSkillsForPrompt` in the runtime's `skills.js` —
+ * instructing the model to "load its full instructions using the `read` tool:
+ * `skills/<name>/SKILL.md`". So loading a skill IS a file read, and the path
+ * is the entire signal.
+ *
+ * Which means the earlier note in this project — that the runtime cannot tell
+ * us which skill is in play, so only a hand-picked one can ever be shown —
+ * was wrong. It can, as long as you look at the argument rather than the tool
+ * name.
+ *
+ * Anchored to `skills/` and `/SKILL.md` so an ordinary read of some other
+ * file, or of a skill's `references/`, does not masquerade as a skill firing.
+ */
+export function skillFromRead(args: Record<string, unknown>): string | null {
+  const path = typeof args.path === "string" ? args.path : "";
+  return path.match(/(?:^|\/)skills\/([a-z0-9-]+)\/SKILL\.md$/)?.[1] ?? null;
+}
+
+/**
+ * Which tool calls get a line in the trail.
+ *
+ * Every step is written in the past tense above, including the one currently
+ * running. That looks wrong for about a second and is right for the rest of
+ * the conversation: rows now persist rather than being overwritten, so almost
+ * every row a reader ever looks at is a finished one. Claude's own trail does
+ * the same ("Loaded plugins skill" while it is loading).
+ *
+ * The hidden set is the runtime's bookkeeping — `task_tracker` writing down
+ * what it is about to do, `skill_learner` reflecting afterwards, and the file
+ * and shell tools, which a read-only agent should never reach anyway. None of
+ * it tells the reader anything about the answer, and a twelve-turn run spent
+ * half its rows on it.
+ *
+ * Two runtime tools are deliberately NOT in that set. "Recalled memory" and
+ * "Using Find an expert" are the rows that show what Badger actually is — a
+ * git repo whose skills and memory are files it reads — and they are the rows
+ * Claude shows too. The second is a `read`, which is why this takes arguments.
+ */
+const HIDDEN_TOOLS = new Set(["task_tracker", "skill_learner", "write", "edit", "cli"]);
+
+/**
+ * `read` is the exception, and it has to be decided on the arguments rather
+ * than the name: a read of `skills/<name>/SKILL.md` is the agent picking a
+ * skill and is the most interesting row in the trail, while every other read
+ * is the runtime shuffling files about.
+ */
+export function isStepVisible(name: string, args: Record<string, unknown> = {}): boolean {
+  if (name === "read") return skillFromRead(args) !== null;
+  return !HIDDEN_TOOLS.has(name);
+}
+
+/**
+ * The one-line summary the collapsed trail carries — "Searched GitHub and
+ * Gmail, read 3 threads". Built from what the run did rather than from a
+ * count, because "Worked through 9 steps" says nothing about the answer.
+ */
+export function summariseSteps(steps: ToolStep[]): string {
+  if (steps.length === 0) return "Answered without searching";
+
+  const searched = [
+    ...new Set(
+      steps
+        .filter((s) => s.name.endsWith("_search"))
+        .map((s) => ({ github_search: "GitHub", gmail_search: "Gmail", drive_search: "Drive" })[s.name])
+        .filter(Boolean) as string[],
+    ),
+  ];
+  const opened = steps.filter((s) =>
+    ["github_issue", "github_pr", "github_file", "gmail_thread", "drive_file"].includes(s.name),
+  ).length;
+
+  const parts: string[] = [];
+  // The skill leads, when there is one. It is the thing that shaped every
+  // step after it, and it is the one row that says this is a GAP agent
+  // rather than a search box with a model attached.
+  const skill = steps.find((s) => s.args.skill)?.args.skill;
+  if (skill) parts.push(`Used ${skillDisplayName(String(skill))}`);
+  if (searched.length) parts.push(`${skill ? "searched" : "Searched"} ${listOf(searched)}`);
+  if (opened) parts.push(`read ${opened} ${opened === 1 ? "source" : "sources"}`);
+  if (steps.some((s) => s.name === "memory")) parts.push("checked memory");
+
+  // A run made entirely of steps this summary has no phrase for still needs a
+  // line, and the count is the honest fallback.
+  if (parts.length === 0) {
+    return `Worked through ${steps.length} ${steps.length === 1 ? "step" : "steps"}`;
+  }
+  return parts.join(", ");
+}
+
+/** "GitHub", "GitHub and Gmail", "GitHub, Gmail and Drive". */
+function listOf(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
 }
 
 /** A skill as the server lists it, for the picker. */

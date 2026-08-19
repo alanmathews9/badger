@@ -12,10 +12,22 @@ import { Fragment, type ReactNode } from "react";
  * The `[UNVERIFIED]` tag that verification adds is inline code, so it renders
  * through the code branch and stands out on its own.
  */
-/** A source the answer cites, and the number its card carries. */
-export type Citation = { token: string; index: number };
-
-export function Markdown({ text, citations = [] }: { text: string; citations?: Citation[] }) {
+/**
+ * The answer renders as plain prose. No inline citation markers of any kind.
+ *
+ * Two versions of that came and went. A superscript number said nothing a
+ * reader could use without travelling to the bottom of the answer and back.
+ * A named chip fixed that and introduced a worse problem: the chip's label is
+ * the source's title, and the token it replaced is *also* the title, so any
+ * answer that lists its sources by name printed every one of them twice —
+ * once as a pill and once as the sentence it came from. Seen on a real answer
+ * listing seven closed issues.
+ *
+ * The claim-to-source bond now lives entirely in the Sources line under the
+ * answer. That loses which sentence rests on which source; the alternative
+ * lost the ability to read the answer at all.
+ */
+export function Markdown({ text }: { text: string }) {
   const blocks = String(text ?? "").split(/\n{2,}/);
 
   return (
@@ -28,7 +40,7 @@ export function Markdown({ text, citations = [] }: { text: string; citations?: C
           return (
             <ul key={i} className="mt-2 flex list-disc flex-col gap-1.5 pl-5">
               {lines.map((line, j) => (
-                <li key={j}>{inline(line.replace(/^\s*[*-]\s+/, ""), citations)}</li>
+                <li key={j}>{inline(line.replace(/^\s*[*-]\s+/, ""))}</li>
               ))}
             </ul>
           );
@@ -38,14 +50,14 @@ export function Markdown({ text, citations = [] }: { text: string; citations?: C
         if (heading) {
           return (
             <p key={i} className="mt-4 font-semibold first:mt-0">
-              {inline(heading[2], citations)}
+              {inline(heading[2])}
             </p>
           );
         }
 
         return (
           <p key={i} className="mt-3 first:mt-0">
-            {inline(block, citations)}
+            {inline(block)}
           </p>
         );
       })}
@@ -53,34 +65,12 @@ export function Markdown({ text, citations = [] }: { text: string; citations?: C
   );
 }
 
-/** Bold, inline code, links and citation markers, in one pass. */
-function inline(text: string, citations: Citation[] = []): ReactNode {
-  // Citation tokens are matched last in the alternation, so a "#2" inside a
-  // code span or a link is consumed by those branches first and never gets a
-  // marker attached to it.
-  const refs = citations.map((c) => escapeRe(c.token)).join("|");
-  const pattern = new RegExp(
-    `(\\*\\*[^*]+\\*\\*|\`[^\`]+\`|\\[[^\\]]+\\]\\([^)\\s]+\\)${refs ? `|${refs}` : ""})`,
-    "g",
-  );
+/** Bold, inline code and links, in one pass. */
+function inline(text: string): ReactNode {
+  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)\s]+\))/g;
 
   return text.split(pattern).map((part, i) => {
     if (!part) return null;
-
-    const citation = citations.find((c) => c.token === part);
-    if (citation) {
-      return (
-        <span key={i}>
-          {part}
-          <a
-            href={`#source-${citation.index}`}
-            className="ml-0.5 align-super text-[11px] font-semibold text-amber-700 no-underline"
-          >
-            {citation.index}
-          </a>
-        </span>
-      );
-    }
 
     if (part.startsWith("**") && part.endsWith("**")) {
       return (
@@ -128,4 +118,4 @@ function inline(text: string, citations: Citation[] = []): ReactNode {
   });
 }
 
-const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+

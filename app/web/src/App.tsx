@@ -13,7 +13,7 @@ import {
   type SearchResponse,
   type SourcesResponse,
 } from "@/lib/api";
-import { ask, describeTool, skillDisplayName, type Turn } from "@/lib/ask";
+import { ask, describeTool, isStepVisible, skillDisplayName, skillFromRead, type Turn } from "@/lib/ask";
 import type { AnswerState } from "@/components/AnswerCard";
 import type { ChatTurn } from "@/screens/ChatScreen";
 import {
@@ -70,6 +70,11 @@ export default function App() {
   const [sources, setSources] = useState<SourcesResponse>({ mode: "none", sources: [] });
   const [budget, setBudget] = useState<Budget | null>(null);
   const [chats, setChats] = useState<ChatSummary[]>([]);
+  // The chat list is a Postgres round trip like everything else in history,
+  // so there is a real gap before it arrives. Without this the pane asserted
+  // "No chats yet" during every load — the confidently-wrong indicator this
+  // project keeps finding, and wrong for anyone who has chats.
+  const [chatsLoading, setChatsLoading] = useState(true);
   const [searches, setSearches] = useState<SearchEntry[]>([]);
 
   // The run lives above the routes on purpose: switching to Search mid-answer
@@ -77,6 +82,10 @@ export default function App() {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const cancelAsk = useRef<(() => void) | null>(null);
+
+  // A conversation is being fetched. See `openChat` — the store is Postgres.
+  const [loadingChat, setLoadingChat] = useState(false);
+  const loadToken = useRef(0);
 
   // The id is also read inside callbacks that must not be rebuilt on every
   // change — a route effect that fires whenever its handler's identity moves
@@ -90,7 +99,11 @@ export default function App() {
   useEffect(() => {
     fetchSources().then(setSources).catch(() => {});
     fetchBudget().then(setBudget).catch(() => {});
-    history.listChats().then(setChats).catch(() => {});
+    history
+      .listChats()
+      .then(setChats)
+      .catch(() => {})
+      .finally(() => setChatsLoading(false));
     history.listSearches().then(setSearches).catch(() => {});
   }, []);
 
@@ -133,6 +146,10 @@ export default function App() {
     (question: string, skill: string | null = null) => {
       cancelAsk.current?.();
       dirty.current = true;
+      // Abandon any conversation still being fetched. Its `setTurns` would
+      // otherwise land after this question was appended and wipe it.
+      loadToken.current++;
+      setLoadingChat(false);
 
       // The first question in a new conversation mints its id and puts it in
       // the address bar, so the answer being written is already linkable.
@@ -155,7 +172,7 @@ export default function App() {
       // thing the runtime cannot tell us — which skill is in play — is known
       // here for certain: the user chose it.
       const seed = skill
-        ? [{ label: `Using: ${skillDisplayName(skill)}`, name: "skill", args: { skill } }]
+        ? [{ label: `Using ${skillDisplayName(skill)}`, name: "skill", args: { skill } }]
         : [];
 
       setTurns((ts) => [...ts, { question, answer: { ...IDLE, running: true, steps: seed } }]);
@@ -163,8 +180,19 @@ export default function App() {
       cancelAsk.current = ask(
         question,
         {
-          onTool: (name, args) => {
+          onTool: (name, args, index) => {
+            // Bookkeeping the reader does not need — see `isStepVisible`. It
+            // is dropped here rather than at render time so nothing downstream
+            // has to count around it, and any narration it was carrying stays
+            // in `text` to be attached to the next real step instead.
+            if (!isStepVisible(name, args)) return;
             const label = describeTool(name, args);
+            // The skill in play can arrive three ways: seeded here when you
+            // picked it, announced by the server when it chose one, or as the
+            // model reading a SKILL.md itself. All three are the same event to
+            // a reader, so whichever lands second is dropped.
+            const slug =
+              name === "skill" ? String(args.skill ?? "") || null : skillFromRead(args);
             // Text written BEFORE a tool call is the model narrating its plan,
             // not the answer — it kept working after writing it. The runtime
             // streams both through one channel, so a tool call is the signal
@@ -176,13 +204,35 @@ export default function App() {
             // answer looked like it arrived, vanished, and arrived again.
             // Attaching it to the step it was explaining keeps the answer area
             // clean and loses nothing.
+            patchLast((s) => {
+              if (slug && s.steps.some((step) => step.args.skill === slug)) return s;
+              return {
+                ...s,
+                activity: label,
+                text: "",
+                steps: [
+                  ...s.steps,
+                  {
+                    label,
+                    name,
+                    // A skill read is recorded under the skill's own slug so
+                    // the duplicate check above sees both forms alike.
+                    args: slug ? { ...args, skill: slug } : args,
+                    index,
+                    narration: s.text.trim() || undefined,
+                  },
+                ],
+              };
+            });
+          },
+          // The documents a search found, attached to the step that found
+          // them. Matched on the run's own call number rather than on array
+          // position, which the hidden steps and the skill row both shift.
+          onResults: (index, results) =>
             patchLast((s) => ({
               ...s,
-              activity: label,
-              text: "",
-              steps: [...s.steps, { label, name, args, narration: s.text.trim() || undefined }],
-            }));
-          },
+              steps: s.steps.map((step) => (step.index === index ? { ...step, found: results } : step)),
+            })),
           onDelta: (text) => patchLast((s) => ({ ...s, text: s.text + text })),
           onDone: (result) => {
             patchLast((s) => ({ ...s, running: false, activity: null, text: result.answer, result }));
@@ -199,12 +249,38 @@ export default function App() {
   );
 
   /**
+   * Abort the run in flight.
+   *
+   * Cancelling the fetch is only half of it. `ask`'s canceller marks itself
+   * finished and aborts the socket, so no `onError` and no `onDone` ever
+   * arrive — which means nothing would clear `running`, and the turn would
+   * spin for the rest of the session. The state has to be closed here.
+   *
+   * It closes as `stopped`, not as an error. The answer area renders nothing
+   * while a run is live, so a stopped turn has no answer to show — but an
+   * interruption is a choice the reader made, not a fault, and styling it as
+   * one puts a warning on screen for something that went exactly as asked.
+   */
+  const stopAsk = useCallback(() => {
+    cancelAsk.current?.();
+    cancelAsk.current = null;
+    patchLast((s) => (s.running ? { ...s, running: false, activity: null, stopped: true } : s));
+  }, [patchLast]);
+
+  /**
    * Point the conversation state at whatever `/chat/:id` currently names.
    *
    * Deliberately a no-op when the id is already open, which is what keeps a
    * running answer alive: `startAsk` navigates to the id it just minted, and
    * without this guard the route change would immediately reload that
    * conversation from storage and throw away the stream.
+   *
+   * **The load is visible.** `getChat` is a request to Postgres, not a
+   * localStorage read — the store has been server-backed since the database
+   * landed — so clicking a past conversation changed the URL and then sat on
+   * the previous conversation for a few hundred milliseconds. The address bar
+   * said one thing and the screen said another, which reads as a click that
+   * did not register.
    */
   const openChat = useCallback(
     async (id: string | null) => {
@@ -214,9 +290,22 @@ export default function App() {
       if (!id) {
         setActive(null);
         setTurns([]);
+        setLoadingChat(false);
         return;
       }
-      const chat = await history.getChat(id);
+
+      // Claim this load. Clicking a second conversation before the first
+      // arrives must not let the first one win the race and overwrite it —
+      // the two requests can complete in either order.
+      const token = ++loadToken.current;
+      setActive(id);
+      setTurns([]);
+      setLoadingChat(true);
+
+      const chat = await history.getChat(id).catch(() => null);
+      if (token !== loadToken.current) return;
+      setLoadingChat(false);
+
       // A link to a conversation this browser has never held — someone else's
       // id, or one cleared since. Say so by landing on a new chat rather than
       // showing an empty thread that pretends to be theirs.
@@ -224,7 +313,6 @@ export default function App() {
         navigate("/chat", { replace: true });
         return;
       }
-      setActive(id);
       setTurns(chat.turns);
     },
     [navigate, setActive],
@@ -247,11 +335,11 @@ export default function App() {
           <Route path="/search" element={<SearchRoute onSearched={recordSearch} />} />
           <Route
             path="/chat"
-            element={<ChatRoute turns={turns} chats={chats} onOpen={openChat} onAsk={startAsk} />}
+            element={<ChatRoute turns={turns} chats={chats} loading={loadingChat} chatsLoading={chatsLoading} onOpen={openChat} onAsk={startAsk} onStop={stopAsk} />}
           />
           <Route
             path="/chat/:id"
-            element={<ChatRoute turns={turns} chats={chats} onOpen={openChat} onAsk={startAsk} />}
+            element={<ChatRoute turns={turns} chats={chats} loading={loadingChat} chatsLoading={chatsLoading} onOpen={openChat} onAsk={startAsk} onStop={stopAsk} />}
           />
           <Route path="/tools" element={<ToolsScreen sources={sources} />} />
           {/* An unknown path is a typo or a stale link, not an error worth a
@@ -344,13 +432,19 @@ function SearchRoute({ onSearched }: { onSearched: (query: string, facts: Search
 function ChatRoute({
   turns,
   chats,
+  loading,
+  chatsLoading,
   onOpen,
   onAsk,
+  onStop,
 }: {
   turns: ChatTurn[];
   chats: ChatSummary[];
+  loading: boolean;
+  chatsLoading: boolean;
   onOpen: (id: string | null) => void;
   onAsk: (question: string, skill: string | null) => void;
+  onStop: () => void;
 }) {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -364,6 +458,9 @@ function ChatRoute({
       turns={turns}
       chats={chats}
       activeId={id ?? null}
+      loading={loading}
+      chatsLoading={chatsLoading}
+      onStop={onStop}
       onAsk={onAsk}
       onNewChat={() => navigate("/chat")}
       onSelectChat={(next) => navigate(`/chat/${next}`)}

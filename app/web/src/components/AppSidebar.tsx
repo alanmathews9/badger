@@ -1,6 +1,5 @@
 import { MessagesSquare, Search, Wrench } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
-import { BadgerBadge } from "./BadgerMark";
 import { BRAND_LOGOS } from "./BrandLogos";
 import {
   Sidebar,
@@ -56,13 +55,27 @@ export function AppSidebar({
         {/* Collapsed, the rail is too narrow to hold the mark and the toggle
             side by side — they stack instead, so the toggle stays inside the
             rail and reachable. It used to be hidden when collapsed, which
-            left no way at all to reopen the sidebar. */}
+            left no way at all to reopen the sidebar.
+
+            Two files rather than one component, and each is the right shape
+            for its slot: `logo.svg` is the full lockup — mark plus wordmark,
+            drawn in `currentColor` ink on transparent — so the rail needs no
+            separate text label beside it. Collapsed there is no room for a
+            240x64 lockup, so the square `favicon.svg` tile stands in; it is
+            the same mark, and reusing the favicon means the tab icon and the
+            rail icon can never drift apart. */}
         <div className="flex items-center gap-2.5 px-1 py-1.5 group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:gap-1.5 group-data-[collapsible=icon]:px-0">
-          <BadgerBadge size={26} />
-          <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
-            <div className="truncate text-[14.5px] font-semibold tracking-[-0.01em]">badger</div>
-          </div>
-          <SidebarTrigger className="shrink-0 rounded-full text-stone-500 group-data-[collapsible=icon]:border group-data-[collapsible=icon]:border-stone-200 group-data-[collapsible=icon]:bg-white" />
+          <img
+            src="/logo.svg"
+            alt="Badger"
+            className="h-9 w-auto shrink-0 group-data-[collapsible=icon]:hidden"
+          />
+          <img
+            src="/favicon.svg"
+            alt="Badger"
+            className="hidden size-[26px] shrink-0 rounded-lg group-data-[collapsible=icon]:block"
+          />
+          <SidebarTrigger className="ml-auto shrink-0 rounded-full text-stone-500 group-data-[collapsible=icon]:mx-0 group-data-[collapsible=icon]:border group-data-[collapsible=icon]:border-stone-200 group-data-[collapsible=icon]:bg-white" />
         </div>
       </SidebarHeader>
 

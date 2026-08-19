@@ -1,31 +1,7 @@
-import { Loader2 } from "lucide-react";
 import { ClayBars, DigInput } from "@/components/DigInput";
 import { ResultRow } from "@/components/ResultRow";
 import { SourceCoverage } from "@/components/SourceCoverage";
 import type { SearchResponse } from "@/lib/api";
-
-/**
- * Suggestions, moved here from the gate.
- *
- * They used to sit on the passphrase screen, which was the wrong place: an
- * evaluator reads them before they can act on them, and forgets. Here they are
- * one click from running. People freeze at an empty search box, and someone
- * who types "hello" sees none of the product.
- *
- * These three are chosen to show the thing one source cannot do: the first
- * returns three sources disagreeing about the same delay, the second is
- * answerable from mail alone, and the third is answered by authored commits
- * rather than by anyone claiming expertise.
- *
- * They must be checked whenever the corpus changes. The previous three named a
- * consultancy that had been deleted, so the first thing a visitor saw was three
- * questions that returned nothing.
- */
-const SUGGESTIONS = [
-  "Why was the Android app five weeks late?",
-  "Did we tell Brightsmile the app would be ready in March?",
-  "Who knows about payments?",
-];
 
 export function SearchScreen({
   query,
@@ -52,7 +28,11 @@ export function SearchScreen({
       <header className="flex h-14 shrink-0 items-center gap-3 border-b border-stone-200 px-4">
         <DigInput value={query} onChange={onQueryChange} onSubmit={onSubmit} size="compact" />
         <span className="ml-auto flex items-center gap-2 font-mono text-[11.5px] text-stone-500">
-          {busy && <Loader2 className="size-3.5 animate-spin" />}
+          {/* The same loader the chat trail uses. Retrieval is not the agent
+              thinking, but it is still Badger working, and two different
+              spinners for two kinds of waiting is one more than the product
+              needs. */}
+          {busy && <img src="/badger-thinking.svg" alt="" aria-hidden="true" className="size-6" />}
           {busy
             ? "digging…"
             : data
@@ -68,7 +48,7 @@ export function SearchScreen({
 
       {!started ? (
         // The empty state IS the home screen now, rather than a separate route.
-        <main className="relative flex flex-1 flex-col items-center justify-center px-6 pb-20">
+        <main className="relative flex flex-1 flex-col items-center justify-center px-6 pb-24">
           <div className="w-full max-w-[640px]">
             <h1 className="text-[34px]/[1.25] font-semibold tracking-[-0.03em] text-pretty">
               What do you want to dig into today?
@@ -85,25 +65,25 @@ export function SearchScreen({
               />
             </div>
 
-            <div className="mt-8">
-              <h2 className="font-mono text-[10px] tracking-[0.1em] text-stone-500 uppercase">
-                Try one of these
-              </h2>
-              <div className="mt-3 flex flex-col gap-1.5">
-                {SUGGESTIONS.map((suggestion) => (
-                  <button
-                    key={suggestion}
-                    onClick={() => {
-                      onQueryChange(suggestion);
-                      onSubmit(suggestion);
-                    }}
-                    className="rounded-lg border border-stone-200 px-3.5 py-2.5 text-left text-sm text-stone-700 transition-colors hover:border-stone-300 hover:bg-stone-50"
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
-            </div>
+            {/* No suggested searches here.
+                There were three, hardcoded, under a "Try one of these"
+                heading. Two arguments against them, and the second is the
+                real one.
+
+                They rot. The set before this one named a consultancy that had
+                been deleted, so the first thing a visitor saw was three
+                questions returning nothing — a maintenance burden on a screen
+                that should have none.
+
+                And they belong on Chat, not here. Onyx draws exactly this
+                line: in `web/src/views/AppPage.tsx` the suggestions block and
+                the search block are mutually exclusive — `SuggestionsUI`
+                renders for `isNewSession() || isAgent()`, `SearchUI` for
+                `isSearch` — so starters appear on chat and never on search.
+                Even on chat they are conditional on an admin having written
+                them (`hasAgentStarterMessages`), never shipped by the
+                developer. A search box does not need worked examples; a
+                conversation with an agent sometimes does. */}
           </div>
         </main>
       ) : (

@@ -9,6 +9,15 @@ export type AnswerState = {
   text: string;
   result: AskResult | null;
   error: string | null;
+  /**
+   * The run was stopped by the user, rather than failing.
+   *
+   * Separate from `error` because they deserve different weight: a failure is
+   * something Badger did wrong and should be visible, an interruption is
+   * something the reader chose and should be quiet. Both leave a turn with no
+   * answer, so without this flag one had to be styled as the other.
+   */
+  stopped?: boolean;
 };
 
 /**
