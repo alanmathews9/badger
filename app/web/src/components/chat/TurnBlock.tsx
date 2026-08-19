@@ -24,7 +24,7 @@ export function TurnBlock({ turn }: { turn: ChatTurn }) {
   const { answer } = turn;
   const result = answer.result;
   const cited = result?.cited ?? [];
-  const { body, coverage } = splitAnswer(answer.text);
+  const { body } = splitAnswer(answer.text);
 
   return (
     <section className="mt-8 first:mt-0">
@@ -41,13 +41,11 @@ export function TurnBlock({ turn }: { turn: ChatTurn }) {
           to a mark; leading the chain with it says the stronger thing, and
           gives the answer its full reading width back. */}
       <div className="mt-6">
-        <StepTrail answer={answer} coverage={coverage} />
+        <StepTrail answer={answer} />
 
-        {answer.stopped ? (
-          // An interruption is not a failure. Grey, unboxed, one word —
-          // it says what happened and asks for nothing.
-          <p className="text-[14px] text-stone-400">Interrupted</p>
-        ) : answer.error ? (
+        {/* An interruption is not rendered here — it is the last row of the
+            trail, so it keeps the badger and the chain. See `StepTrail`. */}
+        {answer.stopped ? null : answer.error ? (
           <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             {answer.error}
           </p>

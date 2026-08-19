@@ -13,7 +13,7 @@ import {
   type SearchResponse,
   type SourcesResponse,
 } from "@/lib/api";
-import { ask, describeTool, isStepVisible, skillDisplayName, skillFromRead, type Turn } from "@/lib/ask";
+import { ask, isStepVisible, skillFromRead, type Turn } from "@/lib/ask";
 import type { AnswerState } from "@/components/AnswerCard";
 import type { ChatTurn } from "@/screens/ChatScreen";
 import {
@@ -26,7 +26,6 @@ import {
 
 const IDLE: AnswerState = {
   running: false,
-  activity: null,
   steps: [],
   text: "",
   result: null,
@@ -172,7 +171,7 @@ export default function App() {
       // thing the runtime cannot tell us — which skill is in play — is known
       // here for certain: the user chose it.
       const seed = skill
-        ? [{ label: `Using ${skillDisplayName(skill)}`, name: "skill", args: { skill } }]
+        ? [{ name: "skill", args: { skill } }]
         : [];
 
       setTurns((ts) => [...ts, { question, answer: { ...IDLE, running: true, steps: seed } }]);
@@ -186,7 +185,6 @@ export default function App() {
             // has to count around it, and any narration it was carrying stays
             // in `text` to be attached to the next real step instead.
             if (!isStepVisible(name, args)) return;
-            const label = describeTool(name, args);
             // The skill in play can arrive three ways: seeded here when you
             // picked it, announced by the server when it chose one, or as the
             // model reading a SKILL.md itself. All three are the same event to
@@ -208,12 +206,10 @@ export default function App() {
               if (slug && s.steps.some((step) => step.args.skill === slug)) return s;
               return {
                 ...s,
-                activity: label,
                 text: "",
                 steps: [
                   ...s.steps,
                   {
-                    label,
                     name,
                     // A skill read is recorded under the skill's own slug so
                     // the duplicate check above sees both forms alike.
@@ -235,7 +231,7 @@ export default function App() {
             })),
           onDelta: (text) => patchLast((s) => ({ ...s, text: s.text + text })),
           onDone: (result) => {
-            patchLast((s) => ({ ...s, running: false, activity: null, text: result.answer, result }));
+            patchLast((s) => ({ ...s, running: false, text: result.answer, result }));
             // The budget just moved. Re-read it rather than decrementing a guess.
             fetchBudget().then(setBudget).catch(() => {});
           },
@@ -264,7 +260,7 @@ export default function App() {
   const stopAsk = useCallback(() => {
     cancelAsk.current?.();
     cancelAsk.current = null;
-    patchLast((s) => (s.running ? { ...s, running: false, activity: null, stopped: true } : s));
+    patchLast((s) => (s.running ? { ...s, running: false, stopped: true } : s));
   }, [patchLast]);
 
   /**

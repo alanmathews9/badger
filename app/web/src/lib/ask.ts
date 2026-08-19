@@ -32,8 +32,8 @@ export type FoundDoc = {
 
 /** One tool call, kept whole so the step trail can show its detail on demand. */
 export type ToolStep = {
-  /** The plain-language line: "Searching Drive for “offboarding process”". */
-  label: string;
+  /** The tool, and what it was called with. The line a reader sees is derived
+      from these at render time rather than stored — see `describeTool`. */
   name: string;
   args: Record<string, unknown>;
   /**
@@ -234,7 +234,21 @@ export function splitAnswer(text: string): { body: string; coverage: string | nu
 }
 
 /**
- * Turn a tool call into the line the user reads while waiting.
+ * Turn a tool call into the line the user reads.
+ *
+ * **The tense follows the state.** The running step is happening now, so it
+ * reads "Searching Drive"; a step that has finished reads "Searched Drive".
+ * An earlier version used past tense throughout, on the argument that rows
+ * persist so most rows a reader ever sees are finished ones — true of every
+ * row except the one they are actually watching.
+ *
+ * That only works because the label is computed at RENDER time from the tool
+ * name and arguments, rather than being computed once and stored on the step.
+ * A stored label freezes whatever tense it had when the call was made, and it
+ * freezes the wording too: conversations saved before this file last changed
+ * still carried "Searching Gmail for “…”" long after the query came out of
+ * the label. Deriving it from data that does not change fixes both, including
+ * for conversations already in the database.
  *
  * All ten tools, not the five GitHub ones. The five Google tools fell through
  * to `default`, so while Badger searched the mailbox the status line read the
@@ -251,35 +265,48 @@ export function splitAnswer(text: string): { body: string; coverage: string | nu
  * still one click away in the step's own arguments, where someone auditing
  * the work will look for it.
  */
-export function describeTool(name: string, args: Record<string, unknown>): string {
+export function describeTool(
+  name: string,
+  args: Record<string, unknown>,
+  live = false,
+): string {
+  /** "Searching Drive" while it is happening, "Searched Drive" once it has. */
+  const t = (now: string, done: string) => (live ? now : done);
+
   switch (name) {
     case "github_search":
-      return "Searched GitHub";
+      return t("Searching GitHub", "Searched GitHub");
     case "github_issue":
-      return `Read issue #${args.number}`;
+      return t(`Reading issue #${args.number}`, `Read issue #${args.number}`);
     case "github_pr":
-      return `Read PR #${args.number}`;
+      return t(`Reading PR #${args.number}`, `Read PR #${args.number}`);
     case "github_file":
-      return `Opened ${args.path}`;
+      return t(`Opening ${args.path}`, `Opened ${args.path}`);
     case "github_commits":
-      return "Read recent commits";
+      return t("Reading recent commits", "Read recent commits");
     case "gmail_search":
-      return "Searched Gmail";
+      return t("Searching Gmail", "Searched Gmail");
     case "gmail_thread":
-      return "Read a mail thread";
+      return t("Reading a mail thread", "Read a mail thread");
     case "drive_search":
-      return "Searched Drive";
+      return t("Searching Drive", "Searched Drive");
     case "drive_file":
-      return "Read a document";
+      return t("Reading a document", "Read a document");
     case "drive_comments":
-      return "Read the comments on a document";
+      return t(
+        "Reading the comments on a document",
+        "Read the comments on a document",
+      );
     case "memory":
-      return args.action === "save" ? "Saved to memory" : "Recalled memory";
+      return args.action === "save"
+        ? t("Saving to memory", "Saved to memory")
+        : t("Recalling memory", "Recalled memory");
     // A skill the MODEL chose. See `skillFromRead` — this is a plain file
-    // read, and the path is what makes it a skill.
+    // read, and the path is what makes it a skill. No tense: using a skill is
+    // a state that holds for the rest of the run, not an act that completes.
     case "read": {
       const slug = skillFromRead(args);
-      return slug ? `Using ${skillDisplayName(slug)}` : "Read a file";
+      return slug ? `Using ${skillDisplayName(slug)}` : t("Reading a file", "Read a file");
     }
     // The skill the USER chose, seeded by the composer rather than emitted by
     // the runtime. Same wording, so the two are indistinguishable on screen —

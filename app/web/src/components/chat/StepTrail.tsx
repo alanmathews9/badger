@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
-import { VerificationBadge, type AnswerState } from "@/components/AnswerCard";
-import { summariseSteps, type ToolStep } from "@/lib/ask";
+import type { AnswerState } from "@/components/AnswerCard";
+import { describeTool, summariseSteps, type ToolStep } from "@/lib/ask";
 import { FoundRow } from "./SourceChip";
 
 /**
@@ -24,11 +24,17 @@ import { FoundRow } from "./SourceChip";
  *
  * Once the answer lands the whole trail collapses to one summary row —
  * "Searched GitHub and Gmail, read 3 sources" — still carrying the mark,
- * which expands to bring the steps back with the verification result and the
- * coverage note. Those two are checked on every run; they are shown to
- * whoever opens the work rather than printed under every answer.
+ * which expands to bring the steps back.
+ *
+ * It used to end with a verification badge ("3 citations, all retrieved") and
+ * the model's own coverage note. Both are gone from here. Verification still
+ * runs on every answer and still marks a bad citation `[UNVERIFIED]` inline,
+ * where it changes what the reader believes; a green tick inside a panel
+ * almost nobody opens changed nothing. The coverage note was the model
+ * counting its own tool calls back at the reader, which the trail above
+ * already shows and shows more honestly.
  */
-export function StepTrail({ answer, coverage }: { answer: AnswerState; coverage: string | null }) {
+export function StepTrail({ answer }: { answer: AnswerState }) {
   const [open, setOpen] = useState(false);
   const { steps, running, result } = answer;
 
@@ -52,6 +58,26 @@ export function StepTrail({ answer, coverage }: { answer: AnswerState; coverage:
             {answer.text.trim()}
           </p>
         )}
+      </div>
+    );
+  }
+
+  // Stopped. The chain still stands — the badger on the lead row, whatever
+  // steps did run, and the interruption as the final row rather than as a
+  // stray line underneath. Without this the trail returned null the moment a
+  // run was cancelled, so "Interrupted" appeared alone with no mark beside
+  // it and nothing saying whose turn it was.
+  if (answer.stopped) {
+    return (
+      <div className="mb-4 flex flex-col">
+        {steps.map((step, i) => (
+          <TrailRow key={i} lead={i === 0} running={false} last={false}>
+            <StepLine step={step} live={false} />
+          </TrailRow>
+        ))}
+        <TrailRow lead={steps.length === 0} running={false} last>
+          <p className="flex h-6 items-center text-[13px] text-stone-400">Interrupted</p>
+        </TrailRow>
       </div>
     );
   }
@@ -80,12 +106,6 @@ export function StepTrail({ answer, coverage }: { answer: AnswerState; coverage:
           </TrailRow>
         ))}
 
-      {open && (
-        <div className="mt-2 flex flex-col gap-1.5 pl-10">
-          <VerificationBadge result={result} />
-          {coverage && <p className="text-[12px]/[1.6] text-stone-500">{coverage}</p>}
-        </div>
-      )}
     </div>
   );
 }
@@ -161,6 +181,11 @@ function TrailRow({
 function StepLine({ step, live }: { step: ToolStep | null; live: boolean }) {
   const [open, setOpen] = useState(false);
   const found = step?.found ?? [];
+  // Derived here, not read off the step — see `describeTool`. The tense has to
+  // follow whether this row is the running one, and a label stored at call
+  // time cannot know that. It also un-freezes the wording for conversations
+  // saved before the labels last changed.
+  const label = step ? describeTool(step.name, step.args, live) : "Thinking";
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -173,7 +198,7 @@ function StepLine({ step, live }: { step: ToolStep | null; live: boolean }) {
             (step ? "hover:text-stone-900" : "")
           }
         >
-          <span className="truncate">{step ? step.label : "Thinking"}</span>
+          <span className="truncate">{label}</span>
           {step && (
             <ChevronRight
               className={
