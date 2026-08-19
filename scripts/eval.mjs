@@ -22,7 +22,6 @@
 // the runner's fault.
 import { query } from "@open-gitagent/gitagent";
 import { openAuditLog } from "../app/server/audit.mjs";
-import { readAllowedTools } from "../app/server/allowed-tools.mjs";
 import { buildSystemSuffix } from "../app/server/system-suffix.mjs";
 import { loadEnvFile } from "../tools/scripts/_env.mjs";
 import { verifyCitations } from "../app/server/verify-citations.mjs";
@@ -41,7 +40,6 @@ if (!set.length) {
   process.exit(2);
 }
 
-const ALLOWED = readAllowedTools();
 const say = (s) => !JSON_OUT && process.stdout.write(s);
 
 /** One question, end to end. Never throws — a crash is a result, not an abort. */
@@ -55,7 +53,6 @@ async function ask(q) {
     const result = query({
       prompt: q.question,
       dir: AGENT_DIR,
-      allowedTools: ALLOWED,
       systemPromptSuffix: buildSystemSuffix(),
     });
     // The audit trail the runtime keeps only on its CLI path — see audit.mjs.

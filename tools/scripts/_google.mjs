@@ -2,7 +2,7 @@
 //
 // The same shape as _github.mjs, and for the same reasons: the agent never
 // sees Composio, it sees five tools with names we chose, and those names are
-// what hooks/allowed-tools.txt can gate.
+// the whole surface auditable in one place.
 //
 // Read-only rests on the same two things:
 //   1. SessionPreset.DIRECT_TOOLS — drops Composio's generic meta-tools.

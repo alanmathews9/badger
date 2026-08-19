@@ -24,7 +24,6 @@ import { query } from "@open-gitagent/gitagent";
 import { openAuditLog } from "./audit.mjs";
 import { searchAll, SearchError } from "./search.mjs";
 import { startRefreshTimer } from "./index-search.mjs";
-import { readAllowedTools } from "./allowed-tools.mjs";
 import { authEnabled, clearSessionCookie, hasValidSession, issueSessionCookie, passphraseMatches } from "./auth.mjs";
 import { TOOLKITS, TOOLKIT_LABELS, accountFor, listConnections, resolveContext } from "./connections.mjs";
 import { budgetStatus, claimAskSlot, clientIp, rateLimit } from "./limits.mjs";
@@ -215,15 +214,6 @@ async function handleSearch(req, res) {
   }
 }
 
-// The same allowlist hooks/allowed-tools.txt enforces, applied in-process.
-// Unlike the shell hook this cannot fail open: allowedTools removes everything
-// else from the model's schema, so a crashed script cannot leave a tool
-// callable. No cli, write or edit; the learning tools (task_tracker,
-// skill_learner, memory) are in — they write to the agent's own repo only.
-//
-// Read from the file rather than restated, so that adding a source in one
-// place cannot leave the agent unable to reach it here.
-const ALLOWED_TOOLS = readAllowedTools();
 
 /**
  * POST /api/ask  {question, history} — the second pass, streamed over SSE.
@@ -292,7 +282,6 @@ async function handleAsk(req, res) {
   const run = query({
     prompt,
     dir: ROOT,
-    allowedTools: ALLOWED_TOOLS,
     systemPromptSuffix: buildSystemSuffix(),
     maxTurns: 12,
     // Whose GitHub this run reads. Declarative tools are spawned as

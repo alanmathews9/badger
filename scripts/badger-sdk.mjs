@@ -18,7 +18,6 @@
 //   node scripts/badger-sdk.mjs "what did we decide about Halden phase 2?"
 import { query } from "@open-gitagent/gitagent";
 import { openAuditLog } from "../app/server/audit.mjs";
-import { readAllowedTools } from "../app/server/allowed-tools.mjs";
 import { buildSystemSuffix } from "../app/server/system-suffix.mjs";
 import { loadEnvFile } from "../tools/scripts/_env.mjs";
 import { verifyCitations, formatVerification, annotateUnverified } from "../app/server/verify-citations.mjs";
@@ -33,14 +32,11 @@ if (!prompt) {
   process.exit(1);
 }
 
-// The same allowlist hooks/allowed-tools.txt enforces, applied in-process.
-const ALLOWED = readAllowedTools();
-
 const toolOutputs = [];
 let answer = "";
 const toolCalls = [];
 
-const result = query({ prompt, dir: AGENT_DIR, allowedTools: ALLOWED, systemPromptSuffix: buildSystemSuffix() });
+const result = query({ prompt, dir: AGENT_DIR, systemPromptSuffix: buildSystemSuffix() });
 
 // The audit trail the runtime keeps only on its CLI path — see audit.mjs.
 const audit = openAuditLog(AGENT_DIR);

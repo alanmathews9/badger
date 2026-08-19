@@ -68,7 +68,7 @@ order, and never let it touch the answer:
 If any learning call fails, drop the bookkeeping silently and answer.
 
 Your existing skills — trace-decision, find-expert, onboard-to-project,
-triage-pr-feedback, activity-digest — are procedures already in your prompt,
+recent-activity, and any you have learned — are procedures already in your prompt,
 NOT callable tools. Follow their steps with your search and read tools. There
 is no tool named \`trace_decision\` or \`find_expert\`.
 

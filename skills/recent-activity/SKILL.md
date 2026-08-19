@@ -1,5 +1,5 @@
 ---
-name: activity-digest
+name: recent-activity
 description: >
   Summarise what actually happened over a period — what merged, what closed,
   what is newly open, and what moved on a project or for a person. Use for

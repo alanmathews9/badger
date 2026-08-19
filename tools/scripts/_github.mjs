@@ -2,7 +2,7 @@
 //
 // Every tool in tools/*.yaml is a thin script over this module. The agent never
 // sees Composio — it sees four tools with names we chose, which is what makes
-// hooks/allowed-tools.txt able to gate them.
+// the enable list auditable in one place.
 //
 // Read-only rests on two things here, and both must hold:
 //   1. SessionPreset.DIRECT_TOOLS — drops Composio's generic meta-tools.

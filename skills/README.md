@@ -11,8 +11,7 @@ one explicitly.
 | `trace-decision` | "What did we decide about X, and why? Is it actually settled?" |
 | `find-expert` | "Who knows about X / owns Y / should I ask?" |
 | `onboard-to-project` | "Get me up to speed on X." |
-| `triage-pr-feedback` | "What's left to do on PR #N?" |
-| `activity-digest` | "What shipped last week / what has moved on X?" |
+| `recent-activity` | "What shipped last week / what has moved on X?" |
 
 ## How these were chosen
 
@@ -26,8 +25,8 @@ named procedure.
 
 **Glean's own engineering agent library** — eight agents, of which five are
 read-only: project onboarding, resolve PR feedback, standup, launch
-documentation, self-evaluation. `onboard-to-project`, `triage-pr-feedback` and
-`activity-digest` map directly onto those.
+documentation, self-evaluation. `onboard-to-project` and
+`recent-activity` map directly onto those.
 
 Two earlier plans were retired:
 

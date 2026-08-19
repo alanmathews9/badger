@@ -26,7 +26,7 @@ cd "$ROOT"
 # memory/ is in here because the spec puts it there: the `standard` profile is
 # RULES.md, skills/, knowledge/, memory/, tools/. `memory` is also in the
 # allowlist both callers pass, so it is a live capability, not scaffolding.
-AGENT="agent.yaml SOUL.md RULES.md skills tools hooks memory"
+AGENT="agent.yaml SOUL.md RULES.md skills tools memory"
 
 fail() {
   printf '  ✗ %s\n' "$1"

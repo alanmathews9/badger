@@ -17,28 +17,16 @@ model:
     temperature: 0.1
     max_tokens: 8192
 
-# Kept in step with hooks/allowed-tools.txt, which is what actually enforces
-# this. The runtime ignores this key, but it is the first thing a reader opens.
-tools:
-  - read
-  - memory
-  - github_search
-  - github_issue
-  - github_pr
-  - github_file
-  - github_commits
-  - gmail_search
-  - gmail_thread
-  - drive_search
-  - drive_file
-  - drive_comments
-
+# No tools: block — the runtime ignores the key (it reads tools/*.yaml and
+# builtins directly), and Badger no longer restricts the agent's tool list.
+# Skills the agent has learned itself (via skill_learner) join this list in
+# their own commits.
 skills:
   - trace-decision
   - find-expert
   - onboard-to-project
-  - triage-pr-feedback
-  - activity-digest
+  - recent-activity
+  - diagnose-ticket-spike
 
 runtime:
   max_turns: 40
