@@ -31,7 +31,15 @@ import { budgetStatus, claimAskSlot, clientIp, rateLimit } from "./limits.mjs";
 import { splashPage } from "./splash.mjs";
 import { buildSystemSuffix } from "./system-suffix.mjs";
 import { buildPrompt, parseAskBody } from "./transcript.mjs";
-import { createSkill, createSkillFromFile, listSkills } from "./skills-store.mjs";
+import {
+  createSkill,
+  createSkillFromFile,
+  deleteSkill,
+  editSkill,
+  listSkills,
+  readSkill,
+  updateSkill,
+} from "./skills-store.mjs";
 import { annotateUnverified, extractCitations, mentions, verifyCitations } from "./verify-citations.mjs";
 import { attachSourceUrls } from "./source-links.mjs";
 import { parseToolResults } from "./tool-results.mjs";
@@ -83,6 +91,7 @@ const server = createServer(async (req, res) => {
     if (url.pathname === "/api/search" && req.method === "POST") return await handleSearch(req, res);
     if (url.pathname === "/api/skills" && req.method === "GET") return handleSkillsList(res);
     if (url.pathname === "/api/skills" && req.method === "POST") return await handleSkillsCreate(req, res);
+    if (url.pathname.startsWith("/api/skills/")) return await handleSkillOne(req, res, url);
     if (url.pathname === "/api/sources" && req.method === "GET") return await handleSources(req, res);
     if (url.pathname === "/api/ask" && req.method === "POST") return await handleAsk(req, res);
     if (url.pathname.startsWith("/api/chats")) return await handleChats(req, res, url);
@@ -562,6 +571,54 @@ function isCited(item, cited) {
  */
 function handleSkillsList(res) {
   return json(res, 200, { skills: listSkills(join(ROOT, "skills")) });
+}
+
+/**
+ * GET/PUT/DELETE /api/skills/:slug — the manage-skills page.
+ *
+ * The slug is never joined onto a path here; `skills-store` validates it
+ * against a kebab-case regex first and throws otherwise, so a traversal
+ * attempt fails as "not a valid skill name" rather than reaching the disk.
+ *
+ * Every write is rate-limited on the same bucket as asking, because these
+ * write real files into the agent's own repository.
+ */
+async function handleSkillOne(req, res, url) {
+  const slug = decodeURIComponent(url.pathname.slice("/api/skills/".length));
+  const dir = join(ROOT, "skills");
+  try {
+    if (req.method === "GET") return json(res, 200, readSkill(dir, slug));
+
+    const limited = rateLimit(req, "ask");
+    if (limited) return json(res, 429, { error: limited });
+
+    if (req.method === "PUT") {
+      let body;
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        return json(res, 400, { error: "body must be JSON" });
+      }
+      // Two shapes. `content` is a whole file, which is what an upload and a
+      // raw edit send. `description` + `instructions` is the pane, which shows
+      // only those two and must leave the rest of the frontmatter untouched.
+      return json(
+        res,
+        200,
+        typeof body?.content === "string"
+          ? updateSkill(dir, slug, body.content)
+          : editSkill(dir, slug, { description: body?.description, instructions: body?.instructions }),
+      );
+    }
+    if (req.method === "DELETE") return json(res, 200, deleteSkill(dir, slug));
+    return json(res, 405, { error: "method not allowed" });
+  } catch (err) {
+    // Every throw from the store is a message written for a person — an
+    // invalid slug, a missing skill, a refused delete. 404 only for the one
+    // that genuinely means "not here".
+    const missing = err.message === "no such skill";
+    return json(res, missing ? 404 : 400, { error: err.message });
+  }
 }
 
 async function handleSkillsCreate(req, res) {

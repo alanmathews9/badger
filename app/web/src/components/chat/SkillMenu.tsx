@@ -1,4 +1,4 @@
-import { FileText, Plus } from "lucide-react";
+import { FileText, Plus, SlidersHorizontal } from "lucide-react";
 import type { SkillInfo } from "@/lib/ask";
 
 /**
@@ -11,11 +11,15 @@ export function SkillMenu({
   highlight,
   onPick,
   onAdd,
+  onManage,
 }: {
   skills: SkillInfo[];
   highlight: number;
   onPick: (slug: string) => void;
   onAdd: () => void;
+  /** Open the manage page. There are two footer rows now, which is why every
+      caller's keyboard wrap-around counts `skills.length + 2`. */
+  onManage: () => void;
 }) {
   return (
     <div className="absolute bottom-full left-0 z-10 mb-2 w-72 overflow-hidden rounded-xl border border-stone-200 bg-white shadow-lg">
@@ -49,6 +53,16 @@ export function SkillMenu({
       >
         <Plus className="size-3.5" strokeWidth={2} />
         Add your own skill
+      </button>
+      <button
+        onClick={onManage}
+        className={
+          "flex w-full items-center gap-2 px-3.5 py-2.5 text-left text-[12.5px] text-stone-600 hover:bg-stone-50 " +
+          (highlight === skills.length + 1 ? "bg-stone-100" : "")
+        }
+      >
+        <SlidersHorizontal className="size-3.5" strokeWidth={2} />
+        Manage skills
       </button>
     </div>
   );

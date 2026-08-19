@@ -54,6 +54,7 @@ export function ChatScreen({
   onStop,
   onNewChat,
   onSelectChat,
+  onManageSkills,
   openSkillPane = false,
 }: {
   turns: ChatTurn[];
@@ -68,6 +69,8 @@ export function ChatScreen({
   onStop: () => void;
   onNewChat: () => void;
   onSelectChat: (id: string) => void;
+  /** Leave for the manage-skills page. */
+  onManageSkills: () => void;
   /** Arrive with the add-skill pane already open — the handover from Home's
       picker, where the pane does not exist. */
   openSkillPane?: boolean;
@@ -183,6 +186,7 @@ export function ChatScreen({
                 onSubmit={onAsk}
                 onStop={onStop}
                 onAddSkill={() => setPaneOpen(true)}
+                onManageSkills={onManageSkills}
                 onPresetUsed={() => setPending(null)}
                 onPrefillUsed={() => setPrefill(null)}
               />
@@ -238,6 +242,7 @@ export function ChatScreen({
                 onSubmit={onAsk}
                 onStop={onStop}
                 onAddSkill={() => setPaneOpen(true)}
+                onManageSkills={onManageSkills}
                 onPresetUsed={() => setPending(null)}
                 onPrefillUsed={() => setPrefill(null)}
               />

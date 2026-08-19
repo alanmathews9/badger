@@ -4,6 +4,7 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { ChatScreen } from "@/screens/ChatScreen";
 import { SearchScreen } from "@/screens/SearchScreen";
+import { SkillsScreen } from "@/screens/SkillsScreen";
 import { ToolsScreen } from "@/screens/ToolsScreen";
 import {
   fetchBudget,
@@ -366,6 +367,7 @@ export default function App() {
                 // The param is the handover; ChatScreen opens the pane and
                 // strips it, so the URL does not stay in a one-shot state.
                 onAddSkill={() => navigate("/chat?new-skill=1")}
+                onManageSkills={() => navigate("/skills")}
               />
             }
           />
@@ -377,6 +379,7 @@ export default function App() {
             path="/chat/:id"
             element={<ChatRoute turns={turns} chats={chats} loading={loadingChat} chatsLoading={chatsLoading} onOpen={openChat} onAsk={startAsk} onStop={stopAsk} />}
           />
+          <Route path="/skills" element={<SkillsScreen />} />
           <Route path="/tools" element={<ToolsScreen sources={sources} />} />
           {/* An unknown path is a typo or a stale link, not an error worth a
               page of its own. */}
@@ -400,10 +403,12 @@ function SearchRoute({
   onSearched,
   onAsk,
   onAddSkill,
+  onManageSkills,
 }: {
   onSearched: (query: string, facts: SearchFacts) => void;
   onAsk: (question: string, skill: string | null) => void;
   onAddSkill: () => void;
+  onManageSkills: () => void;
 }) {
   const [params, setParams] = useSearchParams();
   const query = params.get("q") ?? "";
@@ -461,6 +466,7 @@ function SearchRoute({
       onQueryChange={setDraft}
       onAsk={onAsk}
       onAddSkill={onAddSkill}
+      onManageSkills={onManageSkills}
       onSubmit={(raw) => {
         // Guard the argument rather than trusting callers. An event handler
         // that forwards its MouseEvent here fails silently inside React.
@@ -521,6 +527,7 @@ function ChatRoute({
       chatsLoading={chatsLoading}
       onStop={onStop}
       onAsk={onAsk}
+      onManageSkills={() => navigate("/skills")}
       onNewChat={() => navigate("/chat")}
       onSelectChat={(next) => navigate(`/chat/${next}`)}
     />

@@ -11,7 +11,15 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listSkills, createSkill, slugify } from "../app/server/skills-store.mjs";
+import {
+  listSkills,
+  createSkill,
+  deleteSkill,
+  editSkill,
+  readSkill,
+  slugify,
+  updateSkill,
+} from "../app/server/skills-store.mjs";
 
 function scratchSkillsDir() {
   const root = mkdtempSync(join(tmpdir(), "badger-skills-"));
@@ -86,7 +94,15 @@ test("createSkill validates its inputs", () => {
   const dir = scratchSkillsDir();
   assert.throws(() => createSkill(dir, { name: "!!!", description: "d", instructions: "i" }), /name/);
   assert.throws(() => createSkill(dir, { name: "ok", description: "", instructions: "i" }), /description/);
-  assert.throws(() => createSkill(dir, { name: "ok", description: "d", instructions: "" }), /instructions/);
+  // Steps are NOT required. The new-skill form asks for a name and a trigger
+  // and then opens the file for editing, so a skill legitimately exists for a
+  // moment with no body.
+  assert.doesNotThrow(() => createSkill(dir, { name: "no steps yet", description: "d" }));
+  assert.equal(
+    readSkill(dir, "no-steps-yet").content.includes("undefined"),
+    false,
+    "an absent body must not write the literal word undefined into the file",
+  );
   assert.throws(
     () => createSkill(dir, { name: "ok", description: "d", instructions: "x".repeat(20001) }),
     /too long/,
@@ -112,4 +128,76 @@ test("a block-scalar description is read, folded onto one line", () => {
   const bySlug = Object.fromEntries(listSkills(dir).map((s) => [s.slug, s]));
   assert.equal(bySlug.folded.description, "Who knows about a topic, across all three sources.");
   assert.equal(bySlug.literal.description, "Summarise what happened.");
+});
+
+// ── Reading, editing and removing ─────────────────────────────────────────
+//
+// The manage-skills page. What matters here is not that the happy path works
+// but that the two refusals hold — a slug can never escape the skills
+// directory, and the built-in four can be neither edited nor deleted — and
+// that an edit does not quietly change what a skill IS.
+
+test("a slug can never escape the skills directory", () => {
+  const dir = scratchSkillsDir();
+  for (const bad of ["../secrets", "..", "a/b", "a\\b", ".hidden", "UPPER", ""]) {
+    assert.throws(() => readSkill(dir, bad), /not a valid skill name/, `allowed: ${bad}`);
+    assert.throws(() => deleteSkill(dir, bad), /not a valid skill name/, `allowed: ${bad}`);
+  }
+});
+
+test("built-in skills can be neither edited nor deleted", () => {
+  const dir = scratchSkillsDir();
+  // No `added_via` and no `learned_from` — that is what "hand-written" means
+  // to the store, and it is recovered from the file rather than tracked apart.
+  mkdirSync(join(dir, "built-in"));
+  writeFileSync(
+    join(dir, "built-in", "SKILL.md"),
+    "---\nname: built-in\ndescription: ships with badger\n---\n\n1. do it\n",
+  );
+  assert.equal(readSkill(dir, "built-in").origin, "handwritten");
+  assert.throws(() => editSkill(dir, "built-in", { description: "x", instructions: "y" }), /cannot be edited/);
+  assert.throws(() => deleteSkill(dir, "built-in"), /cannot be deleted/);
+  assert.ok(existsSync(join(dir, "built-in", "SKILL.md")), "the file must survive both refusals");
+});
+
+test("an edit keeps the provenance that decides what a skill is", () => {
+  const dir = scratchSkillsDir();
+  createSkill(dir, { name: "mine", description: "first", instructions: "1. one" });
+  editSkill(dir, "mine", { description: "second", instructions: "1. two" });
+
+  const after = readSkill(dir, "mine");
+  assert.equal(after.description, "second");
+  assert.match(after.content, /1\. two/);
+  // The bug this test exists for: origin is read back off `added_via`, so an
+  // edit that replaced the whole file turned a custom skill into a built-in
+  // one — and built-in ones cannot be deleted. An ordinary edit became a
+  // one-way door.
+  assert.equal(after.origin, "custom", "an edit must not turn a custom skill built-in");
+  assert.doesNotThrow(() => deleteSkill(dir, "mine"));
+});
+
+test("an edit rewrites a block-scalar description instead of leaving two", () => {
+  const dir = scratchSkillsDir();
+  mkdirSync(join(dir, "folded"));
+  writeFileSync(
+    join(dir, "folded", "SKILL.md"),
+    "---\nname: folded\ndescription: >\n  first line\n  second line\nadded_via: badger-ui\nlicense: MIT\n---\n\nbody\n",
+  );
+  editSkill(dir, "folded", { description: "replaced", instructions: "new body" });
+
+  const after = readSkill(dir, "folded").content;
+  assert.match(after, /description: replaced/);
+  assert.equal(/first line/.test(after), false, "the folded block must go with the line it belonged to");
+  assert.match(after, /license: MIT/, "frontmatter the pane never shows must survive a save");
+});
+
+test("a rename is refused rather than half-applied", () => {
+  const dir = scratchSkillsDir();
+  createSkill(dir, { name: "keep me", description: "d", instructions: "i" });
+  // The runtime keys a skill by its directory, so a file whose name disagrees
+  // with its folder is a skill the picker still offers under the old name.
+  assert.throws(
+    () => updateSkill(dir, "keep-me", "---\nname: renamed\ndescription: d\n---\n\ni\n"),
+    /renaming is not supported/,
+  );
 });

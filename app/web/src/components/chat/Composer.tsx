@@ -20,6 +20,7 @@ export function Composer({
   onSubmit,
   onStop,
   onAddSkill,
+  onManageSkills,
   onPresetUsed,
   onPrefillUsed,
 }: {
@@ -33,6 +34,7 @@ export function Composer({
   /** Abort the run in flight. Only reachable while `running`. */
   onStop: () => void;
   onAddSkill: () => void;
+  onManageSkills: () => void;
   onPresetUsed: () => void;
   onPrefillUsed: () => void;
 }) {
@@ -102,10 +104,22 @@ export function Composer({
     onAddSkill();
   };
 
+  const openManage = () => {
+    setMenuOpen(false);
+    setDraft("");
+    onManageSkills();
+  };
+
   return (
     <div className="relative mx-auto max-w-[720px]">
       {menuVisible && (
-        <SkillMenu skills={pickable} highlight={hi} onPick={insertSkill} onAdd={openPane} />
+        <SkillMenu
+          skills={pickable}
+          highlight={hi}
+          onPick={insertSkill}
+          onAdd={openPane}
+          onManage={openManage}
+        />
       )}
 
       <div className="rounded-2xl border border-stone-200 shadow-sm transition-colors focus-within:border-stone-300">
@@ -120,7 +134,7 @@ export function Composer({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
-              const rows = pickable.length + 1; // + "Add your own"
+              const rows = pickable.length + 2; // + "Add your own", "Manage"
               if (menuVisible && e.key === "ArrowDown") {
                 e.preventDefault();
                 setHi((v) => (v + 1) % rows);
@@ -131,7 +145,8 @@ export function Composer({
                 e.preventDefault();
                 if (menuVisible) {
                   if (hi < pickable.length) insertSkill(pickable[hi].slug);
-                  else openPane();
+                  else if (hi === pickable.length) openPane();
+                  else openManage();
                 } else submit(draft);
               } else if (e.key === "Escape") {
                 setMenuOpen(false);

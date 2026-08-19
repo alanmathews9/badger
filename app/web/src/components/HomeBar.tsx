@@ -48,6 +48,7 @@ export function HomeBar({
   onSearch,
   onAsk,
   onAddSkill,
+  onManageSkills,
   busy,
 }: {
   value: string;
@@ -57,6 +58,8 @@ export function HomeBar({
   onAsk: (question: string, skill: string | null) => void;
   /** Author a new skill — which happens in Chat, where the pane lives. */
   onAddSkill: () => void;
+  /** Open the manage-skills page. */
+  onManageSkills: () => void;
   busy: boolean;
 }) {
   const [mode, setMode] = useState<HomeMode>("search");
@@ -77,7 +80,7 @@ export function HomeBar({
   const filter = chat ? slashFilter(value, command) : null;
   const menuVisible = chat && (menuOpen || filter != null);
   const pickable = pickableSkills(skills, filter ?? "");
-  const rows = pickable.length + 1; // + "Add your own skill"
+  const rows = pickable.length + 2; // + "Add your own skill", "Manage skills"
 
   useEffect(() => setHi(0), [filter, menuVisible]);
 
@@ -135,6 +138,11 @@ export function HomeBar({
               onChange("");
               onAddSkill();
             }}
+            onManage={() => {
+              setMenuOpen(false);
+              onChange("");
+              onManageSkills();
+            }}
           />
         )}
 
@@ -160,7 +168,8 @@ export function HomeBar({
               else {
                 setMenuOpen(false);
                 onChange("");
-                onAddSkill();
+                if (hi === pickable.length) onAddSkill();
+                else onManageSkills();
               }
             } else if (e.key === "Escape") {
               setMenuOpen(false);

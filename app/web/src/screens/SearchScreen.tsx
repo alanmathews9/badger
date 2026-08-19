@@ -13,6 +13,7 @@ export function SearchScreen({
   onSubmit,
   onAsk,
   onAddSkill,
+  onManageSkills,
   busy,
   error,
   data,
@@ -23,6 +24,7 @@ export function SearchScreen({
   /** Send the box to the agent instead of the index. Home only — see HomeBar. */
   onAsk: (question: string, skill: string | null) => void;
   onAddSkill: () => void;
+  onManageSkills: () => void;
   busy: boolean;
   error: string | null;
   data: SearchResponse | null;
@@ -93,6 +95,7 @@ export function SearchScreen({
               onSearch={onSubmit}
               onAsk={onAsk}
               onAddSkill={onAddSkill}
+              onManageSkills={onManageSkills}
               busy={busy}
             />
           </div>
