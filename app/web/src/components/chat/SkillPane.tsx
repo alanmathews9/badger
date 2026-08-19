@@ -134,6 +134,20 @@ function NewSkill({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col px-4 py-4">
+        {/* What a skill IS, first, because both routes below assume it. It sat
+            above the editor, which meant someone who arrived intending to
+            upload never read it — and the thing it explains is what makes an
+            uploaded file work or not. Three facts, in the order they appear in
+            the file. */}
+        <p className="mb-3.5 shrink-0 text-[11.5px]/[1.6] text-stone-500">
+          A skill is one markdown file Badger reads before it answers.{" "}
+          <span className="font-mono text-stone-600">name</span> becomes the slug you type after{" "}
+          <span className="font-mono text-stone-600">/</span>.{" "}
+          <span className="font-mono text-stone-600">description</span> is what it reads to decide
+          whether the skill applies, so put the trigger phrases there in quotes. Everything under
+          the frontmatter is the procedure it follows.
+        </p>
+
         {/* Upload first and large. A SKILL.md someone already has arrives
             complete, with frontmatter written for the runtime rather than
             improvised in a box, so it is the better way in when it exists.
@@ -178,17 +192,22 @@ function NewSkill({
           <span className="h-px flex-1 bg-stone-200" />
         </div>
 
-        {/* What the file is for, since a blank frontmatter block explains
-            nothing on its own. Three facts, in the order they appear in the
-            file above. */}
-        <p className="mb-2 shrink-0 text-[11.5px]/[1.6] text-stone-500">
-          A skill is one markdown file Badger reads before it answers.{" "}
-          <span className="font-mono text-stone-600">name</span> becomes the slug you type after{" "}
-          <span className="font-mono text-stone-600">/</span>.{" "}
-          <span className="font-mono text-stone-600">description</span> is what it reads to decide
-          whether the skill applies, so put the trigger phrases there in quotes. Everything under
-          the frontmatter is the procedure it follows.
-        </p>
+        {/* Downloads whatever the box currently holds, which does two jobs
+            with one control. Untouched, it is the sample SKILL.md — a starting
+            file for anyone who would rather write in their own editor. Edited,
+            it is your work in progress, so you can leave and come back through
+            the drop zone above. A separate fixed "sample" would have been a
+            second copy of the template, free to drift from the real one. */}
+        <div className="mb-2 flex shrink-0 items-center">
+          <span className="text-[11.5px] text-stone-500">Or write one here</span>
+          <button
+            onClick={() => downloadSkill(nameIn(content), content)}
+            className="ml-auto inline-flex items-center gap-1.5 text-[11.5px] text-stone-500 hover:text-stone-900"
+          >
+            <Download className="size-3.5" strokeWidth={2} />
+            Download as a file
+          </button>
+        </div>
 
         <textarea
           value={content}
@@ -381,4 +400,15 @@ function OpenSkill({
       </div>
     </div>
   );
+}
+
+/**
+ * The slug a draft is claiming, for naming a download.
+ *
+ * Read off the frontmatter rather than asked for separately: the file already
+ * says what it is called, and a second place to type the name is a second
+ * place for the two to disagree.
+ */
+function nameIn(content: string): string {
+  return content.match(/^name:\s*(.+)$/m)?.[1]?.trim().replace(/^["']|["']$/g, "") || "my-skill";
 }

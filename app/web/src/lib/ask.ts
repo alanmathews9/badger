@@ -570,5 +570,8 @@ export function downloadSkill(slug: string, content: string) {
   a.href = url;
   a.download = `${slug}.SKILL.md`;
   a.click();
-  URL.revokeObjectURL(url);
+  // Revoked on the next tick, not immediately. A blob URL torn down in the
+  // same statement as the click races whatever the browser does to start the
+  // save, and the failure mode is a download that silently produces nothing.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
