@@ -12,10 +12,16 @@
 # every entry below, so the two must be changed together.
 
 # --- builtins -------------------------------------------------------------
-# Badger reads and reports. It does not need cli, write, edit, capture_photo
-# or skill_learner, so they are absent and therefore blocked.
+# The GAP learning loop is ON: task_tracker records what a run did,
+# skill_learner turns a successful approach into a committed skill, and memory
+# holds pointers. These write to the AGENT'S OWN repo — never to a source —
+# which is the line this file actually defends: Badger may change itself; it
+# may not change your GitHub, Gmail or Drive. cli (a shell), write and edit
+# stay absent: a shell is not self-modification, it is everything.
 read
 memory
+task_tracker
+skill_learner
 
 # ===========================================================================
 # BADGER'S OWN TOOLS — declarative, tools/*.yaml

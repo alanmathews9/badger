@@ -1,18 +1,18 @@
 ---
 name: trace-decision
-description: >
-  Reconstruct what the organisation decided about something, why, who disagreed,
-  and whether it is actually settled. Use whenever a question contains "why",
-  "what did we decide", "how did we end up with", "who agreed to", "what's our
-  position on", "are we still doing" — or asks about the reasoning behind any
-  policy, price, process or technical choice. Use it proactively when the user
-  asks about a past choice even if they do not use the word decision.
+description: |
+  Reconstruct what the organisation decided about something, why, who disagreed, and whether it is actually settled. Use whenever a question contains "why", "what did we decide", "how did we end up with", "who agreed to", "what's our position on", "are we still doing" — or asks about the reasoning behind any policy, price, process or technical choice. Use it proactively when the user asks about a past choice even if they do not use the word decision.
 license: MIT
 allowed-tools: github_search github_issue github_pr github_file github_commits gmail_search gmail_thread drive_search drive_file drive_comments memory
 metadata:
   author: alan-mathews
-  version: "1.0.0"
+  version: 1.0.0
   category: retrieval
+confidence: 1
+usage_count: 1
+success_count: 1
+failure_count: 0
+negative_examples: []
 ---
 
 # Trace a decision

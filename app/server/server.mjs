@@ -218,7 +218,8 @@ async function handleSearch(req, res) {
 // The same allowlist hooks/allowed-tools.txt enforces, applied in-process.
 // Unlike the shell hook this cannot fail open: allowedTools removes everything
 // else from the model's schema, so a crashed script cannot leave a tool
-// callable. No cli, write, edit, task_tracker or skill_learner.
+// callable. No cli, write or edit; the learning tools (task_tracker,
+// skill_learner, memory) are in — they write to the agent's own repo only.
 //
 // Read from the file rather than restated, so that adding a source in one
 // place cannot leave the agent unable to reach it here.

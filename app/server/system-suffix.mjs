@@ -2,62 +2,73 @@ import { readFileSync } from "node:fs";
 
 /**
  * Text appended to the system prompt on every SDK invocation, by all three
- * callers, to countermand an instruction the runtime injects and we cannot
- * switch off.
+ * callers.
  *
  * ---------------------------------------------------------------------------
- * **What the runtime does.** `dist/loader.js:250` pushes a "Task Learning &
- * Skill Discovery" block into the system prompt of every agent it runs. It is
- * unconditional — no manifest flag, no config, no gate — and it says, in
- * capitals:
+ * **History — this suffix used to say the opposite.** `dist/loader.js:250`
+ * pushes a "Task Learning & Skill Discovery" block into every agent's system
+ * prompt, unconditionally: begin with `task_tracker`, crystallize successes
+ * with `skill_learner`. Badger's first design removed both tools via
+ * `allowedTools` and used this suffix to countermand the runtime — an agent
+ * ordered in capitals to call a tool it could not see, then told in a
+ * postscript to ignore the order. That suppressed the framework's whole
+ * learning thesis to defend a boundary it was never on the wrong side of:
+ * task_tracker and skill_learner write to the AGENT'S OWN repo, not to any
+ * source. Reversed 2026-08-19 on Alan's direction — the agent may change
+ * itself; it may never change GitHub, Gmail or Drive. The tools are back in
+ * `hooks/allowed-tools.txt` (the one list both paths read) and this suffix
+ * now steers the loop instead of denying it.
  *
- *     1. FIRST: Call `task_tracker` action "begin" with your objective
- *     IMPORTANT: Do NOT skip step 1. Even for tasks that seem simple, always
- *     check for skills first.
+ * What it still has to do, and why it exists at all:
  *
- * **Why that breaks Badger.** `task_tracker` and `skill_learner` write —
- * `task_tracker` persists `tasks.json` and `skill_learner` writes new skills
- * into `skills/` — so neither is in `hooks/allowed-tools.txt`, and the SDK's
- * `allowedTools` removes both from the model's schema entirely (NOTES.md §10b).
- * The result is an agent ordered in capitals to call a tool it cannot see.
+ * - **Keep the loop subordinate to the answer.** Flash treats the injected
+ *   block's "FIRST call task_tracker" literally enough that a tracking
+ *   failure once ended runs with "I cannot access task_tracker" instead of
+ *   an answer. The suffix makes the priority explicit: track around the
+ *   work, never instead of it.
+ * - **Stop skills being called as tools.** Measured on HEAD before this
+ *   change: asked a trace-decision-shaped question, the model calls
+ *   `trace_decision`, is told no such tool exists, and gives up — two eval
+ *   questions lost per run. Skills are prompt text, not schema entries; the
+ *   suffix says so by name.
  *
- * Gemini obeys the order, receives "Tool task_tracker not found", and treats it
- * as a blocked task rather than a missing tool. Observed on the flagship query:
- * the answer card opened with "I cannot access `task_tracker`", narrated a
- * search plan it never carried out, and reported no citations — while the
- * retrieval pass beside it had already returned the right issue first.
- *
- * **Why a prompt fix here rather than a tool fix.** The house rule is to encode
- * a guardrail in data rather than prose, and it does not apply: there is no tool
- * to fix. The defect is a system-prompt instruction, so the only lever that
- * reaches it is another system-prompt instruction. `options.systemPromptSuffix`
- * is appended after everything else (`dist/sdk.js:122`), which is what makes
- * this work — it is the last thing the model reads.
- *
- * Allowing the tools instead was considered and rejected: it would trade a
- * cosmetic defect for a real write capability, which is the one thing Badger
- * promises it does not have.
- *
- * `RULES.md` carries the same instruction. That is deliberate belt and braces —
- * RULES.md covers the CLI path, which does not go through the SDK and so never
- * sees this suffix.
+ * `options.systemPromptSuffix` is appended after everything else
+ * (`dist/sdk.js:122`), which is what makes this work — it is the last thing
+ * the model reads. RULES.md carries the same instructions for the CLI path,
+ * which never sees this suffix.
  * ---------------------------------------------------------------------------
  */
-export const SYSTEM_SUFFIX = `# Your actual tool list — this section overrides every instruction above
+export const SYSTEM_SUFFIX = `# How to run the learning loop above — this section overrides on conflict
 
-The "Task Learning & Skill Discovery" section above is injected into every agent
-this runtime starts. It does not describe you, and following it will waste the
-user's question.
+The Task Learning & Skill Discovery section above is real: \`task_tracker\`,
+\`skill_learner\` and \`memory\` are in your tool list, and they write only to
+your own repository — never to GitHub, Gmail or Drive. Run it in this exact
+order, and never let it touch the answer:
 
-- \`task_tracker\` and \`skill_learner\` are **not available to you**. They are
-  absent from your tool list and calling either one fails.
-- Ignore steps 1 to 4 of that section entirely. There is no "begin" step.
-- Never tell the user that a tool is unavailable or that you cannot access
-  something. They cannot install it, it is not their problem, and it is not an
-  answer to their question.
+1. \`task_tracker\` action "begin", once. Then immediately start searching.
+2. Search and read until you can answer. This is the work. Memory is a map,
+   not a source — it tells you where answers turned out to live, and you must
+   still retrieve the material with your search tools in this run before
+   citing it.
+3. When the answer is ready, call \`task_tracker\` action "end" with the
+   outcome.
+4. \`skill_learner\` only after "end", and only when the approach would repeat
+   for other questions of the same shape. Routine searches are not skills;
+   when unsure, skip it.
+5. Write the answer. Output from \`task_tracker\` or \`skill_learner\` must
+   never appear in the answer text — the user never sees the loop, only the
+   answer and its sources.
 
-Your skills are already loaded above; there is nothing to discover. Answer the
-question by searching your sources, starting with your first tool call.`;
+If any learning call fails, drop the bookkeeping silently and answer.
+
+Your existing skills — trace-decision, find-expert, onboard-to-project,
+triage-pr-feedback, activity-digest — are procedures already in your prompt,
+NOT callable tools. Follow their steps with your search and read tools. There
+is no tool named \`trace_decision\` or \`find_expert\`.
+
+Never tell the user that a tool is unavailable or that you cannot access
+something. It is not their problem and it is not an answer. Answer the
+question by searching your sources.`;
 
 
 /**
