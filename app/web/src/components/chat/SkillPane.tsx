@@ -178,11 +178,13 @@ function NewSkill({
  * not the reader's; a save merges the description and the steps back into the
  * file server-side, so everything hidden here survives untouched.
  *
- * **The built-in four are read-only**, and that is what keeps editing simple
- * rather than being a restriction for its own sake. They carry counters the
- * agent's own learning loop maintains, and a hand edit to those has no good
- * meaning. Download is the escape hatch: take a copy, change it, upload it
- * under your own name.
+ * **Every skill is editable and removable, including the built-in four.** They
+ * were briefly protected on the grounds of being part of the repository, which
+ * they are — and the repository is git, so the protection guarded something
+ * `git checkout` already recovers. What it cost was a special category that
+ * produced two bugs in a day, both of the form "this file has no provenance
+ * marker, therefore it is sacred". The "Built in" tag stays as information;
+ * the confirm below is the guard.
  */
 function OpenSkill({
   slug,
@@ -222,7 +224,7 @@ function OpenSkill({
     load();
   }, [load]);
 
-  const editable = skill != null && skill.origin !== "handwritten";
+  const loaded = skill != null;
   const dirty =
     parts != null && (description !== parts.description || instructions !== parts.instructions);
 
@@ -280,18 +282,16 @@ function OpenSkill({
                 <Download className="size-3.5" strokeWidth={2} />
                 Download SKILL.md
               </button>
-              {editable && (
-                <button
-                  onClick={() => {
-                    setConfirming(true);
-                    setMenuOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-[12.5px] text-red-700 hover:bg-red-50"
-                >
-                  <Trash2 className="size-3.5" strokeWidth={2} />
-                  Delete skill
-                </button>
-              )}
+              <button
+                onClick={() => {
+                  setConfirming(true);
+                  setMenuOpen(false);
+                }}
+                className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-[12.5px] text-red-700 hover:bg-red-50"
+              >
+                <Trash2 className="size-3.5" strokeWidth={2} />
+                Delete skill
+              </button>
             </div>
           )}
           <button
@@ -318,7 +318,7 @@ function OpenSkill({
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                disabled={!editable}
+
                 rows={3}
                 className={field + " resize-y"}
               />
@@ -329,7 +329,7 @@ function OpenSkill({
               <textarea
                 value={instructions}
                 onChange={(e) => setInstructions(e.target.value)}
-                disabled={!editable}
+
                 placeholder="1. …"
                 rows={16}
                 className={field + " resize-y font-mono text-[12px]/[1.6]"}
@@ -357,7 +357,7 @@ function OpenSkill({
           opened below the fold and behind this bar — a destructive action you
           had to go looking for. The footer is where the actions already are
           and it cannot be scrolled away from. */}
-      {editable && (
+      {loaded && (
         <div className="shrink-0 border-t border-stone-100 px-4 py-3">
           {confirming ? (
             <div>

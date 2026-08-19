@@ -1,4 +1,4 @@
-import { MessagesSquare, Search, Wrench } from "lucide-react";
+import { MessagesSquare, Search, Sparkles, Wrench } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { BRAND_LOGOS } from "./BrandLogos";
 import {
@@ -103,6 +103,20 @@ export function AppSidebar({
                   <NavLink to="/chat">
                     <MessagesSquare />
                     <span>Chat</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              <SidebarMenuItem>
+                {/* Skills is a destination rather than a row buried in the
+                    composer's slash menu, which was its only way in. It is the
+                    framework's thesis made clickable — the agent's procedures
+                    are files you can open and read — and someone who never
+                    opens a slash menu would never have found it. */}
+                <SidebarMenuButton asChild isActive={pathname.startsWith("/skills")} tooltip="Skills">
+                  <NavLink to="/skills">
+                    <Sparkles />
+                    <span>Skills</span>
                   </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>

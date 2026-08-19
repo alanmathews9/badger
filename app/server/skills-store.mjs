@@ -236,9 +236,6 @@ export function readSkill(skillsDir, slug) {
 export function updateSkill(skillsDir, slug, content) {
   const dir = skillDir(skillsDir, slug);
   if (!existsSync(join(dir, "SKILL.md"))) throw new Error("no such skill");
-  const listed = listSkills(skillsDir).find((sk) => sk.slug === slug);
-  if (listed?.origin === "handwritten") throw new Error("built-in skills cannot be edited");
-
   const text = String(content ?? "");
   if (!text.trim()) throw new Error("a skill cannot be empty");
   if (text.length > 50000) throw new Error("too long (50k chars max)");
@@ -343,17 +340,15 @@ function replaceField(frontmatter, key, value) {
 /**
  * Remove a skill.
  *
- * The four hand-written ones are refused. They are part of the repository —
- * the submission's own argument about what an agent's procedures look like —
- * and a delete button on them is one misclick from a hole in the deliverable.
- * Learned and UI-added skills are removable, because pruning what the agent
- * taught itself is already a routine part of running this thing by hand.
+ * Any skill, including the ones that ship with Badger. They are files in a git
+ * repository, so a delete is recoverable by the same means as every other
+ * change to this repo, and refusing one was policy dressed as safety. The
+ * confirm in the pane is the real guard: it names what is going.
  */
 export function deleteSkill(skillsDir, slug) {
   const dir = skillDir(skillsDir, slug);
   const listed = listSkills(skillsDir).find((s) => s.slug === slug);
   if (!listed) throw new Error("no such skill");
-  if (listed.origin === "handwritten") throw new Error("built-in skills cannot be deleted");
   rmSync(dir, { recursive: true, force: true });
   return { slug };
 }

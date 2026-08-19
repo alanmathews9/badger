@@ -146,7 +146,7 @@ test("a slug can never escape the skills directory", () => {
   }
 });
 
-test("built-in skills can be neither edited nor deleted", () => {
+test("a built-in skill is reported as one, and is still editable and removable", () => {
   const dir = scratchSkillsDir();
   // No `added_via` and no `learned_from` — that is what "hand-written" means
   // to the store, and it is recovered from the file rather than tracked apart.
@@ -155,10 +155,15 @@ test("built-in skills can be neither edited nor deleted", () => {
     join(dir, "built-in", "SKILL.md"),
     "---\nname: built-in\ndescription: ships with badger\n---\n\n1. do it\n",
   );
+  // The origin is still reported — the UI tags it — but it grants no
+  // protection. Refusing edits and deletes on the shipped four was policy
+  // dressed as safety: they are files in a git repository, so `git checkout`
+  // already recovers one. The special category cost two bugs in a day, both
+  // of the form "no provenance marker, therefore sacred".
   assert.equal(readSkill(dir, "built-in").origin, "handwritten");
-  assert.throws(() => editSkill(dir, "built-in", { description: "x", instructions: "y" }), /cannot be edited/);
-  assert.throws(() => deleteSkill(dir, "built-in"), /cannot be deleted/);
-  assert.ok(existsSync(join(dir, "built-in", "SKILL.md")), "the file must survive both refusals");
+  assert.doesNotThrow(() => editSkill(dir, "built-in", { description: "x", instructions: "y" }));
+  assert.doesNotThrow(() => deleteSkill(dir, "built-in"));
+  assert.equal(existsSync(join(dir, "built-in")), false);
 });
 
 test("an edit keeps the provenance that decides what a skill is", () => {
