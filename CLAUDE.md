@@ -737,19 +737,22 @@ not a server — so splitting buys no isolation and costs version pinning.
 - **Five tools** in `tools/*.yaml` — `github_search`, `github_issue`, `github_pr`,
   `github_file`, `github_commits`. Thin scripts over a Composio session
   (`tools/scripts/`). The agent never sees Composio.
-- **Five skills** in `skills/` — `trace-decision`, `find-expert`,
-  `onboard-to-project`, `triage-pr-feedback`, `activity-digest`. Named for the
-  user's task, per `RESEARCH-GAP-IDIOM.md`. See `skills/README.md` for why these
-  five and not others.
+- **Skills** in `skills/` — `trace-decision`, `find-expert`,
+  `onboard-to-project`, `recent-activity`, plus whatever the agent has learned
+  itself. Named for the user's task, per `RESEARCH-GAP-IDIOM.md`. `agent.yaml`
+  deliberately does NOT list them: that key is a filter and would hide learned
+  and user-added skills. See `skills/README.md`.
 - **Citation verification** — `app/server/verify-citations.mjs`, used by both
   `scripts/badger-sdk.mjs` and the server.
   Anything cited must appear in a tool result; failures are marked
   `[UNVERIFIED]` inline. Exits non-zero, so it can gate a demo.
 - **Read-only, four layers** — Composio `DIRECT_TOOLS` preset (no generic
   executor), Composio per-tool enable list (8 of GitHub's 823 actions), the
-  scripts can only call those 8, and `hooks/allow-read-only.sh` gates by exact
-  name. The SDK path adds `allowedTools`, which removes tools from the model's
-  schema entirely and cannot fail open. `npm run composio:status` prints which
+  scripts can only call those 8, and `hooks/allow-tools.sh` gates by exact
+  name. (**Superseded 2026-08-19**: `allowedTools` was removed from every SDK
+  caller and the allowlist now permits the full runtime surface including the
+  learning tools — see START HERE. The source-side layers here are untouched
+  and remain the real boundary.) `npm run composio:status` prints which
   tools the agent can reach and which are diagnostic-only, and shouts if the
   enable list is not holding.
 
