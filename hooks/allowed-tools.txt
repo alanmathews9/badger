@@ -1,0 +1,31 @@
+# Every tool Badger may call — one name per line, anything else is blocked.
+#
+# An allowlist rather than a blocklist because it fails closed: a write tool
+# nobody thought to name can never slip through. Adding a capability means
+# adding its name here, deliberately.
+
+# The runtime's own tools, all of them — the agent runs as gitagent intends,
+# including the learning loop (task_tracker, skill_learner, memory).
+cli
+read
+write
+edit
+memory
+task_tracker
+skill_learner
+
+# GitHub — read-only scripts under tools/
+github_search
+github_issue
+github_pr
+github_file
+github_commits
+
+# Gmail — read-only
+gmail_search
+gmail_thread
+
+# Google Drive — read-only
+drive_search
+drive_file
+drive_comments
