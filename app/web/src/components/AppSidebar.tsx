@@ -108,20 +108,6 @@ export function AppSidebar({
               </SidebarMenuItem>
 
               <SidebarMenuItem>
-                {/* Skills is a destination rather than a row buried in the
-                    composer's slash menu, which was its only way in. It is the
-                    framework's thesis made clickable — the agent's procedures
-                    are files you can open and read — and someone who never
-                    opens a slash menu would never have found it. */}
-                <SidebarMenuButton asChild isActive={pathname.startsWith("/skills")} tooltip="Skills">
-                  <NavLink to="/skills">
-                    <Sparkles />
-                    <span>Skills</span>
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-
-              <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={pathname.startsWith("/tools")} tooltip="Tools">
                   <NavLink to="/tools">
                     <Wrench />
@@ -156,6 +142,23 @@ export function AppSidebar({
                         );
                       })}
                     </span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              <SidebarMenuItem>
+                {/* Skills is a destination rather than a row buried in the
+                    composer's slash menu, which was its only way in. It is the
+                    framework's thesis made clickable — the agent's procedures
+                    are files you can open and read — and someone who never
+                    opens a slash menu would never have found it.
+
+                    Last, after Tools, and the order is the reading order: what
+                    Badger can reach, then what it knows how to do with it. */}
+                <SidebarMenuButton asChild isActive={pathname.startsWith("/skills")} tooltip="Skills">
+                  <NavLink to="/skills">
+                    <Sparkles />
+                    <span>Skills</span>
                   </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>
