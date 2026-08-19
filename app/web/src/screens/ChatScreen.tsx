@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, ChevronRight, ExternalLink, Loader2, Plus, Sparkles, Upload, X } from "lucide-react";
+import { ArrowUp, ChevronRight, ExternalLink, FileText, Loader2, Plus, Upload, X } from "lucide-react";
 import { Markdown, type Citation } from "@/components/Markdown";
 import { BRAND_LOGOS } from "@/components/BrandLogos";
 import type { SourceId } from "@/lib/api";
@@ -504,10 +504,10 @@ function SkillMenu({
           onClick={() => onPick(s.slug)}
           className="flex w-full items-start gap-2.5 px-3.5 py-2 text-left hover:bg-stone-50"
         >
-          <Sparkles className="mt-0.5 size-3.5 shrink-0 text-stone-400" strokeWidth={1.9} />
+          <FileText className="mt-0.5 size-3.5 shrink-0 text-stone-400" strokeWidth={1.9} />
           <span className="min-w-0">
             <span className="block font-mono text-[12.5px] font-medium text-stone-900">
-              /{s.slug}
+              {s.slug}
             </span>
             {s.description && (
               <span className="block truncate text-[11.5px] text-stone-500">{s.description}</span>
