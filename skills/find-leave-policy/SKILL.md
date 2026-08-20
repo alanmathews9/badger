@@ -4,8 +4,8 @@ description: Find the leave policy, especially when there are conflicting docume
 learned_from: task:d252b719-b272-4761-aabd-30311a6b7792
 learned_at: '2026-08-20T14:42:39.286Z'
 confidence: 1
-usage_count: 0
-success_count: 0
+usage_count: 1
+success_count: 1
 failure_count: 0
 negative_examples: []
 ---
