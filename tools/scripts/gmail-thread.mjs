@@ -6,10 +6,33 @@
 // answer — what Halden were told and what Arkind concluded are four messages
 // apart in the same thread.
 import { exec, run, clip, contextFrom } from "./_google.mjs";
+import { indexDocs, indexServes } from "./_index-tool.mjs";
 
 run(async (args) => {
   const { thread_id, full } = args;
   if (!thread_id) return "ERROR: `thread_id` is required. Get one from gmail_search.";
+
+  // Index first. The crawl stores one document per MESSAGE with its thread id
+  // in meta, so a thread is those messages in date order — the same text the
+  // live call returns, assembled locally.
+  if (indexServes({ user: args._badger_user })) {
+    const hit = indexDocs((d) => d.source === "gmail" && d.meta?.threadId === String(thread_id));
+    if (hit) {
+      const msgs = [...hit.rows].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      return (
+        hit.note +
+        `thread ${thread_id} — ${msgs.length} message(s)\n` +
+        `subject: ${msgs[0].title}\n\n` +
+        msgs
+          .map(
+            (m, i) =>
+              `[${i + 1}] ${m.meta?.sender ?? m.author} — ${m.date}\n` +
+              `subject: ${m.title}\n${clip(m.body ?? "", 2500)}`,
+          )
+          .join("\n\n")
+      );
+    }
+  }
 
   const { userId } = contextFrom(args);
   const data = await exec(

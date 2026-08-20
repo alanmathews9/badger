@@ -6,6 +6,7 @@
 // So files are reached by known path, never by searching their contents. Listing
 // a directory is how you discover the path.
 import { exec, run, clip, contextFrom } from "./_github.mjs";
+import { indexDocs, indexServes } from "./_index-tool.mjs";
 
 run(async (args) => {
   const { path, ref } = args;
@@ -13,6 +14,37 @@ run(async (args) => {
   const { userId, owner: OWNER, repo: REPO } = contextFrom(args);
 
   if (path == null) return "ERROR: `path` is required. Use \"\" for the repository root.";
+
+  // Index first, for both shapes this tool has: one file, and a directory
+  // listing. The crawl indexes every repository file with its path in
+  // meta.path, so a listing is a prefix match over those paths rather than a
+  // second API call. Measured in production: three github_file calls in one
+  // answer, thirteen seconds between them, for content already on disk.
+  if (indexServes({ user: args._badger_user, repo: args._badger_repo })) {
+    const want = String(path).replace(/^\/+|\/+$/g, "");
+    const exact = indexDocs((d) => d.source === "github" && d.type === "file" && d.meta?.path === want);
+    if (exact) {
+      const d = exact.rows[0];
+      return exact.note + `${d.meta.path} in ${OWNER}/${REPO}\n${d.url}\n\n` + clip(d.body ?? "", 8000);
+    }
+    const prefix = want ? `${want}/` : "";
+    const under = indexDocs(
+      (d) =>
+        d.source === "github" &&
+        d.type === "file" &&
+        typeof d.meta?.path === "string" &&
+        d.meta.path.startsWith(prefix) &&
+        d.meta.path !== want,
+    );
+    if (under) {
+      const names = [...new Set(under.rows.map((d) => d.meta.path.slice(prefix.length).split("/")[0]))].sort();
+      return (
+        under.note +
+        `directory ${want || "/"} in ${OWNER}/${REPO} — ${names.length} entries\n\n` +
+        names.join("\n")
+      );
+    }
+  }
 
   const params = { owner: OWNER, repo: REPO, path: String(path) };
   if (ref) params.ref = String(ref);

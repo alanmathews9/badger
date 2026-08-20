@@ -596,14 +596,29 @@ re-measurement at the end of it, which is not what the week has left. With the
 index serving searches in ~200ms, the cost of the extra calls is now small
 enough that the remaining objection is aesthetic rather than practical.
 
-**Reads stay live, and that one is a real disagreement.** Onyx indexes chunks
-including comments; Badger's index holds document bodies but not issue comments
-or Drive margin comments. Since this corpus is built so that the tidy document
-is the *least* true version and the objection lives in the margin, serving a
-read from the index would serve the sanitised half. `github_issue`,
-`gmail_thread`, `drive_file` and `drive_comments` therefore always go to the
-source. That is where the seconds in an answer now go, and it is the right
-place to spend them.
+**Reads are index-first too — and the reason they were not is worth keeping.**
+This section previously claimed that Badger's index held document bodies but
+not issue comments or Drive margin comments, and that reads therefore had to go
+live or they would serve the sanitised half. **That was false**, and it sat here
+for a day. `scripts/index-build.mjs` folds an issue's comments into its body and
+a document's margins into its body, with a comment saying exactly why: *"the
+tidy document and the argument about it must be one searchable text."* A read
+was going to the network for content already on disk.
+
+What live reads actually bought was freshness — an index read can be up to 24
+hours stale — and that is a smaller thing than the reason given for it. So
+reads now check the index first and fall through to live on a miss, exactly as
+searches do. Measured per call: **~200ms against 3–5 seconds**. On the run that
+exposed it, seven reads accounted for 29 of 38 seconds.
+
+`drive_comments` is the one exception and stays live, because the fold that
+makes the index good for searching is lossy for this one purpose: document text
+and margin text become a single string with no boundary, so the comments cannot
+be handed back on their own. `drive_file` returns them anyway, folded in, which
+is more than the live call gives.
+
+The claim that was wrong here is the point, not a footnote. A stale sentence in
+a README is how a system ends up defending behaviour nobody chose.
 
 ---
 

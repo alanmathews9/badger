@@ -22,12 +22,17 @@ run(async (args) => {
   // contract. Filtered calls (kind, date window) and non-demo contexts go
   // straight to the live path: the index speaks neither qualifier, and it
   // only ever describes the demo corpus.
-  if (
-    !kind &&
-    since_days == null &&
-    indexServes({ user: args._badger_user, repo: args._badger_repo })
-  ) {
-    const viaIndex = indexAnswer("github", query, { limit, types: ["issue", "pr"] });
+  // Index first, including when a kind was asked for. `kind` was in this
+  // condition as `!kind`, so github_search(kind:"issue") went live — measured
+  // in production, five seconds for a search the index answers in one. The
+  // index has taken a `types` list since it was written and this call was
+  // already passing ["issue","pr"]; narrowing it to one of them is the same
+  // mechanism, not a new one. An unrecognised kind falls through to both,
+  // which is what omitting it does.
+  const KIND_TYPES = { issue: ["issue"], issues: ["issue"], pr: ["pr"], prs: ["pr"], "pull request": ["pr"], "pull requests": ["pr"] };
+  const wantTypes = KIND_TYPES[String(kind ?? "").trim().toLowerCase()] ?? ["issue", "pr"];
+  if (since_days == null && indexServes({ user: args._badger_user, repo: args._badger_repo })) {
+    const viaIndex = indexAnswer("github", query, { limit, types: wantTypes });
     if (viaIndex) return viaIndex;
   }
 

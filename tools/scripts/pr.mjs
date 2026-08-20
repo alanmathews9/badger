@@ -8,6 +8,7 @@
 // feedback lives ("this needs the null case"). github_issue only sees the
 // first stream, so triage needs this tool.
 import { exec, run, clip, asList, contextFrom } from "./_github.mjs";
+import { indexDocs, indexServes } from "./_index-tool.mjs";
 
 run(async (args) => {
   const { number, max_comments } = args;
@@ -16,6 +17,30 @@ run(async (args) => {
 
   const n = Number(number);
   if (!Number.isInteger(n) || n < 1) return "ERROR: `number` must be a pull request number.";
+
+  // Index first — the indexed body carries the PR description with its
+  // conversation and review comments folded in. What it does NOT carry is the
+  // changed-file list, so a question about the diff still needs the live call;
+  // that is what the note below tells the model.
+  if (indexServes({ user: args._badger_user, repo: args._badger_repo })) {
+    const hit = indexDocs((d) => d.source === "github" && d.type === "pr" && d.meta?.number === n);
+    if (hit) {
+      const d = hit.rows[0];
+      return (
+        hit.note +
+        `#${d.meta.number} [PR, ${d.meta.state}] ${d.title}\n` +
+        `by @${d.author} on ${d.date}\n${d.url}\n` +
+        (d.meta.state === "open"
+          ? `\n!! This PR is OPEN and unmerged. Nothing in it has shipped.\n`
+          : d.meta.state === "closed"
+            ? `\n!! This PR is CLOSED WITHOUT MERGING. The work in it was abandoned;\n!! do not describe it as something that happened.\n`
+            : `\n(This PR was MERGED.)\n`) +
+        `\n--- description and comments (${d.meta.comments ?? 0} comments, folded in) ---\n` +
+        clip(d.body ?? "(empty)", 6000) +
+        `\n\nThe list of changed files is not in the index. If the diff matters, this is the one\nreason to ask for it live.`
+      );
+    }
+  }
 
   const cap = Math.min(Math.max(Number(max_comments) || 30, 1), 60);
   const base = { owner: OWNER, repo: REPO, pull_number: n };

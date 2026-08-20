@@ -60,6 +60,62 @@ export function indexServes({ user, repo } = {}) {
   return true;
 }
 
+/** How old the index is, in the words the tool output uses. */
+function ageLabel(ageMs) {
+  const minutes = Math.max(1, Math.round(ageMs / 60_000));
+  return minutes < 90 ? `${minutes}m` : `${(minutes / 60).toFixed(1)}h`;
+}
+
+/**
+ * Look up whole documents in the index, for the READ tools.
+ *
+ * Reads used to be live, always, and the reason written down for it was wrong:
+ * "the index holds document bodies but not comments". It holds both.
+ * `scripts/index-build.mjs` folds an issue's comments into its body and a
+ * Drive document's margins into its body, with a comment saying exactly why —
+ * "the tidy document and the argument about it must be one searchable text".
+ * So a read was going to the network for content the index already had.
+ *
+ * What it was actually buying is freshness, and that is worth naming rather
+ * than assuming: an index read can be up to 24 hours stale. It is served first
+ * anyway, because this is what the products this is modelled on do. Onyx serves
+ * everything the LLM sees from its index and has no live read at all; Glean
+ * crawls into storage and answers from it. Neither has a fallback, because
+ * neither goes live. Badger keeps the live second look, so it is strictly more
+ * current than either — and on a 190-document corpus a read now costs
+ * milliseconds instead of five seconds.
+ *
+ * Returns null for "go live", on exactly the same conditions the search path
+ * uses: no index, stale index, no match.
+ *
+ * @param {(doc: object) => boolean} match
+ * @returns {{ rows: object[], age: string, note: string } | null}
+ */
+export function indexDocs(match) {
+  const index = loadIndex();
+  if (!index) return null;
+
+  const freshAt = index.refreshedAt ?? index.builtAt;
+  const ageMs = Date.now() - Date.parse(freshAt);
+  if (ageMs > MAX_AGE_MS) return null;
+
+  const rows = index.docs.filter(match);
+  if (!rows.length) return null;
+
+  const age = ageLabel(ageMs);
+  return {
+    rows,
+    age,
+    // Said on every read, for the same reason the search path says it: the
+    // model has to be able to tell the reader how current this is rather than
+    // asserting a freshness it does not have.
+    note:
+      `read from the LOCAL INDEX (refreshed ${age} ago) — anything changed since then is not shown; ` +
+      `a lookup that finds nothing here re-runs live automatically\n` +
+      `today: ${new Date().toISOString().slice(0, 10)} — use this date, do not recall one\n\n`,
+  };
+}
+
 /**
  * Answer one source's search from the index, or return null for "go live".
  * Tools are one-shot subprocesses, so there is nothing to cache — building
@@ -83,8 +139,7 @@ export function indexAnswer(source, query, { limit = 10, types = null } = {}) {
   if (!rows.length) return null;
 
   const shown = rows.slice(0, Math.min(Math.max(Number(limit) || 10, 1), 25));
-  const minutes = Math.max(1, Math.round(ageMs / 60_000));
-  const age = minutes < 90 ? `${minutes}m` : `${(minutes / 60).toFixed(1)}h`;
+  const age = ageLabel(ageMs);
 
   const correctionNote = found.corrections.length
     ? found.corrections

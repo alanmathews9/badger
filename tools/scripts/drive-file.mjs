@@ -5,10 +5,29 @@
 // short-lived signed URL to object storage rather than the document itself.
 // That is handled in _google.mjs and is invisible here.
 import { exec, run, clip, contextFrom, kindOf, isWorkspaceFile, exportText } from "./_google.mjs";
+import { indexDocs, indexServes } from "./_index-tool.mjs";
 
 run(async (args) => {
   const { file_id, max_chars } = args;
   if (!file_id) return "ERROR: `file_id` is required. Get one from drive_search.";
+
+  // Index first. The indexed body is the exported text WITH the document's
+  // margin comments folded in, so this returns more than the live call does,
+  // not less — and it is the margins that decide contested questions.
+  if (indexServes({ user: args._badger_user })) {
+    const hit = indexDocs((d) => d.source === "drive" && d.meta?.fileId === String(file_id));
+    if (hit) {
+      const d = hit.rows[0];
+      return (
+        hit.note +
+        `${d.title}  [${d.type}]\nid: ${d.meta.fileId}\n` +
+        (d.meta.folder ? `folder: ${d.meta.folder}\n` : "") +
+        `modified: ${d.date}\n${d.url}\n\n` +
+        clip(d.body ?? "", Math.min(Math.max(Number(max_chars) || 8000, 500), 20000)) +
+        `\n\nAny margin comments on this document are included above.`
+      );
+    }
+  }
 
   const { userId } = contextFrom(args);
   // `fields` is required in practice. Drive's default projection is id, name
