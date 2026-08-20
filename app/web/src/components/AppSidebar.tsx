@@ -107,10 +107,10 @@ export function AppSidebar({
 
               <SidebarMenuItem>
                 {/* /chat and /chat/<id> are the same destination. */}
-                <SidebarMenuButton asChild isActive={pathname.startsWith("/chat")} tooltip="Chat">
+                <SidebarMenuButton asChild isActive={pathname.startsWith("/chat")} tooltip="Ask">
                   <NavLink to="/chat">
                     <MessagesSquare />
-                    <span>Chat</span>
+                    <span>Ask</span>
                   </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -181,7 +181,7 @@ export function AppSidebar({
 
         {searches.length > 0 && (
           <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-            <SidebarGroupLabel>Recent digs</SidebarGroupLabel>
+            <SidebarGroupLabel>Recent searches</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {searches.slice(0, 6).map((entry) => (
