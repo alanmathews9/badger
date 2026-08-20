@@ -1,13 +1,12 @@
 // Shared plumbing for Badger's GitHub tools.
 //
 // Every tool in tools/*.yaml is a thin script over this module. The agent never
-// sees Composio — it sees four tools with names we chose, which is what makes
-// the enable list auditable in one place.
+// sees Composio, which is what makes the enable list auditable in one place.
 //
-// Read-only rests on two things here, and both must hold:
+// Read-only rests on two things, and both must hold:
 //   1. SessionPreset.DIRECT_TOOLS — drops Composio's generic meta-tools.
 //      Without it a session registers COMPOSIO_MULTI_EXECUTE_TOOL, one name
-//      that can invoke anything, which defeats name-based gating entirely.
+//      that can invoke anything.
 //   2. ALLOW — an explicit per-tool enable list. Allow-by-name, never
 //      deny-by-verb: GITHUB_LIST_REPOSITORY_SECRETS is a "read" tool that
 //      reads credentials.
@@ -30,15 +29,10 @@ export const REPO_SLUG = process.env.BADGER_GITHUB_REPO ?? null;
 /**
  * Per-request context.
  *
- * The user id and repository used to be module constants read from the
- * environment. That is wrong the moment two people use the server at once:
- * declarative tools are spawned as subprocesses with a snapshot of
- * process.env (dist/tool-loader.js), so a request mutating it would leak into
- * whichever tool call happened to spawn next.
- *
- * They now arrive as arguments instead. The server injects them into every
- * tool call through a preToolUse closure, so they travel on stdin with the
- * rest of the args and nothing is shared between requests.
+ * The user id and repository arrive as ARGUMENTS, never from the environment:
+ * declarative tools are spawned with a snapshot of process.env
+ * (dist/tool-loader.js), so a request mutating it leaks into whichever tool
+ * call spawns next. The server injects them through a preToolUse closure.
  */
 export function contextFrom(args = {}) {
   const userId = args._badger_user || USER_ID;
@@ -113,10 +107,8 @@ export async function exec(slug, args, userId = USER_ID) {
 
 /**
  * Composio wraps each GitHub payload under a key named after the resource —
- * `content` for repository contents, `commits` for commits, `items` for search,
- * `details` for comments. Rather than hard-code every name, take the first
- * array-valued property. Falls back to the object itself if it is already an
- * array, and returns [] when there is nothing list-shaped.
+ * `content`, `commits`, `items`, `details`. Rather than hard-code every name,
+ * take the first array-valued property; [] when nothing is list-shaped.
  */
 export function asList(data) {
   if (Array.isArray(data)) return data;

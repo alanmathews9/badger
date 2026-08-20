@@ -13,12 +13,9 @@ export type ChatTurn = { question: string; answer: AnswerState };
 /**
  * One question and everything its run produced, in conversation order.
  *
- * The question is a **bubble on the right**, not a heading. It used to be an
- * `<h1>` above a horizontal rule, which made the thing the reader already
- * knows — their own question — the largest element on the page, and the
- * answer the smallest. Every chat product puts the human's turn in a small
- * tinted block for the same reason: it is a marker in the conversation, not a
- * title for the document.
+ * The question is a bubble on the right, not a heading: it is a marker in the
+ * conversation, not a title for the document, and as an `<h1>` it made the
+ * thing the reader already knows the largest element on the page.
  */
 export function TurnBlock({ turn }: { turn: ChatTurn }) {
   const { answer } = turn;
@@ -47,18 +44,11 @@ export function TurnBlock({ turn }: { turn: ChatTurn }) {
             the last row of the trail, so they keep the badger and the chain.
             See `StepTrail`. */}
         {answer.stopped || answer.error ? null : (
-          // NOTHING is rendered here while the run is live.
-          //
-          // Streaming text straight into the answer area was the bug: the
-          // model interleaves narration with tool calls, and a tool call
-          // clears the buffer, so the reader watched prose appear, vanish,
-          // appear again and vanish again before the real answer landed.
-          // Moving the cleared text into the trail was not enough — the
-          // vanishing was the complaint, and it kept happening.
-          //
-          // So the answer slot only ever holds a finished answer. In-flight
-          // text is shown by StepTrail as what it actually is: work in
-          // progress, in the place where work is reported.
+          // NOTHING is rendered here while the run is live. The model
+          // interleaves narration with tool calls and a tool call clears the
+          // buffer, so streaming into this slot makes prose appear and vanish
+          // repeatedly. In-flight text belongs to StepTrail, where work is
+          // reported; this slot only ever holds a finished answer.
           !answer.running && (
             <article className="text-[15px]/[1.8] text-stone-800">
               <Markdown text={body} />
@@ -75,14 +65,11 @@ export function TurnBlock({ turn }: { turn: ChatTurn }) {
 /**
  * Everything the answer cites, three at a time.
  *
- * An answer that draws on seven issues listed seven links, wrapped to four
- * rows, and pushed the composer down — the sources took more vertical space
- * than the answer. Three is enough to see what kind of thing this rests on;
- * the rest are one click away and stay one click away, because collapsing
- * again matters as much as expanding.
+ * Seven links wrap to four rows and take more vertical space than the answer.
+ * Three is enough to see what this rests on; the rest are one click away.
  *
- * This is now the ONLY place a citation appears. Inline markers were tried
- * twice and removed — see `Markdown` for what went wrong with each.
+ * The ONLY place a citation appears — inline markers were tried twice and
+ * removed, see `Markdown`.
  */
 function Sources({ cited }: { cited: OpenedItem[] }) {
   const [all, setAll] = useState(false);
@@ -112,10 +99,9 @@ function Sources({ cited }: { cited: OpenedItem[] }) {
 /**
  * One cited source, as a small link rather than a card.
  *
- * The link opens the real item — the issue on GitHub, the document on Drive,
- * the thread in Gmail — in a new tab, for whoever has access to the account
+ * Opens the real item in a new tab, for whoever has access to the account
  * behind it. A citation the server could not build an address for renders as
- * plain text; a dead link would be worse.
+ * plain text: a dead link would be worse.
  */
 function SourceLink({ item }: { item: OpenedItem }) {
   const Logo = BRAND_LOGOS[SOURCE_OF[item.kind]];
@@ -126,13 +112,10 @@ function SourceLink({ item }: { item: OpenedItem }) {
     </>
   );
 
-  // Every source link resolves only for someone holding the account behind it
-  // — the repository is private, the Drive and the mailbox are one demo
-  // account. That is inherent to citing federated sources, not a bug, but a
-  // reader who clicks and gets Google's account chooser deserves to know why
-  // rather than concluding the citation was invented. Mail is the case that
-  // needs saying out loud, because Gmail answers with a chooser rather than a
-  // recognisable "you do not have access" page.
+  // Links resolve only for someone holding the account behind them: the repo
+  // is private and Drive and the mailbox are one demo account. Mail needs
+  // saying out loud, because Gmail answers with an account chooser rather than
+  // a recognisable "you do not have access" page.
   const mailbox = mailboxOf(item.url);
   const title = mailbox ? `Opens in ${mailbox} — the mailbox Badger indexed` : undefined;
 

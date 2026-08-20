@@ -1,18 +1,12 @@
 // The index path for /api/search — and the fallback rule that keeps it honest.
 //
-// When `.gitagent/index/` holds a fresh index, a search is answered from it:
-// BM25 with real IDF, typo correction against the corpus vocabulary, zero API
-// calls, single-digit milliseconds. When the index is missing or stale, the
-// caller (search.mjs) falls back to today's live federated search, and this
-// module quietly starts one background build so the next search can do
-// better — that is the lazy build the plan specifies for Cloud Run's
-// ephemeral disk, and it is the ONLY implicit rebuild: a fresh-enough index
-// is never rebuilt behind the user's back.
+// A fresh index answers in single-digit milliseconds with zero API calls. When
+// it is missing or stale, search.mjs falls back to live and this module starts
+// ONE background build — the only implicit rebuild; a fresh index is never
+// rebuilt behind the user's back.
 //
-// Two sources of truth will disagree between refreshes, so every response
-// says which path answered and how old the copy is. A status display that
-// has never been seen wrong is the failure this project keeps finding;
-// the age figure is real and the path label is load-bearing.
+// Two sources of truth disagree between refreshes, so every response says
+// which path answered and how old the copy is. Both are load-bearing.
 import { statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -48,21 +42,16 @@ function current() {
 /**
  * Rebuild the on-disk index from Postgres, before the server takes traffic.
  *
- * This is the whole point of the database. Cloud Run's filesystem dies with
- * the container, so before this existed every cold start meant the next
- * visitor waited 5.4s for a live federated search while a 40-second, 173-call
- * crawl ran behind them. Now it costs one query.
+ * This is the point of the database: Cloud Run's filesystem dies with the
+ * container, so a cold start otherwise costs the next visitor 5.4s of live
+ * search while a 40-second, 173-call crawl runs behind them.
  *
- * It writes the FILE rather than only filling memory, deliberately: the
- * agent's tools are one-shot subprocesses that read the file, so hydrating
- * memory alone would leave the agent crawling live while the web UI was fast.
+ * Writes the FILE, not just memory: the agent's tools are one-shot
+ * subprocesses that read the file, so hydrating memory alone leaves the agent
+ * crawling live while the web UI is fast.
  *
- * Skipped when the disk already holds something fresher — a restart inside the
- * refresh window has nothing to gain, and re-reading is not free.
- *
- * Every failure path is a no-op with a log line. Neither an absent database
- * nor an unreachable one is an error: the existing fallback chain (disk, then
- * live) is what runs, exactly as it did before.
+ * Skipped when the disk holds something fresher. Every failure path is a no-op
+ * with a log line — the disk-then-live fallback chain is what runs.
  */
 export async function hydrateFromDb() {
   if (!dbConfigured()) {

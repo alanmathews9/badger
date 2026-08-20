@@ -1,22 +1,13 @@
-// The local search index: store, status, and (as of step 2) search.
+// The local search index: store, status and search.
 //
-// This is the reversal the README's retrieval section predicted. Federation
-// holds no text, and every retrieval technique worth having — typo tolerance,
-// IDF, sub-second answers — needs the text. So Badger now keeps a small local
-// copy of what the connected sources hold, built on demand by
-// `npm run index`, stored as one JSON file under `.gitagent/index/`.
+// Typo tolerance, IDF and sub-second answers all need the text, which
+// federation does not hold. So Badger keeps a local copy of what the connected
+// sources hold, built by `npm run index` into one JSON file under
+// `.gitagent/index/`.
 //
-// Why here and not under app/: both the agent's tools and the web search must
-// be able to reach it, and the agent may not import from app/ — the boundary
-// `npm run check:agent` enforces. Same placement logic as _rank.mjs, and
-// app/server re-exports in the one direction the boundary allows.
-//
-// The store is deliberately a file, not a database. Onyx indexes into
-// OpenSearch because it serves organisations; this corpus is ~170 documents,
-// and a JSON file a few hundred KB long is searched in milliseconds by the
-// code in this module. Delete `.gitagent/index/` and the copy is gone — that
-// directory is already gitignored runtime state, and nothing else references
-// it.
+// Here rather than under app/ because both the agent's tools and the web
+// search must reach it, and the agent may not import from app/. A file rather
+// than a database because the corpus is ~190 documents.
 import { readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 
 export const INDEX_DIR = new URL("../../.gitagent/index/", import.meta.url);
@@ -51,9 +42,7 @@ export function loadIndex() {
   }
 }
 
-/** Write the index atomically enough for one local process: temp then rename
- *  is overkill for a single-writer file, but a partial write must never parse,
- *  so the JSON is serialised first and written in one call. */
+/** Serialised first and written in one call, so a partial write never parses. */
 export function saveIndex(index) {
   mkdirSync(INDEX_DIR, { recursive: true });
   const payload = JSON.stringify(index);
@@ -66,11 +55,9 @@ export function clearIndex() {
 }
 
 /**
- * What state is the index in? Used by the builder's `status` subcommand and by
- * the search path's fallback rule — the output must always say which path
- * answered and how old the copy is, because index and live will disagree
- * between refreshes and a status display that cannot be seen wrong is the
- * exact failure this project keeps finding.
+ * What state is the index in? Feeds the builder's `status` subcommand and the
+ * search path's fallback rule. Callers must always report which path answered
+ * and how old the copy is: index and live disagree between refreshes.
  */
 export function indexStatus() {
   const idx = loadIndex();
@@ -91,17 +78,13 @@ export function indexStatus() {
 
 // ── Search over the index ─────────────────────────────────────────────────
 //
-// BM25 with real IDF — the thing _rank.mjs plainly states it cannot be while
-// we hold no text. Terms are matched with the same suffix tolerance as
-// _rank.termPattern, so "weeks" finds "week" and "app" still refuses to match
-// "Apple"; the two paths must not disagree about what a match is.
+// BM25 with real IDF. Terms use the same suffix tolerance as
+// _rank.termPattern, so the two paths agree on what a match is.
 //
-// The typo layer is vocabulary lookup, not query-engine fuzziness — Onyx
-// measured fuzziness AUTO making recall worse and rejected it, and this design
-// follows the measurement. A query term absent from the corpus vocabulary is
-// replaced by the nearest vocabulary term by trigram similarity (pg_trgm-style
-// padded trigrams), and the replacement is REPORTED in the result, never
-// silent. A term nothing clears the threshold for is reported unmatched.
+// The typo layer is vocabulary lookup, not query-engine fuzziness (Onyx
+// measured fuzziness AUTO making recall worse). A query term absent from the
+// vocabulary is replaced by the nearest term by trigram similarity, and the
+// replacement is always REPORTED, never silent.
 
 import { planQuery } from "./_search-query.mjs";
 import { termPattern } from "./_rank.mjs";
@@ -145,19 +128,10 @@ const MIN_CORRECTABLE = 4;
 const BM25_K1 = 1.2;
 
 // BM25F, not plain BM25: title and body are scored as SEPARATE fields, each
-// normalised by its own length, then combined.
-//
-// Pooling them was a real defect, found by hand on "refund policy": the Drive
-// document actually titled "Refund Policy" — every query term, and nothing but
-// the query terms — came FOURTH, behind three documents that merely mention
-// the words. Two things did it. The 3x title weight was applied as a term
-// FREQUENCY multiplier inside one pooled field, so a long body could out-count
-// it; and the length penalty used title+body together, so the longest document
-// of the five was penalised for its body on a hit that was in its title.
-//
-// Per-field normalisation fixes both at once. A two-word title is short
-// against the average title, so a hit in it is strong; the body's length is
-// no longer able to dilute it.
+// normalised by its own length, then combined. Pooling them let a long body
+// out-count a title hit and penalised a document's title match for its body
+// length — the document titled "Refund Policy" ranked fourth for "refund
+// policy".
 const W_TITLE = 3;
 const W_BODY = 1;
 
@@ -168,9 +142,7 @@ const W_BODY = 1;
 const W_PHRASE_TITLE = 6;
 const W_PHRASE_BODY = 3;
 // Titles are nearly uniform in length, so normalising them hard punishes
-// detail for no reason — a document called "Refund Policy for Deposits" is not
-// less about refunds than one called "Refund Policy". Bodies vary by orders of
-// magnitude and get the standard 0.75.
+// detail for no reason. Bodies vary by orders of magnitude: standard 0.75.
 const B_TITLE = 0.5;
 const B_BODY = 0.75;
 
@@ -196,9 +168,9 @@ export function createSearcher(index) {
   const avgTitle = fields.reduce((a, f) => a + f.lenTitle, 0) / N || 1;
   const avgBody = fields.reduce((a, f) => a + f.lenBody, 0) / N || 1;
 
-  // The corpus vocabulary: token -> document frequency. This is both BM25's
-  // IDF input and the typo layer's dictionary — the whole reason typo
-  // tolerance needs an index is that this map cannot exist federated.
+  // token -> document frequency: BM25's IDF input and the typo dictionary.
+  // This map cannot exist federated, which is why typo tolerance needs an
+  // index.
   const vocab = new Map();
   const vocabGrams = new Map();
   for (const f of fields) {
@@ -238,22 +210,15 @@ export function createSearcher(index) {
   function search(query, { limit = 20 } = {}) {
     let plan = planQuery(query, { max: 10 });
 
-    // A quoted query used to mean "the index cannot help".
+    // Quoted phrases are pulled out and matched directly; whatever sits
+    // outside the quotes is planned and scored normally.
     //
-    // planQuery returns passthrough with ZERO terms the moment it sees a
-    // double quote, because on the live engines a quoted phrase must be handed
-    // over untouched rather than split and OR'd. The index searcher inherited
-    // that and produced no terms, therefore no rows, therefore
-    // `indexAnswer` returned null and every quoted query went live. And the
-    // model quotes constantly, because our own tool description tells it to:
-    // "A \"quoted phrase\" is searched exactly as written instead of being
-    // reduced." Measured on a live run: three searches, every one carrying
-    // quoted phrases, all three live, none touching the index.
-    //
-    // But holding the text is exactly what makes an exact phrase CHEAP —
-    // it is a substring test over 190 documents. So the phrases are pulled
-    // out and matched directly, and whatever sits outside the quotes is
-    // planned and scored normally.
+    // planQuery returns passthrough with ZERO terms as soon as it sees a
+    // double quote, because the live engines need the phrase untouched. The
+    // index searcher inherited that, so every quoted query produced no rows
+    // and fell through to live — and the model quotes constantly, because the
+    // tool description tells it to. Holding the text makes an exact phrase a
+    // substring test, which is cheap.
     const phrases = plan.passthrough
       ? [...String(query ?? "").matchAll(/"([^"]+)"/g)]
           .map((m) => m[1].trim().toLowerCase())
@@ -266,9 +231,8 @@ export function createSearcher(index) {
     const corrections = [];
     const unmatched = [];
 
-    // The typo pass runs BEFORE scoring: a term the vocabulary knows is used
-    // as typed; one it does not know is corrected visibly or declared
-    // unmatched visibly. There is no silent third path.
+    // Before scoring: a known term is used as typed, an unknown one is either
+    // corrected visibly or declared unmatched. No silent third path.
     const terms = [];
     for (const term of plan.terms) {
       if (expansions(term).length) {
@@ -312,10 +276,9 @@ export function createSearcher(index) {
           if (!tfTitle && !tfBody) continue;
           matchedTerms.push(term);
           if (tfTitle) matchedInTitle.push(term);
-          // Each field's term frequency is normalised by ITS OWN length before
-          // the weights combine them; saturation then applies once to the sum.
-          // This is Robertson's BM25F, and the ordering it produces is the
-          // whole reason the fields are kept apart.
+          // Robertson's BM25F: each field's term frequency is normalised by
+          // ITS OWN length before the weights combine them, then saturation
+          // applies once to the sum.
           const tf =
             W_TITLE * (tfTitle / (1 - B_TITLE + (B_TITLE * f.lenTitle) / avgTitle)) +
             W_BODY * (tfBody / (1 - B_BODY + (B_BODY * f.lenBody) / avgBody));
@@ -329,12 +292,8 @@ export function createSearcher(index) {
       rows.sort((a, b) => b.score - a.score || String(b.date).localeCompare(String(a.date)));
     }
 
-    // Exact phrases, scored on top of whatever the loose terms found. A phrase
-    // is a much stronger signal than a word, so it outweighs one: a document
-    // containing "Clearview Dental" verbatim beats one that merely mentions
-    // both words apart. Flat weights rather than BM25 — a phrase either occurs
-    // or it does not, and there is no document frequency worth estimating over
-    // 190 documents.
+    // Exact phrases on top of what the loose terms found, outweighing a single
+    // word. Flat weights, not BM25: a phrase either occurs or it does not.
     if (phrases.length) {
       const byId = new Map(rows.map((r) => [r.id, r]));
       for (const doc of docs) {

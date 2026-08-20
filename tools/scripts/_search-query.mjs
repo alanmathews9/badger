@@ -1,24 +1,15 @@
 // How a question becomes a GitHub search query.
 //
-// Shared by the agent's github_search tool and the web UI's search pass,
-// because they had drifted and the drift was a bug: the UI stripped a question
-// down to keywords and OR'd them, while the agent handed GitHub the whole
-// phrase. GitHub ANDs every word, so the agent's searches quietly failed on
-// exactly the questions users ask.
+// Shared by the agent's github_search tool and the web UI's search pass, so
+// the two cannot drift. GitHub ANDs every word, so a whole question finds
+// nothing:
 //
 //   "Halden engagement slip"                          -> 0 hits
 //   "Halden engagement slip in:title,body,comments"   -> 0 hits
 //   "halden OR engagement OR slip"                    -> 20 hits
 //
-// The middle line matters: the tool used to advise adding `in:` when a search
-// came back empty, and that advice cannot work. The failure is AND semantics,
-// not search mode.
-//
-// Onyx does not have this problem because it never searches GitHub. Its
-// connector enumerates a repository with get_issues/get_pulls and indexes the
-// lot into Vespa, which scores partial matches. Until Badger has an index of
-// its own, OR-ing the terms is the closest honest approximation: it turns a
-// filter into something that at least ranks.
+// The middle line matters: adding `in:` cannot help, because the failure is
+// AND semantics rather than search mode.
 
 /**
  * GitHub rejects a query with more than five logical operators, so six OR'd
@@ -28,10 +19,8 @@
 export const MAX_TERMS = 6;
 
 /**
- * Enough of English to strip the scaffolding out of a spoken question without
- * taking a dependency. Deliberately short: a stopword list that eats real
- * query terms is worse than no list at all, so this covers function words
- * only. Onyx does the same thing at the top of its search_pipeline.
+ * Function words only. A stopword list that eats real query terms is worse
+ * than no list at all.
  */
 const STOPWORDS = new Set(
   ("a about all am an and any are as at be been being but by can did do does doing done for from" +
@@ -49,9 +38,8 @@ const QUALIFIER_TOKEN = /^-?[A-Za-z_][A-Za-z_-]*:\S*$/;
  * Split a query into GitHub qualifiers and searchable keywords.
  *
  * Qualifiers are preserved untouched and keep their AND behaviour; the free
- * text is stripped of stopwords and OR'd. Verified against the API: in
- * `halden OR engagement OR slip is:issue`, the qualifier still filters —
- * 20 hits become 16 issues, and `is:pr` returns the other 4.
+ * text is stripped of stopwords and OR'd. The qualifier still filters:
+ * `halden OR engagement OR slip is:issue` narrows 20 hits to 16.
  *
  * @param {string} raw
  * @returns {{terms: string[], droppedTerms: string[], qualifiers: string[], passthrough: boolean}}
@@ -59,8 +47,7 @@ const QUALIFIER_TOKEN = /^-?[A-Za-z_][A-Za-z_-]*:\S*$/;
 export function planQuery(raw, { max = MAX_TERMS } = {}) {
   const text = String(raw ?? "").trim();
 
-  // A quoted phrase means the user wants those words in that order. Rewriting
-  // it would be rude, and OR-ing it would be wrong.
+  // A quoted phrase wants those words in that order; OR-ing it is wrong.
   if (text.includes('"')) {
     return { terms: [], droppedTerms: [], qualifiers: [], passthrough: true };
   }
@@ -82,8 +69,7 @@ export function planQuery(raw, { max = MAX_TERMS } = {}) {
     candidates.push(term);
   }
 
-  // Everything was a stopword or a qualifier ("how do we do it?"). Searching
-  // for nothing finds nothing, so fall back to the query as typed.
+  // All stopwords or qualifiers: fall back to the query as typed.
   if (!candidates.length) {
     return { terms: [], droppedTerms: [], qualifiers: [], passthrough: true };
   }
@@ -97,23 +83,19 @@ export function planQuery(raw, { max = MAX_TERMS } = {}) {
 }
 
 /**
- * Gmail's ceiling is far higher than GitHub's five-operator limit, and Drive
- * has none at all. Both still want a bound, because every extra OR'd term
- * widens the result set without adding precision.
+ * Gmail's ceiling is far higher than GitHub's and Drive has none, but every
+ * extra OR'd term widens the result set without adding precision.
  */
 export const MAX_TERMS_GOOGLE = 10;
 
 /**
  * Assemble a Gmail query.
  *
- * Gmail ANDs bare words exactly as GitHub does, so the same plan applies: OR
- * the keywords, keep the qualifiers as written. Gmail's own qualifiers
- * (`from:`, `subject:`, `after:`, `label:`) survive planQuery untouched because
- * they match QUALIFIER_TOKEN.
+ * Gmail ANDs bare words as GitHub does, so the same plan applies. Gmail's own
+ * qualifiers survive planQuery because they match QUALIFIER_TOKEN.
  *
- * The parenthesis matters. `a OR b from:x` binds as `a OR (b from:x)` in
- * Gmail, which quietly turns a filter into an alternative — the qualifier stops
- * applying to half the query.
+ * The parenthesis matters: `a OR b from:x` binds as `a OR (b from:x)`, so the
+ * qualifier stops applying to half the query.
  */
 export function buildGmailQuery(raw, plan, { extra = [] } = {}) {
   const parts = plan.passthrough
@@ -127,13 +109,11 @@ export function buildGmailQuery(raw, plan, { extra = [] } = {}) {
 /**
  * Assemble a Google Drive query.
  *
- * Drive's syntax is nothing like the other two: no bare keywords at all, only
- * `fullText contains 'term'` clauses joined with `and`/`or`. `fullText` covers
- * the file name, the description and the content — including the cells of a
- * Sheet, which is what lets spreadsheets take part in ordinary search.
+ * No bare keywords: only `fullText contains 'term'` clauses joined with
+ * `and`/`or`. `fullText` covers name, description and content, including Sheet
+ * cells.
  *
- * `trashed = false` is always appended. Without it Drive happily returns
- * deleted files, and a corpus that has been re-seeded has plenty.
+ * `trashed = false` is always appended, or Drive returns deleted files.
  */
 export function buildDriveQuery(raw, plan, { extra = [] } = {}) {
   const terms = plan.passthrough
@@ -154,11 +134,9 @@ const driveEscape = (s) => String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'")
 /**
  * Assemble the query GitHub actually receives.
  *
- * `repo:` is always present, and not only for scoping: a bare
- * natural-language query puts GitHub into semantic mode, and semantic mode
- * cannot see issue comments — which is where this corpus keeps its real
- * answers. Any qualifier switches GitHub to classic keyword search, which does
- * reach comment text. See docs/NOTES.md §4f.
+ * `repo:` is always present, and not only for scoping: a bare natural-language
+ * query puts GitHub into semantic mode, which cannot see issue comments. Any
+ * qualifier switches it to classic keyword search. See docs/NOTES.md §4f.
  *
  * @param {string} raw            the query as written
  * @param {ReturnType<planQuery>} plan
@@ -178,15 +156,10 @@ export function buildQuery(raw, plan, { repoSlug, extra = [] }) {
 /**
  * The footer every search tool appends, naming the sources this one is not.
  *
- * This is prompt guidance delivered as data, which is the house fix on this
- * project: three separate behaviours that prose in RULES.md failed to produce
- * were obtained by encoding them in tool output instead. The observed failure
- * here is specific — asked whether a client had been told something, Badger
- * searched mail, found a good answer, and stopped, never checking the kickoff
- * notes in the repository that the mail itself referred to.
+ * Prompt guidance delivered as data, which works where prose in RULES.md did
+ * not: without it Badger searches one source, finds a good answer and stops.
  *
- * Kept to two lines. It is appended to every search result, so its cost is
- * paid on every call.
+ * Two lines, because it is appended to every search result.
  */
 export const CROSS_SOURCE =
   "\nSources hold different registers of the same events — Drive the written-down and " +

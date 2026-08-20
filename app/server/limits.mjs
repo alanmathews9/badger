@@ -1,22 +1,18 @@
 // Rate limits and spend caps.
 //
-// The gate stops drive-by traffic. This stops the person who is already
-// through it — a stuck loop, an enthusiastic evaluator, a shared passphrase —
-// from draining the demo for everyone who comes after.
+// The gate stops drive-by traffic; this stops whoever is already through it
+// from draining the demo for everyone after.
 //
-// Three separate things are scarce, and they fail differently:
+// Three scarce things, failing differently:
 //
-//   Vertex credits     real money, and silent. Capped by run count per day.
+//   Vertex credits     real money, and silent. Capped by runs per day.
 //   Composio quota     100k tool calls/month, hard-capped.
-//   GitHub search      30 requests/minute, and it returns 403 rather than an
-//                      empty list, which is why a search burst is worse than
-//                      it looks.
+//   GitHub search      30 requests/minute, returning 403 rather than an empty
+//                      list, so a burst is worse than it looks.
 //
-// In-memory on purpose, and correct only because the service runs with
-// --max-instances 1: these counters are per process, so a second instance
-// would silently double every limit. A restart resets them,
-// which is the right failure direction for a demo — it re-opens rather than
-// locking everyone out.
+// In-memory, and correct ONLY because the service runs --max-instances 1:
+// these counters are per process, so a second instance doubles every limit.
+// A restart resets them, which re-opens rather than locking everyone out.
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -44,22 +40,15 @@ function today() {
  * The client's address. On Cloud Run the socket address is always the front
  * end, so `x-forwarded-for` is the only real signal.
  *
- * Two things this used to get wrong, both of which handed an attacker the
- * login limiter and with it the passphrase.
+ * Take the LAST element of `x-forwarded-for`, never the first: Cloud Run
+ * appends the real client to whatever the client sent, so the first hop is
+ * attacker-chosen and a fresh one per request defeats every per-IP bucket,
+ * including the login limiter that protects the passphrase.
  *
- * It read `cf-connecting-ip` first. Nothing in this deployment sets that
- * header — there is no Cloudflare in front of Cloud Run — so it was a raw
- * client value taken in preference to everything else, and a fresh one per
- * request defeated every per-IP bucket including the 10-per-15-minutes on
- * login. The header is gone rather than reordered: a header no proxy here
- * sets has no honest reading.
+ * `cf-connecting-ip` and friends are deliberately not read: no proxy here sets
+ * them, so they are raw client values with no honest reading.
  *
- * And it took the FIRST element of `x-forwarded-for`. Cloud Run appends the
- * real client to whatever the client sent, so the trustworthy value is the
- * LAST one; the first is whatever the caller chose to prepend.
- *
- * If this server were ever put behind a different proxy, or exposed
- * directly, this function is the one place that has to change.
+ * Behind a different proxy, this function is the one place that changes.
  */
 export function clientIp(req) {
   const forwarded = req.headers["x-forwarded-for"];

@@ -1,23 +1,15 @@
 // Chat and search history, behind one interface.
 //
-// Two things used to keep history and neither knew about the other:
-// `chats.ts` wrote `badger.chats.v1` and `recentDigs.ts` wrote
-// `badger.recentDigs`, with different shapes, different caps and different
-// failure behaviour. Both were read straight out of components, so moving the
-// data anywhere meant editing every caller.
+// One interface for both, so moving the data is a swap of one module rather
+// than an edit to every caller.
 //
-// This is that one interface. It is **async on purpose while the only
-// implementation is synchronous**: localStorage needs no await, but Postgres
-// will, and an interface that returns values today and promises tomorrow is a
-// rewrite of every call site rather than a swap of one module. The cost of
-// being early is a handful of `await`s; the cost of being late is the change
-// we are deliberately avoiding.
+// ASYNC ON PURPOSE even where the implementation is synchronous: an interface
+// that returns values today and promises tomorrow is a rewrite of every call
+// site. The cost of being early is a handful of `await`s.
 //
-// The store is per browser and says so. The session cookie's `uid` is a random
-// per-browser string with no account behind it (`auth.mjs`), so even once this
-// is server-backed, "your history" means "this browser's history". Anything
-// that implied otherwise would be the confidently-wrong indicator this project
-// keeps finding.
+// The store is per browser. The session cookie's `uid` is random with no
+// account behind it (`auth.mjs`), so "your history" means "this browser's
+// history" and the UI must not imply otherwise.
 import type { ChatTurn } from "@/screens/ChatScreen";
 
 /** Enough to list a conversation without loading its turns. */

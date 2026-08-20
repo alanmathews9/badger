@@ -1,26 +1,20 @@
 // The index-first path for the agent's three search tools.
 //
-// The decision this implements (settled with Alan
-// 2026-08-19): chat retrieves from the local index — the Onyx/Glean shape,
-// retrieval from the copy with the LLM on top — and falls back to the live
-// tools when the index misses, which is deliberately MORE than either of
-// them does: for connected sources both are index-only, and a document not
-// yet indexed is simply not found. Badger keeps the live path as the
-// second look.
+// Retrieval from the local index with the live tools as a second look. Onyx
+// and Glean are index-only for connected sources, so a document not yet
+// indexed is simply not found; keeping the live path makes Badger strictly
+// more current than either.
 //
-// The contract with the caller (search.mjs, gmail-search.mjs,
-// drive-search.mjs): return a complete tool-output string when the index
-// can answer, and null in every other case — missing index, stale index,
-// zero hits, filtered or quoted query, non-demo context. Null means "run
-// your live path unchanged"; the tool decides nothing else, and the model
-// is never asked to choose a path.
+// Contract with the caller (search.mjs, gmail-search.mjs, drive-search.mjs):
+// return a complete tool-output string when the index can answer, null in
+// every other case — missing or stale index, zero hits, filtered or quoted
+// query, non-demo context. Null means "run your live path unchanged". The
+// model is never asked to choose a path.
 //
-// Output mirrors each tool's live format — same ids in the same places —
-// so the agent's next move (github_issue #8, gmail_thread <id>, drive_file
-// <id>) works identically whichever path answered. Where they answer from
-// is stated as data at the top, the house pattern, because an index answer
-// is at most REFRESH-window stale and the model must be able to say so
-// rather than assert freshness it does not have.
+// Output mirrors each tool's live format, same ids in the same places, so the
+// agent's next move works identically whichever path answered. Which path
+// answered is stated as data at the top, because an index answer is up to
+// REFRESH stale and the model must be able to say so.
 import { loadIndex, createSearcher } from "./_index.mjs";
 import { clip } from "./_github.mjs";
 import { CROSS_SOURCE } from "./_search-query.mjs";
@@ -37,22 +31,11 @@ const INDEXED_REPO = process.env.BADGER_GITHUB_REPO ?? null;
 /**
  * Is the local index a valid answer for THIS caller?
  *
- * This replaces a guard that read `!args._badger_user` — "no user named, so
- * this must be the demo". The intent was right (a visitor searching their own
- * connected account must not be served a copy of somebody else's corpus) and
- * the test was wrong, because the server names a user on every single call:
- * `preToolUse` attaches `_badger_user` unconditionally. So the condition was
- * false for every request the product ever made, and the index — 190
- * documents, ~3ms, the entire point of the indexing arc — has never once
- * answered a question asked through the web UI. Only the CLI, which passes no
- * user, was getting it.
- *
- * Measured on a live run before the fix: eight tool calls, every one of them
- * carrying the Composio SDK's banner in its output, six seconds apart, 56
- * seconds end to end.
- *
- * The right question is not "did somebody name a user" but "is the named user
- * the one this index was crawled from".
+ * A visitor searching their own connected account must not be served a copy
+ * of somebody else's corpus. The question is not "did somebody name a user"
+ * but "is the named user the one this index was crawled from" — testing for
+ * the absence of a user fails, because `preToolUse` attaches `_badger_user`
+ * on every call.
  */
 export function indexServes({ user, repo } = {}) {
   if (user && user !== INDEXED_USER) return false;
@@ -69,24 +52,15 @@ function ageLabel(ageMs) {
 /**
  * Look up whole documents in the index, for the READ tools.
  *
- * Reads used to be live, always, and the reason written down for it was wrong:
- * "the index holds document bodies but not comments". It holds both.
- * `scripts/index-build.mjs` folds an issue's comments into its body and a
- * Drive document's margins into its body, with a comment saying exactly why —
- * "the tidy document and the argument about it must be one searchable text".
- * So a read was going to the network for content the index already had.
+ * The index holds comments too — `scripts/index-build.mjs` folds an issue's
+ * comments and a Drive document's margins into its body — so a read finds the
+ * same content the live call would, in milliseconds rather than five seconds.
  *
- * What it was actually buying is freshness, and that is worth naming rather
- * than assuming: an index read can be up to 24 hours stale. It is served first
- * anyway, because this is what the products this is modelled on do. Onyx serves
- * everything the LLM sees from its index and has no live read at all; Glean
- * crawls into storage and answers from it. Neither has a fallback, because
- * neither goes live. Badger keeps the live second look, so it is strictly more
- * current than either — and on a 190-document corpus a read now costs
- * milliseconds instead of five seconds.
+ * What live buys is freshness: an index read can be up to 24 hours stale. It
+ * is served first anyway, with live as the second look.
  *
- * Returns null for "go live", on exactly the same conditions the search path
- * uses: no index, stale index, no match.
+ * Returns null for "go live" on the same conditions the search path uses: no
+ * index, stale index, no match.
  *
  * @param {(doc: object) => boolean} match
  * @returns {{ rows: object[], age: string, note: string } | null}
@@ -106,9 +80,7 @@ export function indexDocs(match) {
   return {
     rows,
     age,
-    // Said on every read, for the same reason the search path says it: the
-    // model has to be able to tell the reader how current this is rather than
-    // asserting a freshness it does not have.
+    // On every read: the model must be able to say how current this is.
     note:
       `read from the LOCAL INDEX (refreshed ${age} ago) — anything changed since then is not shown; ` +
       `a lookup that finds nothing here re-runs live automatically\n` +
@@ -133,9 +105,8 @@ export function indexAnswer(source, query, { limit = 10, types = null } = {}) {
   const rows = found.rows.filter(
     (r) => r.source === source && (!types || types.includes(r.type)),
   );
-  // Zero hits → the live second look, always. "Not in the index" and "does
-  // not exist" are different facts, and the live path is how we tell them
-  // apart.
+  // Zero hits → live, always. "Not in the index" and "does not exist" are
+  // different facts.
   if (!rows.length) return null;
 
   const shown = rows.slice(0, Math.min(Math.max(Number(limit) || 10, 1), 25));
@@ -158,10 +129,9 @@ export function indexAnswer(source, query, { limit = 10, types = null } = {}) {
     `today: ${new Date().toISOString().slice(0, 10)} — use this date, do not recall one\n` +
     `${shown.length} shown of ${rows.length} match(es), most relevant first\n\n`;
 
-  // Same note the live github_search carries, for the same measured reason:
-  // when one account authored every row it is the uploading account, and an
-  // expertise question answered from this column is answered wrongly. The
-  // note is what routes the agent to commit authors instead.
+  // Same note the live github_search carries: when one account authored every
+  // row it is the uploading account, so an expertise question answered from
+  // this column is answered wrongly. The note routes to commit authors.
   let authorNote = "";
   if (source === "github" && shown.length > 1) {
     const authors = new Set(shown.map((r) => r.author));

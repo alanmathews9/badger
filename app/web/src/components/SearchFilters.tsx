@@ -12,10 +12,8 @@ import { cn } from "@/lib/utils";
 /**
  * What a row is, in the words a person would use.
  *
- * One entry per thing a reader would actually look for, which is why files and
- * commits are separate rather than one "Code": they answer different questions
- * — what does this file say, versus what changed and when — and the index
- * carries both kinds distinctly.
+ * Files and commits are separate rather than one "Code": they answer different
+ * questions, and the index carries both kinds distinctly.
  */
 export const KINDS: { id: SearchRow["kind"][]; label: string }[] = [
   { id: ["issue"], label: "Issues" },
@@ -32,9 +30,8 @@ export const KINDS: { id: SearchRow["kind"][]; label: string }[] = [
 /**
  * Which type group a row belongs to, in the same words the dropdown uses.
  *
- * Exported because the source rail nests Drive by type and has to agree with
- * the dropdown exactly — two controls offering "Documents" and "Docs" for the
- * same set would read as two different filters.
+ * Exported because the source rail nests Drive by type and must agree with the
+ * dropdown exactly: "Documents" and "Docs" would read as two filters.
  */
 export function kindGroupOf(row: SearchRow): string | null {
   return KINDS.find((k) => k.id.includes(row.kind))?.label ?? null;
@@ -68,17 +65,10 @@ export function passes(row: SearchRow, filters: Filters): boolean {
 /**
  * Time, type and author, as three dropdowns under the search box.
  *
- * **These filter the results already on screen, not the corpus.** Glean's
- * equivalents re-query; ours narrow the twenty rows the search returned, and
- * the menus only offer values those rows actually contain — a "Past week" that
- * nothing matches is not offered, and neither is an author nobody wrote. That
- * is the honest version of the feature at this size, and it is genuinely
- * useful for the thing it is for: a mixed list of twenty hits from three
- * systems is hard to scan, and "just the mail, from Priya" is one click.
- *
- * Making them re-query would mean teaching /api/search a filter grammar and
- * three source-specific translations of it — GitHub's qualifiers, Gmail's
- * syntax and Drive's `modifiedTime` — which is a feature, not a tidy-up.
+ * These filter the results ALREADY ON SCREEN, not the corpus, and the menus
+ * only offer values those rows contain. Re-querying would mean a filter
+ * grammar in /api/search plus three source-specific translations of it —
+ * GitHub's qualifiers, Gmail's syntax and Drive's `modifiedTime`.
  */
 export function SearchFilters({
   rows,
@@ -89,13 +79,9 @@ export function SearchFilters({
   filters: Filters;
   onChange: (next: Filters) => void;
 }) {
-  // Every kind the corpus can hold, with its count for this search — zeros
-  // included. The rule used to be "only offer what is actually there", which
-  // sounds right and reads wrong: Spreadsheets simply vanished from the menu
-  // on a search that matched none, so there was no way to tell an empty
-  // category from a category the product does not have. A zero is information;
-  // an absence is a question. Counts make the menu answer it without a click,
-  // and the zeros are disabled so nothing offers a dead end.
+  // Every kind the corpus can hold, zeros included: an absent category cannot
+  // be told apart from one the product does not have. A zero is information.
+  // Zeros are disabled, so nothing offers a dead end.
   const countOf = (k: (typeof KINDS)[number]) =>
     rows.filter((r) => k.id.includes(r.kind)).length;
   const kinds = KINDS.map((k) => ({ ...k, count: countOf(k) }));
@@ -110,12 +96,9 @@ export function SearchFilters({
       }),
   );
 
-  // Nothing to offer — a search that matched nothing, or one whose results are
-  // all the same kind by the same person. The controls stay on screen so the
-  // header does not change shape between a search with results and one
-  // without, and they are disabled rather than live: three menus whose only
-  // entry is their own default would be the dead control this product keeps
-  // finding, dressed as a feature.
+  // Nothing to offer. The controls stay on screen so the header does not
+  // change shape, but disabled: three menus whose only entry is their own
+  // default are a dead control dressed as a feature.
   if (present.length < 2 && authors.length < 2) {
     return (
       <div className="flex flex-wrap items-center gap-2">
@@ -181,14 +164,10 @@ export function SearchFilters({
 /**
  * One filter, as a dropdown.
  *
- * It was a native `<select>` hidden behind a styled span, which was quick and
- * looked it: the browser's own menu ignores the app's type, spacing and
- * radius, and on macOS it renders as a system popup nothing else here
- * resembles. This is the shadcn/Radix menu the rest of the app already uses,
- * so a filter looks like the sidebar and the skill picker do.
+ * The shadcn/Radix menu the rest of the app uses, not a native `<select>`,
+ * whose popup ignores the app's type, spacing and radius.
  *
- * Single-choice, with a tick on the current value rather than a radio column —
- * these are one-of-N and the tick says so without a second bit of chrome.
+ * Single-choice, with a tick on the current value rather than a radio column.
  */
 function Menu({
   label,

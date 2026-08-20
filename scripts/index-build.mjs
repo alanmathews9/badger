@@ -1,20 +1,16 @@
 #!/usr/bin/env node
 // Build the local search index — `npm run index`, and `npm run index status`.
 //
-// Crawls everything the connected sources hold, through the SAME allowlisted
-// read-only Composio slugs the agent's tools use — no new permissions, so any
-// Composio key that can run Badger's tools can build its index. The result is
-// one JSON file under .gitagent/index/ (gitignored runtime state; delete the
-// directory and the copy is gone).
+// Crawls the connected sources through the SAME allowlisted read-only Composio
+// slugs the agent's tools use, so any key that can run Badger can build its
+// index. The result is one JSON file under .gitagent/index/.
 //
-// Deliberately explicit about cost: every phase prints what it fetched and how
-// many API calls it spent, and the final table compares what was STORED against
-// what the live APIs REPORTED during the crawl — the corpus rule, applied here:
-// verify against the source's own numbers, never against an exit code.
+// Every phase prints what it fetched and what it spent, and the final table
+// compares what was STORED against what the live APIs REPORTED during the
+// crawl: verify against the source's own numbers, never against an exit code.
 //
 // A full build is a few hundred read calls and a couple of minutes, almost all
-// of it Gmail/Drive body fetches. Run it deliberately; nothing rebuilds this
-// implicitly.
+// Gmail/Drive body fetches.
 import { exec as gh, asList, REPO_SLUG } from "../tools/scripts/_github.mjs";
 import { exec as goog, exportText, isWorkspaceFile, kindOf } from "../tools/scripts/_google.mjs";
 import { loadIndex, saveIndex, indexStatus, INDEX_FILE } from "../tools/scripts/_index.mjs";
@@ -290,17 +286,12 @@ async function crawlDrive() {
   });
   console.log(`  drive: ${commentThreads} comment threads folded in`);
 
-  // **Folders are documents too.** They were filtered out of the crawl, on the
-  // reasoning that a folder has no text to search. But a folder is a real
-  // destination — "the Product folder" is a thing people go looking for, and
-  // Glean returns them — and it has the one field that matters most for a
-  // name-shaped query: its name. They cost nothing: they are already in the
+  // Folders are documents too: a folder is a real destination and it has the
+  // field a name-shaped query needs. They cost nothing — already in the
   // listing above, and unlike files they need no export and no comment call.
   //
   // The body is the folder's own path, so "Releases" also answers a search for
-  // the folder it lives in. That is the whole of what Drive can tell us about
-  // a folder, and it is honest to index exactly that rather than an empty
-  // string that would rank a folder by title alone with no way to say so.
+  // the folder it lives in. That is all Drive can tell us about a folder.
   const folderDocs = folders.map((f) => ({
     id: `drive-${f.id}`,
     source: "drive",
@@ -340,14 +331,11 @@ function countsOf(docs) {
 
 // ── Incremental refresh ───────────────────────────────────────────────────
 //
-// "What changed since the last build?" per source, upserted into the store —
-// a ~10–20 call tick instead of a 173-call rebuild, which is what makes a
-// short cadence affordable (Onyx's own layering, sized down). Two honest
-// limits, stated rather than hidden: deletions are invisible to it (none of
-// the three sources offers a deleted-since query our allowlist reaches), and
-// GitHub's `updated:` qualifier has day precision, so same-day items are
-// re-fetched and deduped by id. The daily full rebuild is the sweep that
-// catches what this cannot.
+// "What changed since the last build?" per source, upserted — a ~10-20 call
+// tick instead of a 173-call rebuild. Two limits: deletions are invisible (no
+// source offers a deleted-since query our allowlist reaches), and GitHub's
+// `updated:` has day precision, so same-day items are re-fetched and deduped
+// by id. The daily full rebuild is the sweep that catches what this cannot.
 
 async function refreshGitHub(since) {
   const docs = [];
@@ -594,15 +582,12 @@ async function refresh() {
 }
 
 /**
- * Write the index to Postgres as well as to disk, when a database is
- * configured. The file is what gets read — by the server's searcher and by
- * every agent tool subprocess — and Postgres is what lets that file be
- * recreated in one query after a container dies, instead of by crawling three
- * APIs again.
+ * The file is what gets read — by the server's searcher and by every agent
+ * tool subprocess — and Postgres is what lets it be recreated in one query
+ * after a container dies rather than by crawling three APIs again.
  *
- * A database failure is reported and does not fail the build: the index on
- * disk is complete and usable, and taking the build down over its backup
- * would be the tail wagging the dog.
+ * A database failure is reported and does not fail the build: the disk index
+ * is complete and usable.
  */
 async function store(index) {
   if (!dbConfigured()) {
