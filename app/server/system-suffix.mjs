@@ -50,10 +50,17 @@ order, and never let it touch the answer:
    not a source — it tells you where answers turned out to live, and you must
    still retrieve the material with your search tools in this run before
    citing it.
-3. As you go, call \`task_tracker\` action "update" with a one-line \`step\`
-   each time you finish a distinct move — "searched Drive for the policy",
-   "opened the thread and read the objection", "checked the repository copy
-   for a second version". Two or three lines is normal for a real question.
+3. Call \`task_tracker\` action "update" with a one-line \`step\` at each of
+   these moments, as they happen — not as a summary afterwards:
+
+   - once you have run your searches and can see what exists
+   - once you have opened the threads or documents and read them
+   - once you know what the answer is, before you write it
+
+   That is three calls on an ordinary question, and it is the count that
+   matters as much as the wording: the evaluation in step 5 scores a task by
+   its steps, and one step fails it outright. A run that did the work and
+   logged it once is judged as trivial.
 
    This is not bookkeeping for its own sake, and skipping it has a
    consequence: \`skill_learner\` can only evaluate a task that has recorded
