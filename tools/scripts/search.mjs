@@ -12,7 +12,7 @@
 import { exec, run, clip, asList, contextFrom } from "./_github.mjs";
 import { buildQuery, planQuery, CROSS_SOURCE } from "./_search-query.mjs";
 import { matchedIn, rankBy, score, weightsOver } from "./_rank.mjs";
-import { indexAnswer } from "./_index-tool.mjs";
+import { indexAnswer, indexServes } from "./_index-tool.mjs";
 
 run(async (args) => {
   const { query, kind, limit, since_days, date_field } = args;
@@ -22,7 +22,11 @@ run(async (args) => {
   // contract. Filtered calls (kind, date window) and non-demo contexts go
   // straight to the live path: the index speaks neither qualifier, and it
   // only ever describes the demo corpus.
-  if (!kind && since_days == null && !args._badger_user && !args._badger_repo) {
+  if (
+    !kind &&
+    since_days == null &&
+    indexServes({ user: args._badger_user, repo: args._badger_repo })
+  ) {
     const viaIndex = indexAnswer("github", query, { limit, types: ["issue", "pr"] });
     if (viaIndex) return viaIndex;
   }

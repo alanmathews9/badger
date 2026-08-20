@@ -8,7 +8,7 @@
 import { exec, run, clip, contextFrom, CROSS_SOURCE } from "./_google.mjs";
 import { planQuery, buildGmailQuery, MAX_TERMS_GOOGLE } from "./_search-query.mjs";
 import { matchedIn, rankBy, score, weightsOver } from "./_rank.mjs";
-import { indexAnswer } from "./_index-tool.mjs";
+import { indexAnswer, indexServes } from "./_index-tool.mjs";
 
 run(async (args) => {
   const { query, from, since_days, limit } = args;
@@ -16,7 +16,7 @@ run(async (args) => {
 
   // Index first, live as the second look — see _index-tool.mjs. Filtered
   // calls (from, date window) and non-demo users go straight to live.
-  if (!from && since_days == null && !args._badger_user) {
+  if (!from && since_days == null && indexServes({ user: args._badger_user })) {
     const viaIndex = indexAnswer("gmail", query, { limit });
     if (viaIndex) return viaIndex;
   }

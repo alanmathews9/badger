@@ -549,6 +549,62 @@ The federated decision is reversed, and the reversal is owned here rather
 than left for a reviewer to notice: the earlier analysis priced the trade
 correctly, and the index is the payment.
 
+### The index was built and then never used by chat — for four days
+
+Search on the web page has used the index since the day it landed. **Chat
+never did**, and nothing said so. The three search tools each carried a guard
+meaning "a visitor searching their own connected account must not be served a
+copy of somebody else's corpus" — written as `!args._badger_user`, i.e. *no
+user was named*. But the server names a user on every single call: the
+`preToolUse` hook attaches `_badger_user` unconditionally. So the condition was
+false for every request the product ever made, and only the CLI — which passes
+no user — ever reached the index.
+
+Found by asking a plain question about how it worked, then reading the audit
+log: every tool result carried the Composio SDK's banner, which only prints
+when the live client loads, six seconds apart, 56 seconds end to end. The guard
+now asks the right question — *is the named user the one this index was crawled
+from* — and the same searches answer in about 200ms.
+
+Two lessons, and the second is the one worth keeping. A condition that is
+always false looks exactly like a condition that is always satisfied. And
+"index-first" was written in this README, in the agent's own tool comments and
+in the handoff notes for four days, on all three of which it was true of the
+code and false of the running product.
+
+### What Onyx does, and where Badger deliberately differs
+
+Read from their source rather than their marketing, because the shapes differ
+in a way worth stating:
+
+| | Onyx | Badger |
+|---|---|---|
+| Search tools | **One** — `internal_search`, *"Search connected applications for information."* | **Three**, one per source |
+| Who picks the source | Nobody. A `decide_search_scope` step computes it downstream, and the LLM is told *"do not include time or source type scoping details in your query"* | The model, per call |
+| Execution | All sources in parallel, fused with weighted reciprocal rank fusion | Sequential, one call each |
+| Live queries | Only for federated sources like Slack — and they recommend the indexed connector even there, because it out-retrieves Slack's own search API | Fallback when the index misses |
+
+**Onyx is right about the tool shape and we should say so.** Handing the model
+one query and computing the scope downstream removes a decision it can get
+wrong, and removes two round trips. Asked about a refund policy, Badger issues
+three separate searches because it is the one choosing where to look.
+
+It is not changed here, and the reason is scope rather than disagreement: one
+unified `search` tool would touch the tool surface, `RULES.md`, all four
+skills, the result parsers and the eval baseline — a day's work with a
+re-measurement at the end of it, which is not what the week has left. With the
+index serving searches in ~200ms, the cost of the extra calls is now small
+enough that the remaining objection is aesthetic rather than practical.
+
+**Reads stay live, and that one is a real disagreement.** Onyx indexes chunks
+including comments; Badger's index holds document bodies but not issue comments
+or Drive margin comments. Since this corpus is built so that the tidy document
+is the *least* true version and the objection lives in the margin, serving a
+read from the index would serve the sanitised half. `github_issue`,
+`gmail_thread`, `drive_file` and `drive_comments` therefore always go to the
+source. That is where the seconds in an answer now go, and it is the right
+place to spend them.
+
 ---
 
 ## Citations, and verifying them

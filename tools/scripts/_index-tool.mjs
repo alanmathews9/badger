@@ -28,6 +28,38 @@ import { CROSS_SOURCE } from "./_search-query.mjs";
 /** Same staleness rule as the web path (app/server/index-search.mjs). */
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
+// Who the index was built from. `npm run index` crawls through the same
+// connection the tools use, so the copy is only valid for that user and, on
+// GitHub, that repository.
+const INDEXED_USER = process.env.BADGER_USER_ID ?? "default";
+const INDEXED_REPO = process.env.BADGER_GITHUB_REPO ?? null;
+
+/**
+ * Is the local index a valid answer for THIS caller?
+ *
+ * This replaces a guard that read `!args._badger_user` — "no user named, so
+ * this must be the demo". The intent was right (a visitor searching their own
+ * connected account must not be served a copy of somebody else's corpus) and
+ * the test was wrong, because the server names a user on every single call:
+ * `preToolUse` attaches `_badger_user` unconditionally. So the condition was
+ * false for every request the product ever made, and the index — 190
+ * documents, ~3ms, the entire point of the indexing arc — has never once
+ * answered a question asked through the web UI. Only the CLI, which passes no
+ * user, was getting it.
+ *
+ * Measured on a live run before the fix: eight tool calls, every one of them
+ * carrying the Composio SDK's banner in its output, six seconds apart, 56
+ * seconds end to end.
+ *
+ * The right question is not "did somebody name a user" but "is the named user
+ * the one this index was crawled from".
+ */
+export function indexServes({ user, repo } = {}) {
+  if (user && user !== INDEXED_USER) return false;
+  if (repo && repo !== INDEXED_REPO) return false;
+  return true;
+}
+
 /**
  * Answer one source's search from the index, or return null for "go live".
  * Tools are one-shot subprocesses, so there is nothing to cache — building

@@ -1,19 +1,18 @@
 ---
 name: onboard-to-project
-description: >
-  Produce a structured brief that gets someone up to speed on a project,
-  client, system or component fast — what it is, who owns it, the documents
-  that matter, what is currently open, and what changed recently. Use for
-  "get me up to speed on", "what is", "tell me about", "I'm taking over",
-  "brief me on", "I have a call about", "where do I start with". Use it
-  proactively when someone is clearly new to a thing rather than asking one
-  narrow question about it.
+description: |
+  Produce a structured brief that gets someone up to speed on a project, client, system or component fast — what it is, who owns it, the documents that matter, what is currently open, and what changed recently. Use for "get me up to speed on", "what is", "tell me about", "I'm taking over", "brief me on", "I have a call about", "where do I start with". Use it proactively when someone is clearly new to a thing rather than asking one narrow question about it.
 license: MIT
 allowed-tools: github_search github_issue github_pr github_file github_commits gmail_search gmail_thread drive_search drive_file drive_comments memory
 metadata:
   author: alan-mathews
-  version: "1.0.0"
+  version: 1.0.0
   category: retrieval
+confidence: 1
+usage_count: 1
+success_count: 1
+failure_count: 0
+negative_examples: []
 ---
 
 # Brief someone on a project
