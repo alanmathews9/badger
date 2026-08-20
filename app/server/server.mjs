@@ -366,14 +366,43 @@ async function handleAsk(req, res) {
     // identity in the call's own arguments instead — per request, in process,
     // and invisible to the model.
     hooks: {
-      preToolUse: (hookCtx) => ({
-        action: "modify",
-        args: {
+      preToolUse: (hookCtx) => {
+        const args = {
           ...hookCtx.args,
           _badger_user: ctx.userId,
           _badger_repo: ctx.repo,
-        },
-      }),
+        };
+
+        // Tell the learning loop which skill was used, because the model will
+        // not.
+        //
+        // `task_tracker end` fires reinforcement ONLY if it is handed
+        // `skill_used` (dist/tools/task-tracker.js:227). Omit it and the
+        // confidence maths silently never runs — no counter moves, no file
+        // changes, and so nothing is ever committed to the learning branch.
+        // Measured across every run so far: the model passed it once out of
+        // three, and the two runs that skipped it produced no learning at all
+        // despite succeeding. That is the entire loop being inert for want of
+        // one field.
+        //
+        // This is not us grading our own homework. `outcome` still comes from
+        // the model, so success and failure are still its call and the
+        // confidence score still means what it says. The only thing filled in
+        // here is WHICH skill was in play — a fact this server knows for
+        // certain, because it is the one that selected the procedure and put
+        // it in the prompt (see `chosen` above), and the model is merely
+        // failing to repeat it back.
+        if (
+          hookCtx.toolName === "task_tracker" &&
+          args.action === "end" &&
+          chosen &&
+          !args.skill_used
+        ) {
+          args.skill_used = chosen;
+        }
+
+        return { action: "modify", args };
+      },
     },
   });
 
