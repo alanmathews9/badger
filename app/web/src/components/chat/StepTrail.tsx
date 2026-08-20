@@ -82,6 +82,28 @@ export function StepTrail({ answer }: { answer: AnswerState }) {
     );
   }
 
+  // Failed. Same shape as stopped, and for the same reason: the badger keeps
+  // the lead row, whatever steps ran stay on the chain, and the message is the
+  // final row rather than a boxed notice floating underneath. It used to be an
+  // amber alert panel with no mark beside it, which read as the page reporting
+  // a fault rather than as Badger saying it could not finish — and amber says
+  // "warning" for something that is simply an error. Red, and in Badger's own
+  // voice, in the place every other thing it says appears.
+  if (answer.error) {
+    return (
+      <div className="mb-4 flex flex-col">
+        {steps.map((step, i) => (
+          <TrailRow key={i} lead={i === 0} running={false} last={false}>
+            <StepLine step={step} live={false} />
+          </TrailRow>
+        ))}
+        <TrailRow lead={steps.length === 0} running={false} last>
+          <p className="flex min-h-6 items-center text-[13px] text-red-700">{answer.error}</p>
+        </TrailRow>
+      </div>
+    );
+  }
+
   if (!result) return null;
 
   return (

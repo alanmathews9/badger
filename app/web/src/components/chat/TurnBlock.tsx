@@ -43,13 +43,10 @@ export function TurnBlock({ turn }: { turn: ChatTurn }) {
       <div className="mt-6">
         <StepTrail answer={answer} />
 
-        {/* An interruption is not rendered here — it is the last row of the
-            trail, so it keeps the badger and the chain. See `StepTrail`. */}
-        {answer.stopped ? null : answer.error ? (
-          <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            {answer.error}
-          </p>
-        ) : (
+        {/* Neither an interruption nor a failure is rendered here — both are
+            the last row of the trail, so they keep the badger and the chain.
+            See `StepTrail`. */}
+        {answer.stopped || answer.error ? null : (
           // NOTHING is rendered here while the run is live.
           //
           // Streaming text straight into the answer area was the bug: the
