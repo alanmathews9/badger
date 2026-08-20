@@ -42,14 +42,32 @@ function today() {
 
 /**
  * The client's address. On Cloud Run the socket address is always the front
- * end, so `x-forwarded-for` is the only real signal — and it is trustworthy
- * only because Cloud Run sets it itself and strips any client-supplied copy.
- * If this server were ever exposed directly, the header would be
- * attacker-controlled and these limits would be trivially bypassed.
+ * end, so `x-forwarded-for` is the only real signal.
+ *
+ * Two things this used to get wrong, both of which handed an attacker the
+ * login limiter and with it the passphrase.
+ *
+ * It read `cf-connecting-ip` first. Nothing in this deployment sets that
+ * header — there is no Cloudflare in front of Cloud Run — so it was a raw
+ * client value taken in preference to everything else, and a fresh one per
+ * request defeated every per-IP bucket including the 10-per-15-minutes on
+ * login. The header is gone rather than reordered: a header no proxy here
+ * sets has no honest reading.
+ *
+ * And it took the FIRST element of `x-forwarded-for`. Cloud Run appends the
+ * real client to whatever the client sent, so the trustworthy value is the
+ * LAST one; the first is whatever the caller chose to prepend.
+ *
+ * If this server were ever put behind a different proxy, or exposed
+ * directly, this function is the one place that has to change.
  */
 export function clientIp(req) {
-  const forwarded = req.headers["cf-connecting-ip"] ?? req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string" && forwarded.length) return forwarded.split(",")[0].trim();
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.length) {
+    const hops = forwarded.split(",");
+    const last = hops[hops.length - 1].trim();
+    if (last) return last;
+  }
   return req.socket?.remoteAddress ?? "unknown";
 }
 

@@ -285,7 +285,8 @@ flowchart TB
     H -->|"no — anything unlisted"| X(["<b>blocked.</b> the list is an allowlist,<br/>so an unknown write tool fails closed"])
     H -->|yes| K{"what does that name reach?"}
 
-    K -->|"cli · read · write · edit · memory<br/>task_tracker · skill_learner"| SELF(["<b>the agent's own git repository</b><br/>memory, learned skills, the task ledger<br/><i>writes allowed — this is GAP's learning loop,<br/>and suppressing it would suppress the framework</i>"])
+    K -->|"read · memory<br/>task_tracker · skill_learner"| SELF(["<b>the agent's own git repository</b><br/>memory, learned skills, the task ledger<br/><i>writes allowed — this is GAP's learning loop,<br/>and suppressing it would suppress the framework</i>"])
+    K -.->|"cli · write · edit"| XS(["<b>not on the list.</b> the runtime's shell is<br/>spawned with the whole environment, so it<br/>would hand the model every secret and reach<br/>every source around layers 2 to 4"])
 
     K -->|"github_* · gmail_* · drive_*"| S2["<b>2 ·</b> the tool scripts under tools/scripts<br/>can only issue the operations below"]
     S2 --> S3["<b>3 ·</b> Composio's per-tool enable list<br/>8 of GitHub's 823 · 3 of Gmail's 63 · 5 of Drive's 90"]
@@ -303,11 +304,24 @@ flowchart TB
    `hooks/allowed-tools.txt`. Anything unlisted fails closed.
 
 **The line is not "the agent cannot write" — it is "the agent cannot write to
-your sources."** The allowlist permits the runtime's own builtins, learning
-loop included, because `task_tracker`, `skill_learner` and `memory` write to
-the agent's own git repository and nowhere else. What no layer permits at all
-is a write to GitHub, Gmail or Drive: layers 1 to 3 mean no such operation is
-reachable, whatever the model asks for.
+your sources."** The allowlist permits the learning loop, because
+`task_tracker`, `skill_learner` and `memory` write to the agent's own git
+repository and nowhere else. What no layer permits is a write to GitHub, Gmail
+or Drive: layers 1 to 3 mean no such operation is reachable, whatever the
+model asks for.
+
+**Three of the runtime's builtins are not on the list, and the reason is the
+most interesting thing on this page.** `cli` is an unrestricted shell —
+`dist/tools/cli.js` spawns it with `shell: true` and `env: {...process.env}`
+— so an allowlisted `cli` would hand the model the Composio API key and, with
+it, the write-capable credential sitting behind all three source-side layers.
+`write` and `edit` are rooted at the repository, so they could rewrite the
+tool scripts, which are respawned on the next call, or the allowlist itself.
+For a while they *were* listed, and the sentence above was false while they
+were: the four layers only bound the branch that goes through the tool
+scripts. They are now removed in both places that can remove them —
+`hooks/allowed-tools.txt`, and `disallowedTools` on the SDK call, which filters
+them out of the model's schema before a hook is ever consulted.
 
 An earlier design did the opposite. It stripped the learning tools from the
 model's schema and used a prompt suffix to countermand the runtime's own
