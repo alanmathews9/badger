@@ -90,6 +90,38 @@ function authedUrl(url, token) {
   return url.replace(/^https:\/\//, `https://${encodeURIComponent(token)}@`);
 }
 
+/**
+ * Strip credentials out of anything on its way to a log.
+ *
+ * Not a nicety. A clone is authenticated by putting the token in the URL —
+ * which is how the runtime does it too (session.js:8) — so the token is inside
+ * the argv of the command, and execFileSync puts the whole command into
+ * `err.message`. The first production deploy logged
+ * "Command failed: git clone https://github_pat_…@github.com/…" straight into
+ * Cloud Logging, where it sat in plain text with 30-day retention. That token
+ * had to be rotated.
+ *
+ * Two patterns rather than one: the PAT by its own prefix, and the generic
+ * user:password@host form, so a different credential shape cannot walk through
+ * the gap the first pattern leaves.
+ */
+export function redact(text) {
+  return String(text ?? "")
+    .replace(/github_pat_[A-Za-z0-9_]+/g, "github_pat_***")
+    .replace(/ghp_[A-Za-z0-9]+/g, "ghp_***")
+    .replace(/(https?:\/\/)[^@\/\s]+@/g, "$1***@");
+}
+
+/** Everything a failed git command can tell us, with the credential removed. */
+function gitFailure(err) {
+  const parts = [
+    String(err?.message ?? "").split("\n")[0],
+    String(err?.stderr ?? "").trim(),
+    String(err?.stdout ?? "").trim(),
+  ].filter(Boolean);
+  return redact(parts.join(" | ")).slice(0, 600);
+}
+
 // node_modules and .gitagent are not in git, so a fresh copy of the repo has
 // neither. Link rather than copy: node_modules is ~460MB and the index is the
 // one the whole container shares.
@@ -251,15 +283,15 @@ export function openAgentRepo(root) {
       console.warn(
         `[agent-repo] could NOT merge the default branch into ${branch} — the agent is ` +
           "running on the learning branch as it stands and will not pick up changes to " +
-          `main until this is resolved by hand: ${String(err.message).split("\n")[0]}`
+          `main until this is resolved by hand: ${gitFailure(err)}`
       );
     }
 
     linkRuntimeDirs(template, root);
   } catch (err) {
     console.warn(
-      `[agent-repo] could not prepare the agent clone (${err.message.split("\n")[0]}) — ` +
-        "running from the image."
+      `[agent-repo] could not prepare the agent clone — running from the image. ` +
+        `Learned skills will not outlive this instance. Cause: ${gitFailure(err)}`
     );
     return dirMode;
   }
@@ -288,7 +320,7 @@ export function openAgentRepo(root) {
         await cp(template, dir, { recursive: true, dereference: false, force: true });
         linkRuntimeDirs(dir, root);
       } catch (err) {
-        console.warn(`[agent-repo] run copy failed (${err.message}) — this run uses the image.`);
+        console.warn(`[agent-repo] run copy failed (${redact(err.message)}) — this run uses the image.`);
         await rm(dir, { recursive: true, force: true }).catch(() => {});
         return { dir: root, release: async () => {} };
       }
@@ -354,7 +386,7 @@ export function openAgentRepo(root) {
             // and is not worth a warning; anything else is.
             const msg = String(err.stderr || err.message || "");
             if (!msg.includes("unknown revision") && !msg.includes("bad revision")) {
-              console.warn(`[agent-repo] a learning commit could not be pushed: ${msg.split("\n")[0]}`);
+              console.warn(`[agent-repo] a learning commit could not be pushed: ${redact(msg).split("\n")[0]}`);
             }
           }
           await rm(dir, { recursive: true, force: true }).catch(() => {});

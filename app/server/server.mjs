@@ -43,7 +43,7 @@ import { annotateUnverified, extractCitations, mentions, verifyCitations } from 
 import { attachSourceUrls } from "./source-links.mjs";
 import { parseToolResults } from "./tool-results.mjs";
 import { matchSkill, readProcedure } from "./skill-match.mjs";
-import { openAgentRepo } from "./agent-repo.mjs";
+import { openAgentRepo, redact } from "./agent-repo.mjs";
 
 // The repo root, which is also the agent directory query() loads. The server
 // lives two levels down under app/ precisely so that this is an explicit,
@@ -478,12 +478,19 @@ async function handleAsk(req, res) {
           if (msg.content) answer = msg.content;
           break;
         case "system":
-          if (msg.subtype === "error") send("warning", { message: msg.content });
+          // Redacted, because this text is written by the runtime and goes
+          // straight to the browser. In repo mode the runtime authenticates
+          // git by putting the token in the URL (session.js:8), so a failed
+          // clone, fetch or push produces an error message with the credential
+          // inside it — and this line would forward it to the page.
+          if (msg.subtype === "error") send("warning", { message: redact(msg.content) });
           break;
       }
     }
   } catch (err) {
-    console.error("[ask]", err);
+    // Same reason as the system case above: an error thrown out of query() in
+    // repo mode can carry the git URL, and this goes to Cloud Logging.
+    console.error("[ask]", redact(err?.stack || err?.message || err));
     send("error", { message: "Badger could not finish that answer." });
     slot.release();
     return res.end();
