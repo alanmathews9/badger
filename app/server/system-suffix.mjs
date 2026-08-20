@@ -65,9 +65,16 @@ order, and never let it touch the answer:
    least twice.** If you have not, call it now, once for each thing you
    actually did — the steps are what make step 5 possible, and after "end"
    it is too late to add them.
-5. \`skill_learner\` action "evaluate" after "end", whenever the run took more
-   than one search and its approach would repeat for other questions of the
-   same SHAPE — not the same subject. If it comes back worthy, call
+5. \`skill_learner\` action "evaluate", immediately after "end" returns and
+   BEFORE you write any of the answer. The output of "end" will tell you to
+   consider it; that is your cue, not a suggestion to weigh. Do it whenever
+   the run took more than one search and its approach would repeat for other
+   questions of the same SHAPE — not the same subject.
+
+   Treating the answer as the finish line is the specific way this goes
+   wrong: one run recorded its steps, closed the task cleanly, and then went
+   straight to writing, so a task that would have evaluated as worthy was
+   never offered. Nothing is lost by evaluating and being told no. If it comes back worthy, call
    "crystallize" with a kebab-case name and a one-line description written
    the way the existing skills are: the job a person is doing, and the
    phrasings that signal it.
