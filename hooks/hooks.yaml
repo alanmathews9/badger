@@ -3,21 +3,32 @@
 # on stdout: {"action":"allow"} | {"action":"block","reason":"..."}.
 #
 # Two hooks. allow-tools gates tool calls against allowed-tools.txt — a
-# short, simple list of everything the agent may call, runtime builtins and
-# learning loop included; anything unlisted fails closed. check-sources is a
-# pre-flight: the runtime is fail-soft about sources (a server with no
-# credential is skipped silently and the model is never told), so without it
-# Badger could answer "nothing found" for a source it never contacted.
+# short, simple list of everything the agent may call, the learning loop
+# included and the shell deliberately not; anything unlisted fails closed.
+# check-sources is a pre-flight: the runtime is fail-soft about sources (a
+# server with no credential is skipped silently and the model is never told),
+# so without it Badger could answer "nothing found" for a source it never
+# contacted.
+#
+# `fail_open: false` is the schema's default (hooks.schema.json) and is stated
+# anyway, because runtime 2.1.0 does not honour it: dist/hooks.js swallows
+# every error, treats non-JSON output as allow, and treats a 10s timeout the
+# same way. The standard says a failed hook blocks; the reference runtime lets
+# it through. That is why both scripts are dependency-free POSIX sh that
+# always exit 0 with valid JSON — a hook that cannot fail does not need the
+# runtime to agree about what failure means.
 
 hooks:
   pre_tool_use:
     - script: allow-tools.sh
+      fail_open: false
       description: >-
-        Allow the tool names in allowed-tools.txt — the full runtime surface,
-        builtins and learning loop included — and block anything unlisted.
+        Allow the tool names in allowed-tools.txt — the read and search tools
+        plus the learning loop, never the shell — and block anything unlisted.
 
   on_session_start:
     - script: check-sources.sh
+      fail_open: false
       description: >-
         Refuse to start if a source declared in agent.yaml has no credential.
         The runtime skips unreachable servers silently, so without this Badger

@@ -2,10 +2,12 @@ spec_version: "0.1.0"
 name: badger
 version: 0.1.0
 description: >
-  Federated workplace search. Answers questions about your work by querying
-  connected sources live at ask-time and citing every source. No crawler, no
-  index, no copy of your data. Read-only: Badger searches, reads and reports,
-  and never sends, edits or changes anything.
+  Workplace search across GitHub, Gmail and Google Drive. Answers questions
+  about your work by searching all three, opening what looks relevant, and
+  citing every source it used. Searches a local index first and the live APIs
+  second, so an answer is fast and a missing document is still found.
+  Read-only: Badger searches, reads and reports, and never sends, edits or
+  changes anything.
 author: alan-mathews
 license: MIT
 
@@ -24,13 +26,29 @@ model:
 # The skills/ directory is the whole truth.
 
 runtime:
+  # timeout is read (dist/index.js:476, dist/sdk.js:139). max_turns is a spec
+  # key that runtime 2.1.0 does not read — the only bound that applies is the
+  # caller's, and app/server/server.mjs passes 12. Kept because it is the
+  # standard's way to declare the intent, and stated here so the two numbers
+  # are not read as a disagreement.
   max_turns: 40
   timeout: 300
 
+# Spelled the way the runtime reads it, which is NOT the way the spec writes
+# it, and the difference is deliberate. dist/compliance.js reads risk_level,
+# data_classification and human_in_the_loop at this nesting; the OpenGAP
+# schema defines risk_tier, compliance.data_governance.data_classification,
+# supervision.human_in_the_loop and recordkeeping.retention_period. Validating
+# against the implementation is what actually gates the run, so that is what
+# these keys do. Both were read; only one of them executes.
 compliance:
   risk_level: medium
   data_classification: confidential
   human_in_the_loop: false
+  # The standard's vocabulary for the guarantee this whole agent is built on.
+  # Inert in 2.1.0 — nothing reads it — and included because it is how GAP
+  # says "this agent reads and never writes", which is the claim being made.
+  segregation_of_duties: true
   recordkeeping:
     audit_logging: true
     retention_days: 30

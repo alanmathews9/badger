@@ -23,10 +23,18 @@ cd "$ROOT"
 
 # Everything the GAP runtime reads. If this list grows, the agent grew.
 #
-# memory/ is in here because the spec puts it there: the `standard` profile is
-# RULES.md, skills/, knowledge/, memory/, tools/. `memory` is also in the
-# allowlist both callers pass, so it is a live capability, not scaffolding.
-AGENT="agent.yaml SOUL.md RULES.md skills tools memory"
+# memory/ is in here because the spec puts it there — §2's directory structure
+# and memory.schema.json. (An earlier version of this comment cited a
+# `standard` profile; the spec has no profile concept. `minimal`/`standard`/
+# `full` are `opengap init --template` values, and memory/ is a `full` one.)
+#
+# hooks/ was MISSING from this list, which made the check weaker than the
+# thing it claims to prove. The header above names hooks/ as part of the
+# agent, and without it the sandbox copy had no hooks.yaml — so dist/hooks.js
+# returned null, neither caller wrapped anything, and this script proved that
+# an agent with NO tool gating still runs. It now tests the real
+# configuration, enforcement included.
+AGENT="agent.yaml SOUL.md RULES.md skills tools hooks memory"
 
 fail() {
   printf '  ✗ %s\n' "$1"

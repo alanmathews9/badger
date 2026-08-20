@@ -1,10 +1,13 @@
 # Skills
 
 Each skill is a directory holding `SKILL.md` with YAML frontmatter (`name`,
-`description`, `license`, `allowed-tools`, `metadata`). Skills named in
-`agent.yaml` load at startup. The model selects on the `description`, so each
-one names the phrasings that should trigger it; `/skill:<name> <args>` forces
-one explicitly.
+`description`, `license`, `allowed-tools`, `metadata`). Every directory here
+loads at startup — discovery scans this folder, and `agent.yaml` deliberately
+does not list them, because that key is a *filter*: naming any skill there
+would silently hide every skill the agent learns or a person adds through the
+product. The model selects on the `description`, so each one names the
+phrasings that should trigger it; `/skill:<name> <args>` forces one
+explicitly.
 
 | Skill | The question it answers |
 |---|---|
