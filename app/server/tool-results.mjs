@@ -1,30 +1,20 @@
 /**
  * Read a search tool's result list back out of its own output.
  *
- * The browser shows, under each search step, the documents that search
- * actually found — the thing that makes a fifteen-second wait legible instead
- * of a spinner. The runtime hands the server every `tool_result` already
- * (`server.mjs` collects them to verify citations against), so this costs no
- * extra call and no change to the agent: it reads the same text the model
- * reads.
+ * The browser shows the documents each search found under its step. The
+ * runtime hands the server every `tool_result` already, so this costs no extra
+ * call: it reads the same text the model reads.
  *
- * **Why parsing prose is safe here, when it usually is not.** This is not a
- * third party's format. All three search tools print a fixed shape chosen so
- * the *agent* can find issue numbers, thread ids and file ids where it
- * expects them, and `_index-tool.mjs` renders the index path in the identical
- * shape on purpose so the agent cannot tell the two apart. `labelOpened()` in
- * `server.mjs` already recovers mail subjects and document names from this
- * same text. This is a second parser beside an existing one, not a new
- * mechanism.
+ * Parsing prose is safe here because the format is ours, not a third party's.
+ * All three search tools print a fixed shape so the AGENT can find ids where
+ * it expects them, and `_index-tool.mjs` renders the index path identically.
  *
- * The failure mode to design against is silence: if a format drifts, the
- * parser returns nothing and a step simply shows no documents, which reads as
- * "this search found little" rather than as a bug. `tests/tool-results.test.mjs`
- * pins all three shapes for exactly that reason.
+ * The failure mode is silence: a drifted format returns nothing and the step
+ * shows no documents, which reads as "found little" rather than as a bug.
+ * `tests/tool-results.test.mjs` pins all three shapes for that reason.
  *
- * Nothing here throws. A result frame is a nicety on top of an answer that
- * works without it, so a surprise in the text must degrade to an empty list
- * rather than take the run down.
+ * Nothing here throws — a result frame is a nicety on top of an answer that
+ * works without it.
  */
 
 /** How many rows a step shows. The card scrolls; this bounds the payload. */
@@ -33,8 +23,8 @@ const DEFAULT_LIMIT = 12;
 /**
  * `#8 [issue, open] Android app shipped five weeks late`
  *
- * Anchored to the line start, because an issue number inside a body line
- * ("see #14 for the checklist") must not become a result of its own.
+ * Anchored to the line start: an issue number inside a body line ("see #14
+ * for the checklist") must not become a result of its own.
  */
 const GITHUB_ROW = /^#(\d+)\s+\[(issue|PR),\s*([^\]]+)\]\s+(.+)$/;
 
@@ -141,12 +131,9 @@ function parseDrive(lines) {
     if (!ref) continue;
     rows.push({
       source: "drive",
-      // The real Drive kind, not a flattened "doc". This used to say they were
-      // all one kind to the reader, which stopped being true when search grew
-      // composed Docs and Sheets marks: the trail then drew the plain Drive
-      // triangle on a spreadsheet while the results list two clicks away drew
-      // a Sheets grid for the same file. Only the trail reads this field —
-      // citations resolve through OpenedItem, which is untouched.
+      // The real Drive kind, not a flattened "doc", or the trail draws the
+      // plain Drive triangle on a spreadsheet while the results list draws a
+      // Sheets grid for the same file. Only the trail reads this field.
       kind: DRIVE_KIND[title[3]] ?? "file",
       ref,
       title: title[2].trim(),

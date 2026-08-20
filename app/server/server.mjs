@@ -1,19 +1,15 @@
 #!/usr/bin/env node
 // The Badger web server.
 //
-// query() is a Node function, so the browser cannot call the agent directly —
-// something has to sit in between. This is that, and nothing more: it serves
-// the built frontend and exposes Badger's two passes as two endpoints.
+// Serves the built frontend and exposes Badger's two passes as two endpoints:
 //
 //   POST /api/search   deterministic. GitHub, Gmail and Drive, live, no model.
 //   POST /api/ask      the agent, streamed over SSE.
 //
-// Deliberately plain node:http. The repo's only dependencies are the agent's
-// own; adding a web framework to a submission whose thesis is "the agent is a
-// git repo" buys nothing and costs a paragraph of explanation.
+// Plain node:http, so the repo's only dependencies stay the agent's own.
 //
-// Port 4000 by default, not 3000: 3333 is gitagent's own voice UI and 3000 and
-// 5173 are commonly already taken on a dev machine. BADGER_PORT overrides.
+// Port 4000 by default: 3333 is gitagent's own voice UI, 3000 and 5173 are
+// commonly taken. BADGER_PORT overrides.
 //
 //   npm run serve                # http://localhost:4000
 import { createServer } from "node:http";
@@ -44,20 +40,17 @@ import { attachSourceUrls } from "./source-links.mjs";
 import { parseToolResults } from "./tool-results.mjs";
 import { matchSkill, readProcedure } from "./skill-match.mjs";
 import { openAgentRepo, redact } from "./agent-repo.mjs";
+import { guardRuntimeTool } from "./tool-guard.mjs";
 
-// The repo root, which is also the agent directory query() loads. The server
-// lives two levels down under app/ precisely so that this is an explicit,
-// one-way reach *upward* into the agent — never the reverse.
+// The repo root, which is also the agent directory query() loads. The reach
+// from app/ upward into the agent is one-way and never the reverse.
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const WEB_DIST = join(ROOT, "app", "web", "dist");
-// Where the agent itself runs from. With a repo URL and a token that is a git
-// clone on a long-lived learning branch, so a skill it crystallises is a
-// commit somebody can read; without them it is ROOT and nothing changes. See
-// agent-repo.mjs — the fallback is the whole reason this is safe to ship.
+// Where the agent runs from: a git clone on a long-lived learning branch when
+// a repo URL and token are set, ROOT otherwise. See agent-repo.mjs.
 const AGENT = openAgentRepo(ROOT);
-// The skills the product lists, adds to and edits. Same directory the agent
-// reads, whichever mode is in play: two skill directories that disagree is the
-// bug this one constant exists to make impossible.
+// The skills the product lists, adds to and edits — always the same directory
+// the agent reads, whichever mode is in play.
 const SKILLS_DIR = join(AGENT.agentDir, "skills");
 // Cloud Run injects PORT and expects the server to listen on it. BADGER_PORT
 // is the local convention; PORT wins so the same image runs in both places.
@@ -84,15 +77,13 @@ const server = createServer(async (req, res) => {
     if (url.pathname === "/api/login" && req.method === "POST") return await handleLogin(req, res);
     if (url.pathname === "/api/logout") return logout(res);
     if (url.pathname === "/api/health") return json(res, 200, { ok: true, ...budgetStatus() });
-    // The splash page's own two assets. Both are brand marks and carry no
-    // information about the corpus, the sources or anything behind the gate —
-    // the door has to be able to draw itself.
+    // The splash page's own two brand marks. They carry nothing about the
+    // corpus or the sources; the door has to be able to draw itself.
     if (url.pathname === "/favicon.svg") return await serveStatic("/favicon.svg", res);
     if (url.pathname === "/logo.svg") return await serveStatic("/logo.svg", res);
 
     if (!hasValidSession(req)) {
-      // The app bundle and every API sit behind this, so an unauthenticated
-      // visitor learns nothing beyond what the splash page chooses to say.
+      // The app bundle and every API sit behind this.
       if (url.pathname.startsWith("/api/")) return json(res, 401, { error: "not signed in" });
       return html(res, 401, splashPage());
     }
@@ -119,10 +110,9 @@ const server = createServer(async (req, res) => {
 /**
  * Headers that hold whether or not the tunnel is configured correctly.
  *
- * The CSP allows Google Fonts, which the design depends on, and nothing else —
- * no inline script anywhere in the app, no frames, and no third party can
- * embed this. `no-referrer` matters more than it looks: it stops the URL of a
- * private demo being handed to every site a user clicks through to.
+ * The CSP allows Google Fonts and nothing else: no inline script, no frames,
+ * no third-party embedding. `no-referrer` stops the URL of a private demo
+ * reaching every site a user clicks through to.
  */
 function setSecurityHeaders(res) {
   res.setHeader(
@@ -180,24 +170,18 @@ function html(res, status, body) {
 }
 
 // Whether the boot-time warmup actually reached GitHub. The footer reports
-// this rather than a hardcoded "connected", so the UI cannot claim a source it
-// does not have — the mockup's "GitHub, Drive and Gmail connected" is exactly
-// the sort of thing a reviewer checks.
+// this rather than a hardcoded "connected".
 let githubReachable = false;
 
 /**
  * GET /api/sources -> what THIS visitor can search right now.
  *
- * `mode` is the honest part: "own" when they have connected their own GitHub,
- * "demo" when they are looking at the shared Arkind corpus, "none" when they
- * must connect before anything works. The UI says which, because a search
- * result page that does not tell you whose data it is is a trap.
+ * `mode` is "own" when they have connected their own GitHub, "demo" for the
+ * shared Arkind corpus, "none" when they must connect first. The UI says
+ * which: a result page that hides whose data it is is a trap.
  */
 async function handleSources(req, res) {
   const ctx = await resolveContext();
-  // Drive and Gmail used to be hardcoded as "not connected" here, which stayed
-  // in place after they were wired up — so the Tools page claimed two of the
-  // three sources were missing while the agent was searching them.
   const state = ctx.userId ? await listConnections(ctx.userId) : {};
 
   return json(res, 200, {
@@ -205,8 +189,7 @@ async function handleSources(req, res) {
     sources: await Promise.all(
       TOOLKITS.map(async (id) => {
         const connected = Boolean(state[id]) && (id !== "github" || githubReachable);
-        // Whose account, not just whether there is one: "connected" does not
-        // tell you whether Badger is reading the right mailbox.
+        // Whose account: "connected" does not say which mailbox.
         return {
           id: id === "googledrive" ? "drive" : id,
           label: TOOLKIT_LABELS[id],
@@ -248,25 +231,18 @@ async function handleSearch(req, res) {
 /**
  * POST /api/ask  {question, history} — the second pass, streamed over SSE.
  *
- * This is scripts/badger-sdk.mjs with an HTTP wrapper, deliberately: same
- * allowlist, same verification, same refusal to trust a citation nobody
- * retrieved. Watching Badger search is the demo, so tool calls and text
- * deltas are forwarded the moment they arrive rather than buffered into one
- * response at the end.
+ * scripts/badger-sdk.mjs with an HTTP wrapper: same allowlist, same
+ * verification, same refusal to trust an unretrieved citation. Tool calls and
+ * text deltas are forwarded as they arrive rather than buffered.
  *
- * Safe to run from a long-lived server: ensureRepo and its auto-commit live in
- * the CLI entry point (dist/index.js), and dist/sdk.js contains no git calls
- * at all. query() will not commit to the repo on each request.
+ * Safe from a long-lived server: ensureRepo and its auto-commit live in the
+ * CLI entry point, and dist/sdk.js contains no git calls at all.
  */
 async function handleAsk(req, res) {
-  // Follow-ups carry the conversation in the request, because the runtime has
-  // nowhere to keep it — dist/sdk.js never loads prior messages, `sessionId`
-  // is only a logging label. Real multi-turn would mean holding one query()
-  // open and feeding it the AsyncIterable prompt form, which needs
-  // server-side session state and its own expiry; this is the honest version
-  // until that exists. Each follow-up re-retrieves, which costs about a third
-  // of a cent. POST rather than GET so a long conversation is not squeezed
-  // through a URL; transcript.mjs owns validation and the character budget.
+  // Follow-ups carry the conversation in the request: dist/sdk.js never loads
+  // prior messages and `sessionId` is only a logging label. Each follow-up
+  // therefore re-retrieves, at about a third of a cent. transcript.mjs owns
+  // validation and the character budget.
   let body;
   try {
     body = JSON.parse(await readBody(req));
@@ -291,13 +267,9 @@ async function handleAsk(req, res) {
   const slot = claimAskSlot();
   if (slot.error) return json(res, 429, { error: slot.error });
 
-  // Which skill this question needs, and its procedure.
-  //
-  // A skill you picked from the composer wins outright. Otherwise we choose
-  // one — because the runtime's own matcher cannot: measured against these
-  // four skills and the fifteen eval questions, `task_tracker` finds a match
-  // for none of them and tells the model "No matching skills found. Solve
-  // from scratch." See `skill-match.mjs` for the arithmetic.
+  // Which skill this question needs, and its procedure. A skill picked from
+  // the composer wins outright; otherwise we choose, because the runtime's own
+  // matcher matches nothing here. See skill-match.mjs.
   const matched = skill
     ? { slug: skill, procedure: readProcedure(SKILLS_DIR, skill) }
     : matchSkill(SKILLS_DIR, question);
@@ -315,12 +287,9 @@ async function handleAsk(req, res) {
   });
   const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
-  // The skill in play, announced as the run's first step.
-  //
-  // It cannot come from the runtime: GAP emits no event when a skill is
-  // chosen, and now the choice is made here anyway. Sent as a `tool` frame so
-  // the trail treats it like any other step — the browser draws "Using Find
-  // an expert" and does not care who decided.
+  // The skill in play, announced as the run's first step. GAP emits no event
+  // when a skill is chosen, so this is sent as a `tool` frame and the trail
+  // treats it like any other step.
   if (chosen) send("tool", { index: -1, name: "skill", args: { skill: chosen } });
 
   const startedAt = Date.now();
@@ -355,67 +324,53 @@ async function handleAsk(req, res) {
     // The agent's own directory, so memory is read from where the agent
     // writes it rather than from the image's frozen copy — see system-suffix.
     systemPromptSuffix: buildSystemSuffix(AGENT.agentDir),
-    // 18, not 12. The learning loop costs turns — begin, two or three updates,
-    // end, evaluate, sometimes crystallize — and those came out of the same
-    // budget as retrieval. Measured: an eval run at 12 turns produced answers
-    // that searched twice, opened nothing, and went straight to the
-    // bookkeeping, scoring 9/15 against a 14/15 baseline. The bound exists to
-    // stop a runaway loop, not to ration reading.
+    // 18, not 12: the learning loop spends five or six turns of the same
+    // budget as retrieval, and at 12 the eval fell to 9/15 from 14/15. The
+    // bound exists to stop a runaway loop, not to ration reading.
     maxTurns: 18,
-    // The shell and the two write tools, removed from the model's schema
-    // before it can ask for them. hooks/allowed-tools.txt blocks them too;
-    // this filter runs first (dist/sdk.js:179) and, unlike the hook, cannot
-    // fail open. A tool that is not in the schema is not a tool the model can
-    // report as unavailable, which is the failure mode of refusing one late.
+    // The shell and the two write tools, removed from the model's schema.
+    // hooks/allowed-tools.txt blocks them too, but this filter runs first
+    // (dist/sdk.js:179) and, unlike the hook, cannot fail open.
     disallowedTools: ["cli", "write", "edit"],
-    // Whose GitHub this run reads. Declarative tools are spawned as
-    // subprocesses with a snapshot of process.env, so an environment variable
-    // would race between concurrent visitors. A preToolUse closure carries the
-    // identity in the call's own arguments instead — per request, in process,
-    // and invisible to the model.
+    // Whose GitHub this run reads. Declarative tools are spawned with a
+    // snapshot of process.env, so an env var would race between concurrent
+    // visitors; a preToolUse closure puts the identity in the call's own
+    // arguments instead — per request, and invisible to the model.
     hooks: {
       preToolUse: (hookCtx) => {
+        const blocked = guardRuntimeTool(hookCtx.toolName, hookCtx.args);
+        if (blocked) return { action: "block", reason: blocked };
+
         const args = {
           ...hookCtx.args,
           _badger_user: ctx.userId,
           _badger_repo: ctx.repo,
         };
 
-        // Tell the learning loop which skill was used, because the model will
-        // not.
+        // The runtime builds its memory commit with
+        // `git commit -m "${message}"` through a shell and escapes only the
+        // quote (dist/tools/memory.js:120), so `$`, a backtick or a backslash
+        // in a model-supplied message executes as a command inside the
+        // container. Stripping them rather than blocking: a legitimate commit
+        // message never needs one, so this changes nothing the agent does and
+        // costs it no turn.
+        if (hookCtx.toolName === "memory" && typeof args.message === "string") {
+          args.message = args.message.replace(/[$`\\]/g, "");
+        }
+
+        // Tell the learning loop which skill was used, because the model
+        // often will not. `task_tracker end` fires reinforcement only if handed
+        // `skill_used` (dist/tools/task-tracker.js:227); without it no counter
+        // moves and nothing is committed.
         //
-        // `task_tracker end` fires reinforcement ONLY if it is handed
-        // `skill_used` (dist/tools/task-tracker.js:227). Omit it and the
-        // confidence maths silently never runs — no counter moves, no file
-        // changes, and so nothing is ever committed to the learning branch.
-        // Measured across every run so far: the model passed it once out of
-        // three, and the two runs that skipped it produced no learning at all
-        // despite succeeding. That is the entire loop being inert for want of
-        // one field.
-        //
-        // This is not us grading our own homework. `outcome` still comes from
-        // the model, so success and failure are still its call and the
-        // confidence score still means what it says. The only thing filled in
-        // here is WHICH skill was in play — a fact this server knows for
-        // certain, because it is the one that selected the procedure and put
-        // it in the prompt (see `chosen` above), and the model is merely
-        // failing to repeat it back.
-        // Lower-case the loop's enum arguments before they are validated.
-        //
-        // task_tracker and skill_learner declare `action` and `outcome` as
-        // literal constants — "success", not "Success" — and a capitalised
-        // value is a hard validation failure, not a coercion. Measured: the
-        // model sent {"action":"end","outcome":"Success"}, the call was
-        // rejected, the task stayed `active`, and the skill_learner call that
-        // followed refused with "did not succeed (status: active)". One
-        // capital letter took out the entire learning loop for that run, and
-        // nothing in the answer showed it.
-        //
-        // The house rule applies — fix it in the tool layer, not by asking the
-        // model to be more careful — and this is a normalisation rather than a
-        // guess: every legal value of both fields is already lower-case, so
-        // lowering can only turn an invalid argument into the valid one the
-        // model plainly meant.
+        // `outcome` is still the model's, so whether it worked remains its
+        // call. Only WHICH skill is filled in, and this server chose it.
+        // Lower-case the loop's enum arguments before validation. `action`
+        // and `outcome` are literal constants, so "Success" is a hard
+        // validation failure that leaves the task active and makes the
+        // following skill_learner call refuse. Every legal value is already
+        // lower-case, so this can only turn an invalid argument into the
+        // valid one meant.
         if (hookCtx.toolName === "task_tracker" || hookCtx.toolName === "skill_learner") {
           for (const field of ["action", "outcome"]) {
             if (typeof args[field] === "string") args[field] = args[field].toLowerCase();
@@ -439,18 +394,15 @@ async function handleAsk(req, res) {
   // The audit trail the runtime keeps only on its CLI path — see audit.mjs.
   const audit = openAuditLog(ROOT);
 
-  // A browser that navigates away should stop the agent, not leave it burning
-  // tokens into a closed socket.
+  // `res`, not `req`: an IncomingMessage emits 'close' when the request BODY
+  // is done, which already happened in readBody, so the listener never fired
+  // and a stopped run held its concurrency slot. `writableEnded` distinguishes
+  // a real disconnect from our own end(); slot.release() is idempotent.
   //
-  // `res`, not `req`. An IncomingMessage emits 'close' when the REQUEST BODY
-  // is done, which for this POST already happened in readBody above — so a
-  // listener registered here never fired at all, and pressing stop aborted
-  // only the browser's fetch while the agent ran on to maxTurns, holding a
-  // concurrency slot and spending Vertex and Composio into a dead socket.
-  // Three stopped questions exhausted MAX_CONCURRENT_ASKS. The response
-  // stream closes when the client actually disconnects, which is the event
-  // this always meant. `writableEnded` distinguishes a real disconnect from
-  // our own end() on the happy path; slot.release() is idempotent.
+  // `run.abort()` is called but does nothing — gitagent 2.1.0 passes the
+  // AbortController's signal to nothing (docs/UPSTREAM.md finding 4). It stays
+  // so this is correct the day the runtime wires it up. The bounds that hold
+  // are maxTurns and the daily ceiling.
   res.on("close", () => {
     if (!res.writableEnded) run.abort?.();
     slot.release();
@@ -464,9 +416,7 @@ async function handleAsk(req, res) {
           toolCalls.push(msg.toolName);
           recordOpened(opened, msg);
           const index = toolCalls.length - 1;
-          // Remember which step this call is, by the runtime's own id for it.
-          // See the tool_result branch for why a positional guess is not good
-          // enough.
+          // By the runtime's own id — see tool_result for why position fails.
           if (msg.toolCallId != null) callIndex.set(msg.toolCallId, index);
           send("tool", { index, name: msg.toolName, args: msg.args ?? {} });
           break;
@@ -477,18 +427,12 @@ async function handleAsk(req, res) {
           const content =
             typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
           toolOutputs.push(content);
-          // …and, for a search, the documents it found, so the reader can see
-          // what Badger is working from while it is still working.
+          // …and, for a search, the documents it found.
           //
-          // Attached by the runtime's `toolCallId`, which rides both the
-          // tool_use and the tool_result frame (dist/sdk.js:376,385). This
-          // used to attach to `toolCalls.length - 1` on the reasoning that the
-          // agent loop is sequential — and it is not. The model issues several
-          // calls in one turn, so the frames arrive as use,use,use then
-          // result,result,result, and every result landed on the last step:
-          // Drive documents filed under "Searched GitHub", search hits filed
-          // under "Read issue #10", and the two searches that really found
-          // them showing nothing but their arguments.
+          // Attached by the runtime's `toolCallId`, which rides both frames
+          // (dist/sdk.js:376,385). Position does NOT work: the model issues
+          // several calls per turn, so frames arrive use,use,use then
+          // result,result,result and every result lands on the last step.
           const from = msg.toolName ?? toolCalls.at(-1);
           const results = parseToolResults(from, content);
           if (results.length) {
@@ -506,18 +450,16 @@ async function handleAsk(req, res) {
           if (msg.content) answer = msg.content;
           break;
         case "system":
-          // Redacted, because this text is written by the runtime and goes
-          // straight to the browser. In repo mode the runtime authenticates
-          // git by putting the token in the URL (session.js:8), so a failed
-          // clone, fetch or push produces an error message with the credential
-          // inside it — and this line would forward it to the page.
+          // Redacted: the runtime authenticates git with the token in the URL
+          // (session.js:8), so a failed clone or push produces an error
+          // message carrying the credential, and this goes to the browser.
           if (msg.subtype === "error") send("warning", { message: redact(msg.content) });
           break;
       }
     }
   } catch (err) {
-    // Same reason as the system case above: an error thrown out of query() in
-    // repo mode can carry the git URL, and this goes to Cloud Logging.
+    // As above: an error out of query() can carry the git URL, and this goes
+    // to Cloud Logging.
     console.error("[ask]", redact(err?.stack || err?.message || err));
     send("error", { message: "Badger could not finish that answer." });
     slot.release();
@@ -525,11 +467,9 @@ async function handleAsk(req, res) {
   } finally {
     audit.end();
     slot.release();
-    // The runtime has already committed and pushed whatever the agent learned
-    // — finalize() runs on both the success and the error path inside query()
-    // — so by here the copy has served its purpose and the template can pick
-    // up what was pushed. Both are best-effort and neither is awaited into the
-    // answer: a failed cleanup must not turn a good answer into an error.
+    // finalize() has already committed and pushed on both the success and the
+    // error path, so the copy is done with. Best-effort and not awaited: a
+    // failed cleanup must not turn a good answer into an error.
     target.release();
     AGENT.sync();
   }
@@ -546,11 +486,8 @@ async function handleAsk(req, res) {
     answer: annotateUnverified(answer, verification),
     verification,
     toolCalls,
-    // Sources come from what the answer actually cites, not from what was
-    // opened in full. An answer can legitimately cite an issue it only saw in
-    // search results, and an earlier version of this — which listed only
-    // explicitly-opened threads — reported "0 sources" under an answer
-    // carrying four verified citations.
+    // From what the answer cites, not what was opened: an answer can
+    // legitimately cite an issue it only saw in search results.
     cited: attachSourceUrls(
       resolveCitations(cited, toolOutputs),
       opened,
@@ -559,10 +496,9 @@ async function handleAsk(req, res) {
       // by identity rather than by position. Cached after the first lookup.
       { mailbox: await accountFor(ctx.userId, "gmail").catch(() => null) },
     ),
-    // Threads Badger opened in full and then did not cite. This is the gap the
-    // design asks for: "N items were opened but not cited". It is deliberately
-    // not "everything that appeared in a search result" — those were listed,
-    // not read, and calling them opened would overstate the work.
+    // Opened in full and not cited — the honesty signal. Deliberately not
+    // everything that appeared in a search result: those were listed, not
+    // read.
     opened,
     uncited: opened.filter((item) => !isCited(item, cited)),
     tookMs: Date.now() - startedAt,
@@ -576,13 +512,10 @@ async function handleAsk(req, res) {
 /**
  * Note what a tool call opened, so the answer can be compared against it.
  *
- * This drives two things the reader sees: "N items were opened but not cited",
- * and the follow-up chips. It knew only the three GitHub read tools, so a mail
- * thread or a Drive document Badger opened in full counted as nothing — the
- * honesty signal undercounted, and no chip ever offered mail or a document.
+ * Drives "N items were opened but not cited" and the follow-up chips.
  *
- * Mail and Drive are opened by opaque id, so there is no label to record here.
- * `labelOpened` recovers one from the tool's own output once it has arrived.
+ * Mail and Drive are opened by opaque id, so there is no label to record here;
+ * `labelOpened` recovers one from the tool's own output.
  */
 function recordOpened(opened, msg) {
   const args = msg.args ?? {};
@@ -604,10 +537,9 @@ function recordOpened(opened, msg) {
 /**
  * Give the mail and document opens a human label.
  *
- * The tools print an id-to-name line at the top of their output — gmail_thread
- * writes `thread <id> — "<subject>"`, drive_file writes `<name>  [doc]` above
- * `id: <file_id>` — so the name is already retrieved and costs no extra call.
- * An id that cannot be resolved keeps the id rather than inventing a name.
+ * The tools print an id-to-name line at the top of their output —
+ * `thread <id> — "<subject>"` and `<name>  [doc]` above `id: <file_id>` — so
+ * the name costs no extra call. An unresolvable id keeps the id.
  */
 function labelOpened(opened, toolOutputs) {
   const corpus = toolOutputs.join("\n");
@@ -631,9 +563,8 @@ const escapeRe = (v) => String(v).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  * Turn the answer's citations into source cards, recovering each one's title
  * from the tool output that produced it.
  *
- * The tools print issues as "#12 [issue, open] Title", so the title is
- * available without a further API call. When it cannot be recovered the card
- * falls back to the bare reference rather than inventing a name.
+ * The tools print issues as "#12 [issue, open] Title", so the title needs no
+ * further API call. Unrecoverable falls back to the bare reference.
  */
 function resolveCitations(cited, toolOutputs) {
   const corpus = toolOutputs.join("\n");
@@ -653,11 +584,8 @@ function resolveCitations(cited, toolOutputs) {
     items.push({ kind: "file", ref: path, label: path, detail: "file" });
   }
 
-  // Mail and documents were the silent half. extractCitations has returned
-  // them since Gmail and Drive were wired up and verifyCitations counts them,
-  // so the badge could read "5 citations, all retrieved" above a grid showing
-  // two cards. They are cited by subject and by name rather than by id — that
-  // is the format RULES.md asks for — so the citation is its own reference.
+  // Mail and documents are cited by subject and by name rather than by id —
+  // the format RULES.md asks for — so the citation is its own reference.
   for (const m of cited.mail) {
     items.push({ kind: "mail", ref: m.subject, label: m.subject, detail: `mail, ${m.sender}` });
   }
@@ -672,10 +600,9 @@ function resolveCitations(cited, toolOutputs) {
 /**
  * Did the answer actually cite this opened item?
  *
- * GitHub items carry an id that matches literally. Mail and documents are
- * cited by subject and by name, so they are compared against the label
- * recovered from the tool output, with the same forgiving match the verifier
- * uses — the target is invention, not transcription.
+ * GitHub items match literally. Mail and documents are compared against the
+ * label recovered from the tool output, with the verifier's forgiving match:
+ * the target is invention, not transcription.
  */
 function isCited(item, cited) {
   if (item.kind === "file") return cited.paths.includes(item.ref);
@@ -687,9 +614,7 @@ function isCited(item, cited) {
 /**
  * GET /api/skills — what the agent knows how to do, for the picker.
  * POST /api/skills — a person adds a skill through the UI. The file lands in
- * the agent's own skills/ tree, so the next question can already use it; the
- * commit is left for a human review, same as a learned skill gets pruned or
- * kept by hand.
+ * the agent's own skills/ tree and the next question can use it.
  */
 function handleSkillsList(res) {
   return json(res, 200, { skills: listSkills(SKILLS_DIR) });
@@ -698,17 +623,13 @@ function handleSkillsList(res) {
 /**
  * GET, PUT and DELETE /api/skills/:slug — the manage-skills page.
  *
- * PUT carries a whole SKILL.md, never a set of fields. That is the difference
- * between this and the version that was pulled: a server that merges fields
- * into a file owns the parts of the file it never shows you, and quietly drops
- * whatever it does not know about.
+ * PUT carries a whole SKILL.md, never a set of fields: a server that merges
+ * fields silently drops whatever it does not know about.
  *
- * The slug is never joined onto a path here; `skills-store` validates it
- * against a kebab-case regex first and throws otherwise, so a traversal
- * attempt fails as "not a valid skill name" rather than reaching the disk.
+ * The slug is never joined onto a path here — `skills-store` validates it
+ * against a kebab-case regex first, so traversal fails before reaching disk.
  *
- * Every write is rate-limited on the same bucket as asking, because these
- * write real files into the agent's own repository.
+ * Every write is rate-limited on the same bucket as asking.
  */
 async function handleSkillOne(req, res, url) {
   const slug = decodeURIComponent(url.pathname.slice("/api/skills/".length));

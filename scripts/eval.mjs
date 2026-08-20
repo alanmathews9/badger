@@ -5,21 +5,17 @@
 //   npm run eval -- why-late     # one question, or several, by id
 //   npm run eval -- --json       # machine-readable, for diffing two runs
 //
-// **What a run costs.** Fifteen questions at roughly a cent each. Cheap enough
-// to run before and after every change, which is the only property that makes
-// an eval set worth having — one that is too expensive to re-run becomes a
-// document rather than a test.
+// Fifteen questions at roughly a cent each — cheap enough to run before and
+// after every change, which is what makes an eval set a test rather than a
+// document.
 //
-// **Why it drives the SDK and not the HTTP server.** The server adds a gate, a
-// budget and a rate limiter, none of which is under test, and requiring a
-// running server to measure retrieval would make the eval set something you
-// have to set up rather than something you run. This is the same path
-// `scripts/badger-sdk.mjs` uses, with the same allowlist.
+// It drives the SDK, not the HTTP server: the gate, budget and rate limiter
+// are not under test, and needing a running server would make this something
+// you set up rather than something you run.
 //
-// Questions run one at a time on purpose. GitHub's search API allows 30
-// requests a minute and answers a breach with a 403 that looks nothing like a
-// rate limit, and a parallel runner would produce failures that are entirely
-// the runner's fault.
+// One question at a time. GitHub allows 30 search requests a minute and
+// answers a breach with a 403 that looks nothing like a rate limit, so a
+// parallel runner produces failures that are the runner's fault.
 import { query } from "@open-gitagent/gitagent";
 import { openAuditLog } from "../app/server/audit.mjs";
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
@@ -35,25 +31,16 @@ const REPO_DIR = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 /**
  * The agent directory the eval runs against — a throwaway copy, not the repo.
  *
- * The eval used to point straight at the repository, and the run that exposed
- * why scored 9/15 against a 14/15 baseline. `skill_learner crystallize` writes
- * a SKILL.md and then `git add` + `git commit`s it in whatever directory the
- * agent is loaded from, so a run against the repo left NINE new skills and
- * nine commits on `main` — including `find-payments-expert`, a narrower
- * restatement of `find-expert` that this project has watched the runtime learn
- * and re-learn before.
+ * Pointed at the repo, `skill_learner crystallize` writes and commits SKILL.md
+ * files into it — one run left nine skills and nine commits on `main`. Worse,
+ * a skill crystallised on question 3 is in the prompt for question 10, so
+ * every question changes the agent answering the rest. That is not a
+ * measurement.
  *
- * Worse than the mess: a skill crystallised on question 3 is in the prompt for
- * question 10, and gets matched and followed with its own two-line procedure
- * in place of the hand-written one. So every question after the first changed
- * the agent that answered the rest, and the number at the end measured a
- * different agent from the one it started with. That is not a measurement.
- *
- * A copy fixes it at the root: the agent is identical, the learning loop still
- * runs in full and is still measured, and everything it writes dies with the
- * directory. node_modules is symlinked because the declarative tools resolve
- * it by walking up from tools/scripts/, and .gitagent so the run uses the same
- * search index rather than rebuilding one.
+ * The copy runs the identical agent with the learning loop fully on; whatever
+ * it writes dies with the directory. node_modules is symlinked because the
+ * tools resolve it by walking up from tools/scripts/, and .gitagent so the run
+ * uses the same search index rather than rebuilding one.
  */
 function isolatedAgentDir() {
   const dir = mkdtempSync(join(tmpdir(), "badger-eval-"));
@@ -93,10 +80,19 @@ async function ask(q) {
   let crash = null;
 
   try {
+    // Same three the server withholds. Without this the full builtin set is in
+    // the model's schema — `cli` included, which spawns a shell with
+    // `shell: true` and the whole of process.env (dist/tools/cli.js:20-25) —
+    // and the only thing left is `hooks/allow-tools.sh`, which fails OPEN on a
+    // crash, a timeout or any non-JSON output (dist/hooks.js:83-107). These two
+    // run on a laptop against the real .env, so that is the wrong place to
+    // depend on a hook. It also makes the eval measure the same tool surface
+    // production serves.
     const result = query({
       prompt: q.question,
       dir: AGENT_DIR,
       systemPromptSuffix: buildSystemSuffix(),
+      disallowedTools: ["cli", "write", "edit"],
     });
     // The audit trail the runtime keeps only on its CLI path — see audit.mjs.
     const audit = openAuditLog(AGENT_DIR);
@@ -118,11 +114,10 @@ async function ask(q) {
 /**
  * Grade one result.
  *
- * `mustCite` is checked against what was **retrieved**, not against the answer.
- * That is the distinction the whole set is built on: an agent that found the
- * right material and described it badly has a writing problem, and one that
- * never found it has a retrieval problem. Conflating them is how you spend a
- * day tuning a prompt to fix a search bug.
+ * `mustCite` is checked against what was RETRIEVED, not against the answer:
+ * finding the right material and describing it badly is a writing problem,
+ * never finding it is a retrieval problem, and conflating them means tuning a
+ * prompt to fix a search bug.
  */
 function grade(q, r) {
   const retrieved = r.outputs.join("\n");
@@ -147,16 +142,12 @@ function grade(q, r) {
     if (re.test(r.answer)) failures.push(`answer contains what it should not: ${re}`);
   }
 
-  // Citation verification is a separate axis: an answer can be correct and
-  // still cite something it never opened, which is the failure mode that
-  // destroys trust fastest. Reported, and counted as a failure.
+  // A separate axis: an answer can be correct and still cite something it
+  // never opened. Counted as a failure.
   //
-  // The shape is `{ ok, checked, findings }` — `checked` is how many citations
-  // were examined and `findings` are the ones that could not be traced back to
-  // a tool result. The first version of this read `verification.citations`,
-  // which does not exist, so the check passed everything and printed "0
-  // citations" on every question. An eval set containing a check that cannot
-  // fail is worse than one without it: it reports confidence it never earned.
+  // The shape is `{ ok, checked, findings }`. Reading a field that does not
+  // exist here passes everything silently — a check that cannot fail is worse
+  // than no check, because it reports confidence it never earned.
   const verification = verifyCitations(r.answer, r.outputs);
   if (verification.findings.length) {
     failures.push(`${verification.findings.length} unverified citation(s): ` +

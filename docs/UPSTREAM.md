@@ -23,13 +23,15 @@ Today that reports:
 Compliance Validation
 ✓ Compliance configuration — valid
 
-✗ Validation failed: 15 errors, 103 warnings
+✗ Validation failed: 15 errors, 23 warnings
 ```
 
-Everything that is ours passes. The 15 errors and the bulk of the warnings are
+Everything that is ours passes. All 15 errors and 10 of the 23 warnings are
 two divergences **between the reference runtime and the published spec**, both
 reproduced below from a clean two-file agent that has nothing to do with
-Badger.
+Badger. Of the rest, ten are Badger's own tool naming — explained in the README
+— and three are the separation-of-duties roles `DUTIES.md` deliberately leaves
+unassigned.
 
 A note on the packages, because it took a while to work out. The runtime is
 `@open-gitagent/gitagent@2.1.0`; the standard's reference CLI is now
@@ -184,18 +186,26 @@ valid and loadable.
 
 ### What Badger does
 
-Badger's ten tools use `implementation.script`, because a tool that validates
-and does not exist is worse than a tool that exists and warns. That choice is
-the source of ~100 of the 103 warnings in the report above — ten warnings per
-tool file, ten tool files.
+Badger's ten tools carry **both** spellings: `type` and `path` for the schema,
+`script` for the loader. A tool that validates and does not exist is worse than
+a tool that exists and warns, so `script` is the one that cannot be dropped —
+but everything else the schema asks for is supplied, which satisfies all three
+of its conditional branches and leaves exactly one unavoidable error per file:
 
-The same files also trip `/name: must match pattern "^[a-z][a-z0-9-]*$"`,
-because Badger's tools are named `github_search` rather than `github-search`.
-That one *is* ours and it is fixable; it is deliberately not fixed, because
-renaming ten model-facing tools would churn the allowlist, `RULES.md`, the
-server's tool-name handling and the eval baseline in exchange for reducing a
-warning count on files that cannot pass anyway. Worth doing the day
-`implementation` is resolved upstream, not before.
+```
+!   /implementation: must NOT have additional properties
+```
+
+That is the whole of the deadlock, stated once per tool. Supplying the schema's
+keys alongside the loader's took the warning count from 103 to 23 and changed
+nothing at runtime — `tool-loader.js:177` tests only for `script`, and
+`createDeclarativeTool` (`:68`) reads only `.script` and `.runtime`.
+
+The remaining ten warnings are `/name: must match pattern "^[a-z][a-z0-9-]*$"`.
+**That one is ours, not the runtime's**, and it is explained in the README
+rather than here: `docs/UPSTREAM.md` is for defects in the standard and its
+runtime, and a tool named `github_search` on an agent whose spec says
+kebab-case is Badger's own deliberate choice, not somebody else's bug.
 
 ### What would fix it upstream
 
@@ -266,7 +276,62 @@ parallel, because they hold no shared state. It is a mitigation and not a fix �
 the race is still there for anyone who batches — which is why it is written up
 here.
 
-## 4. Smaller notes, recorded but not worth an issue
+## 4. `query().abort()` does not abort anything
+
+**Severity: silent, and it undercuts a compliance claim.** No error. The call
+returns, the caller believes the run is stopped, and the run continues to
+`maxTurns` — spending model and API budget into a socket nobody is reading.
+
+### Reproduction
+
+Three greps against the shipped `dist/`, no run required:
+
+```
+$ grep -n '\bac\b' dist/sdk.js
+63:    const ac = options.abortController ?? new AbortController();
+537:            ac.abort();
+
+$ grep -c signal dist/sdk.js
+0
+
+$ grep -n 'abort()' node_modules/@mariozechner/pi-agent-core/dist/agent.js
+194:    abort() {
+195:        this.activeRun?.abortController.abort();
+```
+
+An `AbortController` is created at `sdk.js:63` and aborted at `sdk.js:537`. Its
+`signal` is never read: the string does not occur in the file. It is passed
+neither to `new Agent({...})` (`sdk.js:256`) nor to `agent.prompt()`
+(`sdk.js:446`), and no `AbortSignal` reaches the provider call. Meanwhile the
+underlying `pi-agent-core` `Agent` carries a working `abort()` that cancels the
+active run — `sdk.js` holds the agent instance and never calls it.
+
+So `query().abort()` is a no-op in 2.1.0.
+
+### Why this one matters more than it looks
+
+It is the only stop control the SDK surface offers, so any agent with a stop
+button in its UI has a stop button that lies. And it is the natural thing to
+cite for `compliance.supervision.kill_switch`, which `opengap audit` prints as
+a green tick without checking that anything is behind it — a control that
+validates, reports as present, and does nothing.
+
+### What Badger does
+
+`app/server/server.mjs` calls `run.abort?.()` on client disconnect anyway, so
+the code is correct the day the runtime is, and releases the concurrency slot
+in the same handler — which is the half that works and was the real defect it
+was written for. `agent.yaml` rests `kill_switch` on the daily answer ceiling
+and the per-run turn bound instead, and says so in a comment.
+
+### What would fix it upstream
+
+One line: pass `ac.signal` through to the agent run, or have `generator.abort()`
+call the agent's own `abort()`. The mechanism already exists one layer down.
+
+---
+
+## 5. Smaller notes, recorded but not worth an issue
 
 - **`annotations.read_only` is read by nothing.** The spec defines it
   (§8) and `tool-loader.js` never mentions the block. Badger sets it anyway,
@@ -278,6 +343,13 @@ here.
   cannot fail does not need the runtime to agree about what failure means.
 - **`runtime.max_turns` is not read** by 2.1.0; only the caller's bound
   applies.
+- **`agents/` and read-only are mutually exclusive.** Sub-agent delegation is
+  not a runtime mechanism at all: `formatSubAgentsForPrompt`
+  (`agents.js:80`) emits the instruction *"To delegate to a sub-agent, use the
+  `cli` tool to run: `gitagent --dir {agent_path} -p ...`"*. It is a shell-out.
+  Any agent that withholds `cli` — which every read-only agent must — has an
+  `agents/` directory the model is told to reach through a tool it does not
+  hold. Badger declines `agents/` for that reason as much as for the cost.
 - **`agent.yaml: skills:` is a filter, not a list.** `loader.js:194` treats it
   as an allowlist, so naming your skills there silently drops every skill the
   agent later learns or a person adds. Badger deliberately omits the key.

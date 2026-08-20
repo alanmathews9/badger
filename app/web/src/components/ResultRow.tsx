@@ -8,18 +8,15 @@ import { whenLabel } from "@/lib/when";
 /**
  * One hit, from any of the three sources.
  *
- * Two icons, and they answer two different questions:
+ * Two icons answering two questions:
  *
- *   left edge   — which SYSTEM this came from. It sits in the same place for
- *                 every source, so the eye can scan a mixed list by origin,
- *                 which is the whole point of merging them into one list.
- *   title start — WHAT it is and what state it is in. GitHub rows keep GitHub's
- *                 own icons and colours, green open and purple merged, which a
- *                 GitHub user reads without a legend. Mail and documents have
- *                 no state, so they get nothing rather than a decorative dot.
+ *   left edge   — which SYSTEM this came from, always in the same place so a
+ *                 mixed list can be scanned by origin.
+ *   title start — WHAT it is and its state. GitHub rows keep GitHub's own
+ *                 icons and colours. Mail and documents have no state, so they
+ *                 get nothing rather than a decorative dot.
  *
- * The title is a plain blue link. Nothing else on the row is blue, so blue
- * means "this goes somewhere".
+ * The title is the only blue thing on the row, so blue means "goes somewhere".
  */
 export function ResultRow({ row }: { row: SearchRow }) {
   return (
@@ -94,18 +91,15 @@ export function ResultRow({ row }: { row: SearchRow }) {
  * Which mark a row carries.
  *
  * Drive rows get their own glyph — Docs, Sheets, folder — with the Drive
- * triangle badged on the corner, which is the mark Glean draws and which says
- * both facts at once: what the thing is, and which system it lives in. The
- * generic triangle threw away the first, and the bare Docs glyph would throw
- * away the second, which matters more here than it does in Drive itself
- * because this list is merged from three systems. See `DriveMark`.
+ * triangle badged on the corner, so the mark says both what the thing is and
+ * which system it lives in. That matters more in a list merged from three
+ * systems than it does inside Drive. See `DriveMark`.
  *
- * Anything else in Drive — a PDF, an upload — keeps the plain Drive mark,
- * because that is genuinely all we know.
+ * A PDF or an upload keeps the plain Drive mark: that is all we know.
  */
 function SourceMark({ row }: { row: SearchRow }) {
-  // Drive marks are drawn slightly larger than the rest: their glyphs sit
-  // inside more padding, so an equal number renders a visibly smaller mark.
+  // Larger than the rest: these glyphs sit inside more padding, so an equal
+  // number renders visibly smaller.
   if (row.source === "drive") return <DriveMark kind={row.kind} size={30} />;
   const Logo = BRAND_LOGOS[row.source];
   return <Logo size={26} />;
@@ -128,15 +122,13 @@ function bestExcerpt(excerpts: string[]): string {
 /**
  * What to say when we know the row matched but cannot show where.
  *
- * The two cases are genuinely different and the wording says which: GitHub
- * matched inside a thread whose comments we did not fetch, while Drive matched
- * inside a document whose text we did not export. Both are "matched, not
- * shown", never "no description".
+ * The two cases differ and the wording says which: GitHub matched inside a
+ * thread whose comments we did not fetch, Drive inside a document whose text
+ * we did not export. Both are "matched, not shown", never "no description".
  */
 function unlocatableText(row: SearchRow): string {
-  // A folder has no text of its own, so there is nothing to excerpt and
-  // nothing was hidden — say what it is rather than "No description.", which
-  // reads as a document whose body we failed to fetch.
+  // A folder has no text, so nothing was hidden — say what it is rather than
+  // "No description.", which reads as a failed fetch.
   if (row.kind === "folder") {
     return row.folder ? `Drive folder, inside ${row.folder}.` : "A folder in Drive.";
   }
@@ -149,31 +141,19 @@ function unlocatableText(row: SearchRow): string {
 /**
  * The metadata line, which differs per source because the facts differ.
  *
- * It sits directly under the title rather than under the snippet — who wrote
- * a thing and when is how a reader decides whether to read the excerpt at
- * all, so it belongs above it. Glean orders it the same way and its rows are
- * far easier to scan for it.
+ * Under the title rather than under the snippet: who wrote a thing and when
+ * is how a reader decides whether to read the excerpt at all.
  *
- * Every source answers the same three questions in the same order — who, when,
- * where — so the eye lands in the same place down a mixed list. The "where"
- * carries a small icon because it is the one part whose KIND is not obvious
- * from the words: "Product" could be a folder or a label until a folder icon
- * says which, and "alan-arkind/arkind" is a repository.
+ * Every source answers who, when and where in that order, so the eye lands in
+ * the same place down a mixed list. "Where" carries a small icon because its
+ * KIND is not obvious from the words — "Product" could be a folder or a label.
  *
- * A person gets no avatar. Drive returns a `photoLink` and GitHub has one per
- * login, but both are remote images on a page whose CSP allows `img-src 'self'
- * data:` only — so it would mean proxying and caching faces to decorate a line
- * that already says the name.
+ * No avatars: both Drive and GitHub serve them as remote images, and the CSP
+ * allows `img-src 'self' data:` only.
  *
- * **Drive names a person after all, and the first answer here was wrong.**
- * A probe of `GOOGLEDRIVE_FIND_FILE` and `GOOGLEDRIVE_GET_FILE_METADATA`
- * showed no `owners` and no `lastModifyingUser`, and this comment said so.
- * The mistake was probing the DEFAULT response: Drive's files.list returns a
- * minimal field set and returns the rest only when asked. Onyx does ask —
- * `backend/onyx/connectors/google_drive/file_retrieval.py` spells out
- * `owners(emailAddress)` in its FILE_FIELDS mask — and Composio forwards the
- * mask, so the crawl now asks too and it costs no extra call. Reading how
- * someone else solved it was worth more than one more probe of our own.
+ * Drive DOES name a person, but only when asked: files.list returns a minimal
+ * field set, and the crawl sends a `fields` mask (as Onyx's own connector
+ * does) at no extra call.
  */
 function MetaLine({ row }: { row: SearchRow }) {
   const when = whenLabel(row.updatedAt);
@@ -194,8 +174,8 @@ function MetaLine({ row }: { row: SearchRow }) {
       );
     }
   } else if (row.source === "gmail") {
-    // Both the name and the address: two colleagues share a first name far
-    // more often than they share a mailbox.
+    // Name and address: two colleagues share a first name far more often than
+    // they share a mailbox.
     if (row.author) bits.push(row.authorEmail ? `${row.author} <${row.authorEmail}>` : row.author);
     if (when) bits.push(when);
   } else {

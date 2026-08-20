@@ -1,13 +1,10 @@
 /**
  * Brand marks for the Tools page.
  *
- * Real logos, not approximations — taken from gilbarbara/logos (MIT) and
- * vendored for the same reasons the Octicons are: they must not be hotlinked,
- * and a badly-redrawn brand mark looks worse than no logo at all. Each is
- * unmodified except for JSX attribute casing.
- *
- * Generated once and checked in; regenerate from
- * cdn.jsdelivr.net/gh/gilbarbara/logos/logos/<name>.svg if one goes stale.
+ * Vendored from gilbarbara/logos (MIT), unmodified except for JSX attribute
+ * casing: the CSP forbids hotlinking, and a badly-redrawn brand mark looks
+ * worse than no logo. Regenerate from
+ * cdn.jsdelivr.net/gh/gilbarbara/logos/logos/<name>.svg.
  */
 
 import type { SourceId } from "@/lib/api";

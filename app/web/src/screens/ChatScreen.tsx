@@ -11,21 +11,14 @@ export type { ChatTurn };
 /**
  * Ways in, for someone who has frozen at an empty box.
  *
- * Each one is chosen to show something a single source cannot do: the first
- * returns three sources telling three different stories about the same delay,
- * the second is answerable from mail alone, and the third fires the
- * find-expert skill and has to weigh commits against who gets deferred to in
- * a thread.
+ * Each shows something a single source cannot do: three sources disagreeing
+ * about one delay, an answer that is mail-only, and a question that fires the
+ * find-expert skill.
  *
- * **These rot, and nothing here will tell you.** The Search screen carried an
- * equivalent set that named a consultancy deleted from the corpus, so the
- * first thing a visitor saw was three questions returning nothing — rendered
- * perfectly, covered by no test. Check them whenever the corpus changes.
- *
- * The durable version is Onyx's: starter messages live per-agent in the
- * database (`persona.starter_messages`) and the component renders nothing
- * when there are none, so a stale set is a config edit rather than a code
- * edit and an empty one degrades to a clean screen. Worth doing; not done.
+ * THESE ROT AND NOTHING WILL TELL YOU — they are covered by no test, and an
+ * earlier set named a company deleted from the corpus, so the first thing a
+ * visitor saw was three questions returning nothing. Check them whenever the
+ * corpus changes.
  */
 const OPENERS = [
   "Why was the Android app five weeks late?",
@@ -37,12 +30,8 @@ const OPENERS = [
  * The conversation screen: a history pane of past chats, the thread itself,
  * and the composer.
  *
- * This file used to be 743 lines and held the trail, the turn, the citation
- * rendering, the composer, the skill menu and the add-skill pane as well. It
- * is now the layout and the wiring; everything with its own behaviour lives
- * in `components/chat/`. That is not tidiness for its own sake — the trail
- * and the turn are the two pieces this revamp changed most, and neither could
- * be read without scrolling past the other.
+ * Layout and wiring only; everything with its own behaviour lives in
+ * `components/chat/`.
  */
 export function ChatScreen({
   turns,
@@ -104,7 +93,17 @@ export function ChatScreen({
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [turns.length, stepCount, textLength]);
 
-  const uncited = !running ? (last?.answer.result?.uncited ?? []) : [];
+  // Follow-up chips: opened and not cited, offered as the next question — but
+  // only under a name a person could have said themselves. Mail and Drive are
+  // opened by opaque id, and an unresolved id would read as "What was in
+  // 19ec95436f796f88?". Kind-blind, so a commit or blob digest is dropped too.
+  // The honesty count still includes them: they really were opened.
+  const isOpaque = (ref: string) => /^[0-9a-f]{12,}$/i.test(ref);
+  const uncited = !running
+    ? (last?.answer.result?.uncited ?? []).filter(
+        (item) => !isOpaque(item.label) && !(isOpaque(item.ref) && item.label === item.ref),
+      )
+    : [];
 
   return (
     <div className="flex h-dvh bg-white text-stone-900">

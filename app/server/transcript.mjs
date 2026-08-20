@@ -2,12 +2,10 @@
  * The chat transcript: conversation history in, one agent prompt out.
  *
  * The runtime keeps no conversation state — dist/sdk.js never loads prior
- * messages — so every follow-up re-sends the conversation as text. Two rules
- * keep that honest and affordable: prior answers are re-fed without their
- * Sources/Coverage boilerplate (the model would only be quoting itself), and
- * the whole transcript lives under a character budget where the oldest turns
- * fall off first, because the newest turn is the one a follow-up usually
- * leans on.
+ * messages — so every follow-up re-sends the conversation as text. Prior
+ * answers are re-fed without their Sources/Coverage boilerplate, and the
+ * transcript lives under a character budget where the oldest turns fall off
+ * first.
  */
 
 const QUESTION_MAX = 500;
@@ -35,19 +33,11 @@ export function buildPrompt(
   question,
   { budget = BUDGET_DEFAULT, skill = null, procedure = null } = {},
 ) {
-  // A skill becomes an explicit instruction, and — when we have it — the
-  // procedure itself travels with the question.
-  //
-  // **The procedure has to be sent.** This comment used to say the skill's
-  // text was "already in the system prompt (the runtime loads every
-  // SKILL.md)". It is not. `loader.js:203` injects `formatSkillsForPrompt`,
-  // which emits each skill's name, description and file location and never
-  // its body; loading the body is a `read` call the model has to decide to
-  // make, and the runtime's own matcher tells it not to bother. So naming the
-  // skill named something the model could not see.
-  //
-  // Same fix as memory, for the same reason: data the run depends on goes in
-  // the prompt, where it cannot be skipped.
+  // A skill becomes an explicit instruction, and the procedure travels with
+  // the question. The BODY has to be sent: `loader.js:203` emits each skill's
+  // name, description and location, never its body, so naming a skill alone
+  // names something the model cannot see. Data the run depends on goes in the
+  // prompt, where it cannot be skipped.
   const ask = skill
     ? procedure
       ? `Use your "${skill}" skill to answer this: ${question}\n\n` +
@@ -85,9 +75,8 @@ export function buildPrompt(
 /**
  * Validate a POST /api/ask body. Returns { question, history } or { error }.
  *
- * Malformed history turns are dropped rather than failing the request — the
- * client is ours, but a stale tab mid-deploy should degrade to a shallower
- * conversation, not a dead one. Only the question is load-bearing.
+ * Malformed history turns are dropped rather than failing the request: a stale
+ * tab mid-deploy should degrade to a shallower conversation, not a dead one.
  */
 export function parseAskBody(body) {
   const question = typeof body?.question === "string" ? body.question.trim() : "";

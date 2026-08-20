@@ -1,20 +1,13 @@
 // Citation verification.
 //
-// Badger's core promise is that every claim traces to something it retrieved.
-// Until now that promise was a line in RULES.md asking the model nicely, and it
-// has already been broken: one run emitted
-// "https://github.alanmathews9/arkind-internal/issues/15" — the ".com" dropped
-// while copying, a URL that does not exist. A wrong answer carrying a
-// real-looking link is worse than no answer, because it gets forwarded.
+// Anything the answer cites must appear in what the tools actually returned
+// during the session. A wrong answer carrying a real-looking link is worse
+// than no answer, because it gets forwarded.
 //
-// This turns the promise into a check: anything the answer cites must appear in
-// what the tools actually returned during the session.
-//
-// NOT done as a gitagent post_response hook. That hook is fired without await,
-// its result is discarded, and its payload is only { event, session_id } — it
-// never receives the response text (dist/index.js:122, dist/sdk.js:359). It
-// cannot see or stop anything. Verification has to live where the message
-// stream does, which is the SDK caller.
+// NOT a gitagent post_response hook: that hook is fired without await, its
+// result is discarded, and its payload is only { event, session_id } — it never
+// receives the response text (dist/index.js:122, dist/sdk.js:359). Verification
+// has to live where the message stream does, which is the SDK caller.
 
 /** Everything a citation can be, extracted from one block of text. */
 export function extractCitations(text) {
@@ -32,36 +25,28 @@ export function extractCitations(text) {
 /**
  * Mail and Drive citations, taken from the Sources block.
  *
- * GitHub citations carry an id — a number, a path, a URL — that can be matched
- * literally. Mail and documents have no such handle: RULES.md has them cited by
- * subject and by document name, which are free text, so they need parsing
- * rather than pattern-matching against the whole answer.
+ * GitHub citations carry an id that matches literally. Mail and documents are
+ * cited by subject and by name — free text, so they need parsing.
  *
  * Formats, from RULES.md:
  *   - {subject} — mail, {sender}, {date}. {contribution}
  *   - {document name} — {doc|sheet}, {date}. {what it says}
  *   - {document name}, comment by {speaker} — {what it says}
  *
- * This class of citation is exactly the one worth checking. A fabricated issue
- * number is conspicuous; a fabricated mail subject attributed to a real
- * colleague reads as authoritative and is the more dangerous invention.
+ * The dangerous invention: a fabricated issue number is conspicuous, a
+ * fabricated mail subject attributed to a real colleague is not.
  */
 /**
  * Drop a leading reference marker from a free-text source name.
  *
- * RULES.md asks for `- {subject} — mail, …` and `- {name} — doc, …`, and the
- * model numbers its list instead: `- #1 Refund Policy — doc, 2026-08-18.` The
- * number then travelled into the name, so verification searched tool output
- * containing "1. Refund Policy" for the literal "#1 Refund Policy" and reported
- * a document that had plainly been read as unretrieved.
+ * The model numbers its source list — `- #1 Refund Policy — doc, …` — and the
+ * number travels into the name, so verification looks for "#1 Refund Policy"
+ * in output containing "1. Refund Policy" and reports a real document as
+ * unretrieved.
  *
- * It applied to mail first and to documents a run later, which is the whole
- * reason this is one function rather than three copies of a regex: the fix was
- * made twice because the second place was missed.
- *
- * Stripped rather than forbidden. Numbering a list is not wrong, and a
- * formatting habit must never read as a fabricated source. A name that
- * genuinely never appeared is still reported.
+ * Stripped rather than forbidden: numbering a list is not wrong, and a
+ * formatting habit must never read as a fabricated source. One function
+ * because it applies to mail and to documents alike.
  */
 function unnumber(text) {
   return String(text ?? "").replace(/^#\d+\s+/, "").trim();
@@ -78,20 +63,7 @@ function extractSourceLines(s) {
 
     const asMail = body.match(/^(.+?)\s+—\s+mail,\s*([^,]+?),/i);
     if (asMail) {
-      // Strip a leading reference marker off the subject.
-      //
-      // RULES.md asks for `- {subject} — mail, {sender}, {date}`, and the
-      // model has started writing `- #1 Our reminders are going out at 3am —
-      // mail, …` instead, numbering its sources the way it numbers GitHub
-      // issues. The number then travelled into the subject, so verification
-      // looked for the literal "#1 Our reminders…" in tool output that
-      // contains "1. Our reminders…" — and reported a perfectly real message
-      // as unretrieved. Five citations on one answer, on a run whose retrieval
-      // was correct.
-      //
-      // Stripped rather than forbidden, because this is the model formatting a
-      // list and it is not wrong to number things. What must not happen is a
-      // formatting habit reading as a fabricated source.
+      // Strip a leading reference marker off the subject — see stripMarker.
       mail.push({ subject: unnumber(stripLink(asMail[1])), sender: asMail[2].trim() });
       continue;
     }
@@ -112,21 +84,13 @@ function extractSourceLines(s) {
 /**
  * Citations may be written as markdown links; compare the visible text.
  *
- * Tolerant of the ways a model actually writes a link, which are not always the
- * way the spec does. Gemini emits `[Title] (url)` with a space, and
- * `[Title]((id))` with doubled parentheses, often enough that a strict
- * `^\[(.*)\]\([^)]*\)$` left the whole string — brackets, URL and all — as
- * the "title", which then matched nothing.
+ * Tolerant of how a model actually writes a link: Gemini emits `[Title] (url)`
+ * with a space and `[Title]((id))` with doubled parentheses, and a strict
+ * pattern left the brackets and URL in the "title", which then matched nothing
+ * and produced a FALSE `unretrieved-document`.
  *
- * That produced a **false** `unretrieved-document` on a document the agent had
- * genuinely opened, and the UI stamps those `[UNVERIFIED]`. A verifier that
- * cries wolf on correct answers is worse than no verifier: it teaches the
- * reader to ignore the badge, which is the one thing the badge cannot survive.
- * Found by the eval set, 2026-08-18.
- *
- * Being generous here does not weaken the check. What is verified is the
- * extracted *title*, and it still has to appear in something a tool returned;
- * all this does is extract the title correctly in the first place.
+ * Being generous does not weaken the check: the extracted title still has to
+ * appear in something a tool returned.
  */
 const stripLink = (s) =>
   String(s)
@@ -155,10 +119,9 @@ export function mentions(corpus, value) {
 /**
  * Verify an answer against the concatenated text of every tool result.
  *
- * Deliberately one-directional: it proves a cited thing WAS retrieved. It does
- * not prove the answer characterises it correctly — quoting real issue #18 but
- * misrepresenting what Priya said would pass. Fabricated sources are the
- * failure that actually happens; this kills that class.
+ * One-directional: it proves a cited thing WAS retrieved, not that the answer
+ * characterises it correctly. Fabricated sources are the failure that actually
+ * happens.
  */
 export function verifyCitations(answer, toolOutputs) {
   const corpus = (Array.isArray(toolOutputs) ? toolOutputs : [toolOutputs]).join("\n");
@@ -166,12 +129,10 @@ export function verifyCitations(answer, toolOutputs) {
   const findings = [];
 
   for (const url of cited.urls) {
-    // Ignore links to the tools' own docs or anything non-repo the model may
-    // legitimately mention; only repository URLs are citations here.
+    // Only repository URLs are citations here.
     if (!/github\.com/i.test(url) && !/github\./i.test(url)) continue;
     if (!corpus.includes(url)) {
-      // A malformed host is the observed failure, so name it specifically —
-      // "invented" reads as a hallucinated issue, which is a different bug.
+      // Named specifically: "invented" reads as a hallucinated issue.
       const malformed = !/^https:\/\/github\.com\//i.test(url);
       findings.push({
         kind: malformed ? "malformed-url" : "unretrieved-url",
@@ -205,13 +166,11 @@ export function verifyCitations(answer, toolOutputs) {
         detail: "no tool result contains a message with this subject",
       });
     } else if (m.sender && !mentions(corpus, m.sender)) {
-      // The thread is real but the attribution is not — the more damaging half,
-      // since the quote then reads as something a named colleague said.
+      // Thread real, attribution not: it reads as something a colleague said.
       findings.push({
         kind: "misattributed-mail",
-        // The subject alone, so annotateUnverified can find it in the answer —
-        // "subject — sender" is assembled by the citation format and does not
-        // appear as one literal string anywhere.
+        // The subject alone: "subject — sender" is assembled by the citation
+        // format and appears as one literal string nowhere.
         value: m.subject,
         detail: `the thread was retrieved but "${m.sender}" never appears in it`,
       });
@@ -243,11 +202,8 @@ export function verifyCitations(answer, toolOutputs) {
 /**
  * Mark unverified citations inline rather than failing the whole answer.
  *
- * Borrowed from claude-law-firm's legal-research skill, which flags a citation
- * it cannot stand behind as "[UNVERIFIED — attorney should confirm]" instead of
- * dropping the memo. An answer is usually mostly right; blocking all of it over
- * one bad link hides four good ones. The reader needs to know which claim to
- * distrust, not that something somewhere is wrong.
+ * An answer is usually mostly right, and blocking all of it over one bad link
+ * hides four good ones. The reader needs to know which claim to distrust.
  */
 export function annotateUnverified(answer, result) {
   if (result.ok) return String(answer ?? "");
@@ -255,17 +211,15 @@ export function annotateUnverified(answer, result) {
   const TAG = " `[UNVERIFIED]`";
   let out = String(answer ?? "");
 
-  // Markdown links first, annotating AFTER the closing paren. A naive
-  // find-and-replace injects the tag inside the URL and inside the link text,
-  // which breaks the link — the one thing a citation must not do.
+  // Links first, annotating AFTER the closing paren: a naive replace injects
+  // the tag inside the URL and breaks the link.
   out = out.replace(/\[([^\]]*)\]\(([^)\s]+)([^)]*)\)/g, (whole, text, url) => {
     const refs = [...String(text).matchAll(/#(\d{1,6})/g)].map((m) => `#${m[1]}`);
     const hit = bad.has(url) || refs.some((r) => bad.has(r));
     return hit ? whole + TAG : whole;
   });
 
-  // Then bare occurrences — paths and #refs outside any link. Skip anything
-  // already inside a link or already tagged.
+  // Then paths and #refs outside any link, skipping anything already tagged.
   for (const v of [...bad].sort((a, b) => b.length - a.length)) {
     if (/^https?:/.test(v)) continue; // URLs are only cited inside links
     const esc = v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

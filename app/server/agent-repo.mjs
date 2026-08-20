@@ -1,59 +1,38 @@
 // Where the agent's own repository lives while it is running, so that what it
 // learns survives the instance that learned it.
 //
-// The problem this solves. GAP's thesis is that the agent IS a git repo and
-// that its learned skills and self-written memory are commits you can read.
-// That is true when Badger runs from a clone on a laptop. It is NOT true in
-// the container: .dockerignore excludes .git, the image never installs git,
-// and so `skill_learner crystallize` writes a real SKILL.md, reports
-// "crystallized and committed", and commits nothing — the git call is wrapped
-// in a bare catch and the success text is unconditional
-// (dist/tools/skill-learner.js:73-86, 213). The file is real while the
-// instance is warm and gone at scale-to-zero. Production learned and forgot.
+// In the container the agent cannot commit: .dockerignore excludes .git and
+// the image never installs git, so `skill_learner crystallize` writes a real
+// SKILL.md, reports "crystallized and committed", and commits nothing — the
+// git call sits in a bare catch and the success text is unconditional
+// (dist/tools/skill-learner.js:73-86, 213). The file dies at scale-to-zero.
 //
-// The framework has a first-class answer and it is not a workaround we
-// invented: `query({ repo: { url, token, dir, session } })` clones the repo
-// with the token, runs the agent inside that clone, and on the way out calls
-// commitChanges() + push() (dist/sdk.js:100-112, dist/session.js:100-125).
-// OpenGAP's README names the resulting shape as one of its architectural
-// patterns — "Human-in-the-Loop for RL Agents: when an agent learns a new
-// skill or writes to memory, it opens a branch + PR for human review before
-// merging". This module is that pattern, wired up.
+// The framework's answer is `query({ repo: { url, token, dir, session } })`,
+// which clones with the token, runs the agent in that clone, and on the way
+// out commits and pushes (dist/sdk.js:100-112, dist/session.js:100-125).
+// OpenGAP names the resulting shape "Human-in-the-Loop for RL Agents".
 //
-// ── The three things that had to be solved ────────────────────────────────
+// Three constraints shape what is below:
 //
-// 1. A branch per question. With no `session` passed, session.js:71-73 mints
-//    gitagent/session-<hex> and pushes it — one branch per question on a
-//    public repo. Passing a FIXED session id instead makes it one long-lived
-//    branch that every run checks out, pulls and appends to. `main` is never
-//    touched by the agent; a human merges the branch, which is the review gate
-//    the pattern is named for.
+// 1. Pass a FIXED session id. Without one, session.js:71-73 mints
+//    gitagent/session-<hex> per run — a branch per question on a public repo.
+//    One long-lived branch instead; `main` is only ever merged by a human.
 //
-// 2. Concurrent runs cannot share one clone. This is not theoretical: with a
-//    shared dir, a second run entering initLocalSession does `checkout
-//    <default>` and `reset --hard` on the working tree that the first run is
-//    reading files out of, and its closing `git add -A` would commit whatever
-//    the first run had half-written. So each run gets its own copy. The copy
-//    is local — the network clone happens once at boot into a template — and
-//    initLocalSession takes its "directory already exists" branch, which is a
-//    fetch and a pull rather than a clone.
+// 2. One private copy of the repo per run. Sharing a clone corrupts it: a
+//    second run's `checkout` + `reset --hard` lands on the tree the first is
+//    reading, and its closing `git add -A` commits the first's half-written
+//    state. The network clone happens once at boot into a template; each run
+//    copies that locally.
 //
-// 3. The clone is not the image. Two things the agent needs are deliberately
-//    NOT in git and therefore not in the copy: node_modules, which the
-//    declarative tools' node subprocesses resolve by walking up from
-//    tools/scripts/, and .gitagent/, which holds the search index that
-//    tools/scripts/_index.mjs resolves relative to its own module URL. Both
-//    are symlinked back to the image. Both are gitignored, so `git add -A`
-//    steps over them rather than trying to commit a symlink.
+// 3. node_modules and .gitagent are not in git, and the agent needs both —
+//    the tool subprocesses resolve modules by walking up from tools/scripts/,
+//    and the search index is resolved relative to _index.mjs. Both are
+//    symlinked back to the image, and both are gitignored so `git add -A`
+//    steps over them.
 //
-// ── The fallback matters as much as the feature ───────────────────────────
-//
-// With no repo URL or no token this module returns dir mode and the server
-// behaves exactly as it did before: query({ dir: ROOT }). A missing secret
-// must never be able to take the product down, and a clone that fails at boot
-// degrades to the same place with a warning. Learning still works in that
-// mode — it just does not outlive the instance, which is the honest status
-// quo rather than a new failure.
+// With no repo URL or token this returns dir mode and the server runs as it
+// did before: query({ dir: ROOT }). Learning then works but does not outlive
+// the instance. A missing secret must not be able to take the product down.
 
 import { execFile, execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, symlinkSync } from "node:fs";
@@ -67,25 +46,20 @@ const execFileAsync = promisify(execFile);
 
 const DEFAULT_BRANCH = "gitagent/learning";
 
-// Boot-time git. Synchronous on purpose: the clone has to be finished before
-// the port opens, for the same reason hydrateFromDb does — Cloud Run sends
-// traffic the instant it can, and a request landing mid-clone would answer
-// from a half-copied agent.
+// Boot-time git. Synchronous on purpose: the clone must finish before the port
+// opens, or Cloud Run sends a request into a half-copied agent.
 function git(args, cwd) {
   return execFileSync("git", args, {
     cwd,
     stdio: "pipe",
     encoding: "utf8",
-    // A hung credential prompt would hang the boot. There is no terminal to
-    // prompt on in a container, so make that explicit rather than discovering
-    // it as a stall.
+    // No terminal to prompt on in a container: fail rather than stall.
     env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
   }).trim();
 }
 
-// https://github.com/o/r → https://<token>@github.com/o/r. The token never
-// reaches disk in this form for longer than the run: session.js:122 strips it
-// out of the remote URL in finalize(), and the run directory is deleted after.
+// https://github.com/o/r → https://<token>@github.com/o/r. session.js:122
+// strips it back out in finalize(), and the run directory is deleted after.
 function authedUrl(url, token) {
   return url.replace(/^https:\/\//, `https://${encodeURIComponent(token)}@`);
 }
@@ -93,17 +67,12 @@ function authedUrl(url, token) {
 /**
  * Strip credentials out of anything on its way to a log.
  *
- * Not a nicety. A clone is authenticated by putting the token in the URL —
- * which is how the runtime does it too (session.js:8) — so the token is inside
- * the argv of the command, and execFileSync puts the whole command into
- * `err.message`. The first production deploy logged
- * "Command failed: git clone https://github_pat_…@github.com/…" straight into
- * Cloud Logging, where it sat in plain text with 30-day retention. That token
- * had to be rotated.
+ * The token travels in the clone URL, so it is in the command's argv and
+ * execFileSync puts the whole command into `err.message`. Logging a git error
+ * raw publishes a live credential — this cost one rotation already.
  *
- * Two patterns rather than one: the PAT by its own prefix, and the generic
- * user:password@host form, so a different credential shape cannot walk through
- * the gap the first pattern leaves.
+ * Both the PAT prefixes and the generic user:password@host form, so another
+ * credential shape cannot walk through the gap the first pattern leaves.
  */
 export function redact(text) {
   return String(text ?? "")
@@ -153,9 +122,8 @@ function linkRuntimeDirs(dir, root) {
     try {
       symlinkSync(target, link, "dir");
     } catch {
-      // A missing link is not fatal on its own: without node_modules the tool
-      // subprocesses fail loudly, and without .gitagent the search tools fall
-      // back to live queries. Both are visible, neither is silent corruption.
+      // Not fatal: without node_modules the tool subprocesses fail loudly,
+      // without .gitagent the search tools fall back to live queries.
     }
   }
 }
@@ -167,13 +135,9 @@ function linkRuntimeDirs(dir, root) {
 export function openAgentRepo(root) {
   const url = process.env.BADGER_AGENT_REPO_URL;
   // Deliberately NOT falling back to GITHUB_TOKEN, though sdk.js:101 would.
-  // Badger's whole read-only story rests on it holding no GitHub credential of
-  // its own — Composio holds the source connection server-side — and
-  // env.template says in as many words that nothing reads GITHUB_TOKEN. This
-  // token is a different animal with a different blast radius: it writes to
-  // the agent's OWN repository and must reach nothing else. Giving it its own
-  // name keeps the two from being confused for one another by anyone reading
-  // the deploy command, and keeps that line in env.template true.
+  // This token writes to the agent's OWN repository and must reach nothing
+  // else; a separate name keeps it from being confused with a source
+  // credential, which Badger does not hold at all.
   const token = process.env.BADGER_AGENT_REPO_TOKEN;
   const branch = process.env.BADGER_LEARNING_BRANCH || DEFAULT_BRANCH;
 
@@ -201,34 +165,22 @@ export function openAgentRepo(root) {
   const template = process.env.BADGER_AGENT_DIR || join(tmpdir(), "badger-agent");
   try {
     if (!existsSync(template)) {
-      // A FULL clone, deliberately, and the missing --depth 1 is the point.
-      //
-      // Shallow looked obviously right — the agent needs the files, not the
-      // history — and it broke the loop in a way that only showed up under
-      // test. With depth 1 the clone holds exactly one commit of the default
-      // branch, so once the learning branch exists and main moves on there is
-      // no common ancestor between them, and the boot merge below dies on
-      // "fatal: refusing to merge unrelated histories". The agent then never
-      // sees a change to main again.
-      //
-      // The saving was never worth defending: this repository is ~9MB of git
-      // objects and clones in about 1.4 seconds, once per container start.
+      // A FULL clone. With --depth 1 there is no common ancestor between the
+      // learning branch and main, so the boot merge below dies on "refusing to
+      // merge unrelated histories" and the agent stops seeing main. ~9MB and
+      // ~1.4s, once per container start.
       git(["clone", authedUrl(url, token), template]);
     }
-    // Strip the token straight back out of the stored remote. Every run sets
-    // it again inside its own copy and finalize() strips it there too, so the
-    // long-lived directory never holds a credential.
+    // Strip the token back out of the stored remote, so the long-lived
+    // directory never holds a credential.
     git(["remote", "set-url", "origin", url], template);
     git(["config", "user.email", "badger@users.noreply.github.com"], template);
     git(["config", "user.name", "badger"], template);
 
-    // The learning branch has to exist locally before the first run, and this
-    // is not a nicety. session.js:57-63 does `checkout <session>` and, on
-    // failure, `checkout -b <session> origin/<session>` — with no third
-    // fallback. On a repo where the branch exists in neither place both throw,
-    // initLocalSession throws, and query() reports an error instead of an
-    // answer. Not "learning silently does not persist": every question fails.
-    // So create it here, from the default branch, before anything runs.
+    // The learning branch must exist locally before the first run.
+    // session.js:57-63 tries `checkout <session>` then `checkout -b <session>
+    // origin/<session>` and has no third fallback, so if the branch exists in
+    // neither place query() throws and every question fails.
     try {
       git(["rev-parse", "--verify", "--quiet", branch], template);
     } catch {
@@ -241,28 +193,17 @@ export function openAgentRepo(root) {
         git(["branch", branch], template);
       }
     }
-    // And check it out, which is load-bearing rather than tidy. The template
-    // is what every run is copied from, so whatever branch IT sits on is where
-    // each copy's local `gitagent/learning` ref points. Left on main, the
-    // template's copy of the branch never advances: run 1 pushes, run 2 starts
-    // from the stale ref, and its push is rejected non-fast-forward — measured,
-    // not imagined. Sitting on the branch is also what makes sync() below pull
-    // the right thing.
+    // And check it out. Every run is copied from the template, so the branch
+    // it sits on is where each copy's ref points. Left on main, run 2 starts
+    // from a stale ref and its push is rejected non-fast-forward.
     git(["checkout", branch], template);
 
-    // Bring the template up to date with its OWN branch first.
+    // Bring the template up to date with its OWN branch first: boot fetched
+    // only the default branch, so a skill the agent pushed would be on GitHub
+    // and invisible here.
     //
-    // Boot fetched only the default branch, never this one, so the template's
-    // copy of the learning branch was whatever it held when the container
-    // started. A skill the agent crystallised and pushed was therefore on
-    // GitHub and invisible here — the Skills screen did not list it, and
-    // merging main against a stale base produced a spurious conflict in a file
-    // neither side had touched on this branch. Both symptoms, one cause.
-    //
-    // Fast-forward when we can. If the template holds local commits that are
-    // not pushed — a skill somebody added through the UI, which lives here as
-    // a commit until a run carries it up — rebase them on top instead of
-    // discarding them.
+    // Fast-forward when possible, else rebase — the template may hold local
+    // commits (a skill added through the UI) that a reset would discard.
     try {
       git(["fetch", "origin", branch], template);
       try {
@@ -277,21 +218,12 @@ export function openAgentRepo(root) {
       void err;
     }
 
-    // Bring the default branch INTO the learning branch, every boot.
+    // Bring the default branch INTO the learning branch, every boot. The
+    // runtime pulls only the session branch (session.js:64-68), so without
+    // this the agent never sees main again and no deploy can reach it.
     //
-    // Without this the loop is one-way and the agent quietly freezes. The
-    // runtime checks out the session branch and pulls only that branch
-    // (session.js:64-68), so once gitagent/learning exists it never sees main
-    // again — which means editing a skill, fixing RULES.md or deploying a new
-    // version of the agent would have NO effect on the running agent, forever.
-    // Found by fixing a skill and realising the fix could not reach it.
-    //
-    // A conflict is possible in principle: a person edits a SKILL.md body on
-    // main while the agent rewrites the same file's frontmatter counters here.
-    // In practice those are different hunks and git merges them cleanly. When
-    // it does not, abort and keep running on the branch as it stands — a stale
-    // agent is bad, a half-merged one is worse — and say so loudly, because
-    // this is the one case that needs a person.
+    // A conflict needs a person: abort and keep running on the branch as it
+    // stands, loudly. A stale agent is bad, a half-merged one is worse.
     try {
       const defaultBranch = git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], template)
         .replace(/^origin\//, "");
@@ -339,11 +271,9 @@ export function openAgentRepo(root) {
       const dir = join(tmpdir(), `badger-run-${randomBytes(4).toString("hex")}`);
       try {
         await mkdir(dir, { recursive: true });
-        // Async, and dereference:false. Async because this sits in the request
-        // path and one instance serves three concurrent answers — a
-        // synchronous copy of the repo would stall the other two. And
-        // dereference:false so the node_modules and .gitagent symlinks are
-        // copied as links rather than as 460MB of files.
+        // Async because this is on the request path and would stall the other
+        // concurrent answers. dereference:false so the node_modules and
+        // .gitagent symlinks stay links rather than 460MB of files.
         await cp(template, dir, { recursive: true, dereference: false, force: true });
         linkRuntimeDirs(dir, root);
       } catch (err) {
@@ -357,18 +287,11 @@ export function openAgentRepo(root) {
         // keeps it to a fetch instead of a clone.
         repo: { url, token, dir, session: branch },
 
-        // Reconcile, then delete. Two answers running at once each commit to
-        // the same branch from the same base, so the second push of the pair
-        // is rejected non-fast-forward — and sdk.js:473-477 wraps finalize()
-        // in a bare catch, so the runtime drops that on the floor without
-        // telling anyone. Measured with two concurrent runs: one pushed, one
-        // was rejected, and nothing anywhere said so. A lost answer would be
-        // loud; lost learning was silent, which is worse.
-        //
-        // So before throwing the copy away, ask whether it still holds
-        // commits the remote does not. If it does, rebase onto the branch and
-        // push again. If that still fails, say so — a warning in the log is
-        // the minimum a dropped commit deserves.
+        // Reconcile, then delete. Two concurrent answers commit to the same
+        // branch from the same base, so the second push is rejected
+        // non-fast-forward — and sdk.js:473-477 swallows that in a bare catch.
+        // So before deleting the copy, check for commits the remote lacks and
+        // rebase-and-push them; warn if that still fails.
         release: async () => {
           try {
             const { stdout } = await execFileAsync(
@@ -377,19 +300,15 @@ export function openAgentRepo(root) {
               { cwd: dir, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }
             );
             if (stdout.trim()) {
-              // finalize() stripped the credential out of the remote on its
-              // way past (session.js:122), so put it back for this one push.
-              // The directory is deleted immediately after either way.
+              // finalize() stripped the credential (session.js:122); put it
+              // back for this one push. The directory is deleted after.
               const env = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
               await execFileAsync("git", ["remote", "set-url", "origin", authedUrl(url, token)], { cwd: dir, env });
 
-              // Three attempts, because the ordinary case is a race rather
-              // than a disagreement: another run pushed in the gap between our
-              // pull and our push, and trying again simply wins. What retrying
-              // cannot fix is two runs editing the same lines of the same file
-              // — a real conflict — and that is the case the warning below is
-              // for. Auto-resolving it would be inventing memory the agent
-              // never wrote.
+              // Three attempts: the ordinary case is a race, which retrying
+              // wins. A real conflict is not retryable and gets the warning
+              // below — auto-resolving would invent memory the agent never
+              // wrote.
               let pushed = false;
               for (let attempt = 1; attempt <= 3 && !pushed; attempt++) {
                 try {
@@ -397,8 +316,7 @@ export function openAgentRepo(root) {
                   await execFileAsync("git", ["push", "origin", branch], { cwd: dir, env });
                   pushed = true;
                 } catch (e) {
-                  // Leave no half-finished rebase behind for the next attempt
-                  // to trip over.
+                  // Leave no half-finished rebase for the next attempt.
                   await execFileAsync("git", ["rebase", "--abort"], { cwd: dir, env }).catch(() => {});
                   if (attempt === 3) throw e;
                 }
@@ -409,8 +327,7 @@ export function openAgentRepo(root) {
               );
             }
           } catch (err) {
-            // origin/<branch> not existing yet is the ordinary first-run case
-            // and is not worth a warning; anything else is.
+            // origin/<branch> not existing yet is the first-run case.
             const msg = String(err.stderr || err.message || "");
             if (!msg.includes("unknown revision") && !msg.includes("bad revision")) {
               console.warn(`[agent-repo] a learning commit could not be pushed: ${redact(msg).split("\n")[0]}`);
@@ -423,11 +340,10 @@ export function openAgentRepo(root) {
 
     /**
      * Bring the template up to date with what the last run pushed, so the
-     * Skills screen shows skills the agent learned rather than only the ones
-     * that shipped. `pull --rebase` and not `reset --hard`: a skill a person
-     * added through the UI is a local commit here that has not been pushed
-     * yet, and a reset would throw it away. Best-effort by design — a failure
-     * leaves a slightly stale skill list and nothing else.
+     * Skills screen shows learned skills too. `pull --rebase` not `reset
+     * --hard`: a skill added through the UI is an unpushed local commit here
+     * and a reset would discard it. Best-effort; a failure leaves a stale
+     * skill list and nothing else.
      */
     async sync() {
       try {

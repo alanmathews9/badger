@@ -57,9 +57,15 @@ compliance:
 
   supervision:
     # Badger answers without asking a human first, so this is `none` rather
-    # than `advisory`. What a human does have is the ability to stop a run in
-    # flight — the composer's stop control aborts the query — and a daily
-    # answer ceiling that ends the service rather than degrading it.
+    # than `advisory`. What a human does have is a daily answer ceiling that
+    # ends the service rather than degrading it, and a per-run turn bound.
+    #
+    # Deliberately NOT claimed here: the composer's stop control. It stops the
+    # answer reaching the reader and frees the concurrency slot, but it does
+    # not stop the run — gitagent 2.1.0's `query().abort()` signals an
+    # AbortController whose signal is passed to nothing (sdk.js:63,537; see
+    # docs/UPSTREAM.md finding 4). A kill switch that does not kill is worse
+    # than none, so the ceiling is what this field rests on.
     human_in_the_loop: none
     # Both true and both named: Alan reviews the agent, and the cadence is the
     # one compliance/validation-schedule.yaml actually runs on — the eval suite
@@ -67,6 +73,9 @@ compliance:
     designated_supervisor: alan-mathews
     review_cadence: weekly
     override_capability: true
+    # The daily answer ceiling and the per-run turn bound, both enforced
+    # server-side, plus taking the service down. Not the stop button — see
+    # above.
     kill_switch: true
 
   recordkeeping:

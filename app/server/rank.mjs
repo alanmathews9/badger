@@ -1,10 +1,7 @@
 // Ranking for the web search — the scoring itself lives under the agent.
 //
-// `score`, `matchedIn`, `rankBy` and the regex helpers moved to
-// `tools/scripts/_rank.mjs` so that the agent's own search tools can use them.
-// The dependency only runs one way — `app/` may reach up into `tools/`, never
-// the reverse — so a function shared by both has to live on the agent's side.
-// See the note in that file for what it cost to discover this.
+// The scoring lives in `tools/scripts/_rank.mjs` so the agent's own tools can
+// use it: `app/` may reach up into `tools/`, never the reverse.
 //
 // What stays here is `highlight`, which is presentation for the web UI. The
 // agent has no use for <hi> markers; it reads the text.

@@ -1,12 +1,10 @@
 // Live Gmail and Drive retrieval for the web UI's first pass.
 //
-// The counterpart to search.mjs, and the same contract: query the source at
-// ask-time, involve no model, and hand the UI rows it can render. It reuses
-// tools/scripts/_google.mjs, so the read-only allowlist and the session preset
-// that enforce it are shared with the agent's own tools rather than
-// re-implemented here.
+// The counterpart to search.mjs, same contract: query at ask-time, no model,
+// rows the UI can render. It reuses tools/scripts/_google.mjs, so the
+// read-only allowlist and session preset are shared with the agent's tools.
 //
-// Rows come back in the same shape as GitHub's, scored by the same function in
+// Rows come back in GitHub's shape and are scored by the same function in
 // rank.mjs, so the merge in search.mjs is a sort rather than a negotiation.
 import { exec, exportText, kindOf, isWorkspaceFile } from "../../tools/scripts/_google.mjs";
 import { planQuery, buildGmailQuery, buildDriveQuery, MAX_TERMS_GOOGLE } from "../../tools/scripts/_search-query.mjs";
@@ -74,12 +72,10 @@ export async function searchGmail(query, { limit = 10, userId } = {}) {
 /**
  * Search Drive documents and spreadsheets.
  *
- * Drive gives a filtered list with no snippet and no score, so the text has to
- * be fetched to show or rank anything — and fetching it is two hops per file,
- * because export returns a signed URL rather than the document. That is capped:
- * the top few are worth the spend, the rest keep their name and their date.
- *
- * `apiCalls` reports the real number rather than hiding the fan-out.
+ * Drive gives a filtered list with no snippet and no score, and fetching text
+ * is two hops per file because export returns a signed URL. Capped: the top
+ * few are worth the spend, the rest keep their name and date. `apiCalls`
+ * reports the real number rather than hiding the fan-out.
  */
 export async function searchDrive(query, { limit = 10, userId, excerpt = 5 } = {}) {
   const plan = planQuery(query, { max: MAX_TERMS_GOOGLE });
@@ -113,24 +109,18 @@ export async function searchDrive(query, { limit = 10, userId, excerpt = 5 } = {
     }
   });
 
-  // **Scored on the name alone, deliberately.**
+  // Scored on the NAME alone, deliberately. Only the first few files have
+  // their text fetched, so scoring those on text and the rest on name lets
+  // fetch order leak into relevance — two documents once outranked the release
+  // notes purely because their bodies had been fetched.
   //
-  // Drive gives no body text, so only the first few files have theirs fetched —
-  // and scoring those on their text while scoring the rest on their name only
-  // means a row ranks higher because we happened to read it. That is fetch
-  // order leaking into relevance, and it showed: for "why was the Android app
-  // five weeks late", "First Week Checklist" and "Team — Mobile" both outranked
-  // "Android 4.2 — Release Notes", because their text had been fetched and its
-  // had not.
+  // Every row is judged on the same information. A file whose name says
+  // nothing still counts as a match through the unlocatable path below, the
+  // same half-credit a GitHub comment-only hit gets. Bodies are still fetched
+  // for the excerpt; they just do not decide the order.
   //
-  // Every Drive row is now judged on the same information. A file whose name
-  // says nothing still counts as a match — Drive's fullText found it somewhere —
-  // through the unlocatable path below, which is the same honest half-credit a
-  // GitHub comment-only hit gets. Bodies are still fetched, and are still what
-  // the excerpt is built from; they just no longer decide the order.
-  //
-  // This also matches what the agent's own drive_search does, so the two paths
-  // cannot disagree about which document is the best answer.
+  // Matches what the agent's own drive_search does, so the two cannot
+  // disagree about the best answer.
   const weights = weightsOver(files, terms, (f) => f.name ?? "");
 
   const rows = files.map((f) => {
@@ -149,13 +139,10 @@ export async function searchDrive(query, { limit = 10, userId, excerpt = 5 } = {
       title,
       titleMarked: markTerms(title, terms),
       state: "",
-      // Owner and folder are both absent on the LIVE path, and deliberately.
-      // The owner would come back for the asking — Drive returns it under a
-      // `fields` mask, which the crawl now uses — but this query is a
+      // Owner and folder are absent on the LIVE path deliberately: this is a
       // fullText search whose response holds no folders to resolve `parents`
-      // against, and a second listing call on a path that already makes
-      // seventeen is not worth one line of metadata. The index path answers
-      // every search after the first rebuild, and it carries both.
+      // against, and a second listing call is not worth one metadata line. The
+      // index path carries both.
       author: "",
       folder: null,
       updatedAt: String(f.modifiedTime ?? "").slice(0, 10),

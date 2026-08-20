@@ -1,32 +1,26 @@
 #!/usr/bin/env node
 // Connect this Composio key's accounts — GitHub, Gmail, Drive, Docs.
 //
-// This is the whole onboarding for a fresh Composio workspace: run it, open
-// the printed links, authorise each service in the browser. Composio holds
-// the tokens; Badger never sees one. Composio treats each Google product as
-// its own toolkit with its own connected account — so one Google login still
-// means three consent screens. This script walks all four toolkits in order
-// rather than making anyone click through the dashboard.
+// The whole onboarding for a fresh Composio workspace: run it, open the
+// printed links, authorise each service. Composio holds the tokens; Badger
+// never sees one. Each Google product is its own toolkit with its own
+// connected account, so one Google login still means three consent screens.
 //
 //   npm run connect                            # print a Connect Link per toolkit
 //   npm run connect status                     # report, connect nothing
 //
-// The links are printed all at once rather than waited on one at a time, so
-// all three consent screens can be opened as tabs and worked through at a
-// human pace. Re-run with `status` afterwards to confirm.
+// All links are printed at once so the consent screens can be opened as tabs.
 //
-// Scopes, read back from the live auth configs on 2026-08-17 rather than
-// taken from the docs, which do not state them:
+// Scopes, read back from the live auth configs rather than from the docs,
+// which do not state them:
 //
 //   gmail        https://mail.google.com/                     (full mailbox)
 //   googledrive  .../auth/drive                               (full drive)
 //   googledocs   .../auth/drive + .../auth/documents
 //
-// None of these is read-only, and Google offers no managed narrower option
-// here. That is the same shape as GitHub, where `repo` is the narrowest scope
-// that can read a private repository: the credential cannot enforce read-only,
-// so the tool layer has to. Seeding uses the same grant, with write tools
-// enabled in a session the agent's allowlist never names.
+// None is read-only and Google offers no narrower managed option, the same
+// shape as GitHub's `repo`: the credential cannot enforce read-only, so the
+// tool layer has to.
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { Composio } from "@composio/core";
@@ -44,20 +38,17 @@ const statusOnly = process.argv[2] === "status";
 /**
  * The auth config for one toolkit, created if absent.
  *
- * Two traps, both hit for real on 2026-08-17:
+ * Two traps:
  *
- * 1. The SDK's filter key is `toolkit`, not `toolkitSlug` — the unknown key is
- *    silently dropped and the call returns every config in the project. The
- *    slug is therefore checked again here rather than trusted.
+ * 1. The SDK's filter key is `toolkit`, not `toolkitSlug` — an unknown key is
+ *    silently dropped and the call returns every config in the project, so the
+ *    slug is checked again here.
  *
  * 2. An auth config created through the SDK defaults to
- *    `isEnabledForToolRouter: false`, and sessions are Tool Router — so every
- *    call fails with "No active connection found for toolkit(s) 'gmail' in
- *    this session" even though `connectedAccounts.list` reports ACTIVE. The
- *    error names the connection, but the connection is fine; the auth config
- *    is not exposed to sessions. The GitHub config predates this script and
- *    was created by the dashboard, which sets the flag, so the whole project
- *    looked healthy. Set it explicitly and verify the read-back.
+ *    `isEnabledForToolRouter: false`, and sessions are Tool Router, so every
+ *    call fails with "No active connection found for toolkit(s) 'gmail'" while
+ *    `connectedAccounts.list` reports ACTIVE. The error names the connection;
+ *    the connection is fine. Set the flag explicitly and verify the read-back.
  */
 async function authConfigFor(slug) {
   const list = await composio.authConfigs.list({ toolkit: slug });
@@ -124,15 +115,10 @@ if (!statusOnly) {
   console.log("should search, then confirm with:");
   console.log("  npm run connect status");
 } else {
-  // Connection-triggered indexing, Onyx's shape sized down: Onyx starts a
-  // crawl within seconds of a connector being added (its beat scheduler picks
-  // up the trigger); here, the moment `status` confirms a searchable source
-  // is authorised is the first moment a build can succeed, so it runs right
-  // here — and again whenever a source was connected AFTER the index was
-  // built, because a copy that predates a connection cannot contain it.
-  // The web server needs no telling: it watches the index file's mtime and
-  // picks up a new build on the next search. The boot-time lazy build stays
-  // as Cloud Run's safety net, `npm run index` as the manual override.
+  // Connection-triggered indexing: the moment `status` confirms a source is
+  // authorised is the first moment a build can succeed, and again whenever a
+  // source was connected AFTER the index was built. The server watches the
+  // index file's mtime and picks up a new build on the next search.
   const searchable = connected.filter((c) => ["github", "gmail", "googledrive"].includes(c.slug));
   const idx = indexStatus();
   const newestConnection = Math.max(0, ...searchable.map((c) => c.createdAt ?? 0));

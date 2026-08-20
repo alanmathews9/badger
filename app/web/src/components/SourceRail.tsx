@@ -16,39 +16,23 @@ const DRIVE_KINDS = KINDS.filter((k) =>
 /**
  * The sources a search reached, as a filter.
  *
- * This replaces the coverage strip that sat above the results. That strip said
- * the same things — which sources answered, how many each found, which failed
- * — but said them in a place where they were a caption rather than a control,
- * and it pushed the first result below the fold. Glean puts the same
- * information in a right-hand rail where each row filters, and that is the
- * better home for it: the counts are the reason you would want to filter.
+ * A source that FAILED is still listed and says so. "Drive was not reached"
+ * and "Drive found nothing" are different facts, and showing only the second
+ * lies by omission. A failed source is not selectable: filtering to it would
+ * show an empty list that looks like an answer.
  *
- * **A source that FAILED is still listed, and says so.** "Drive was not
- * reached" and "Drive found nothing" are different facts, and a search UI that
- * shows only the second is lying by omission. A failed source is not
- * selectable, because filtering to it would show an empty list that looks like
- * an answer.
+ * Drive nests by type, and only Drive does — its rows are genuinely different
+ * things, where GitHub's four kinds all read as "the repository". The children
+ * set the same filter the type dropdown does, with the same labels, so the two
+ * controls are one filter with two ways in.
  *
- * **Drive nests by type, and only Drive does.** Drive is the one source whose
- * rows are several genuinely different things — a document, a spreadsheet, a
- * folder — where GitHub's four kinds all read as "the repository" and Gmail's
- * are all mail. The children set the same filter the type dropdown does, using
- * the same labels, so the two controls are one filter with two ways in rather
- * than two filters that can disagree.
+ * The children are always visible rather than behind a drill-in: the counts
+ * are the reason anyone looks at this rail, and a facet count nobody can read
+ * is not a facet count.
  *
- * **They are always visible, not revealed by selecting Drive.** They were
- * behind a drill-in at first, to keep the rail short. That was the wrong
- * trade: the counts are the reason anyone looks at this rail at all, and
- * hiding "Drive is 5 results, and 3 of them are spreadsheets" behind a click
- * means the reader has to already suspect it before they can see it. A facet
- * count nobody can read is not a facet count. Three extra rows is a cheap
- * price for the breakdown being legible at a glance.
- *
- * **The counts here ignore the type filter, on purpose.** They are facet
- * counts — "how many are there of each" — so picking Documents must not zero
- * Spreadsheets and strand the reader with no way back to it. The line at the
- * top is the one number that describes the list beside it, and it counts what
- * is actually on screen.
+ * Those counts IGNORE the type filter on purpose. They are facet counts, so
+ * picking Documents must not zero Spreadsheets and strand the reader. The line
+ * at the top is the one number that counts what is on screen.
  */
 export function SourceRail({
   data,
@@ -79,16 +63,11 @@ export function SourceRail({
 
   const driveRows = rows.filter((r) => r.source === "drive");
   // Documents and Spreadsheets are always listed, at zero if that is the
-  // answer. They used to be dropped when empty, together with the rule below
-  // that nested nothing unless two kinds survived — so a search returning four
-  // Drive documents and no spreadsheets showed no breakdown at all, and the
-  // reader could not tell "no spreadsheets matched" from "this rail does not
-  // do spreadsheets". A zero is information.
+  // answer: dropped when empty, "no spreadsheets matched" cannot be told from
+  // "this rail does not do spreadsheets".
   //
-  // Folders and PDFs appear only when a search finds some. They are not the
-  // two things a Drive corpus is made of, and this one holds no PDFs at all,
-  // so pinning them open would be a permanently dead row — the opposite of the
-  // fix.
+  // Folders and PDFs appear only when a search finds some — this corpus holds
+  // no PDFs at all, so pinning them open would be a permanently dead row.
   const ALWAYS = ["Documents", "Spreadsheets"];
   const driveKinds = DRIVE_KINDS.map((k) => ({
     label: k.label,

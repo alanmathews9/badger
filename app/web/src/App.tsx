@@ -36,14 +36,9 @@ const IDLE: AnswerState = {
 /**
  * The shell: a rail, and one of three destinations beside it.
  *
- * **Those destinations are URLs now, not `useState`.** They were a `mode`
- * string held in this component, which meant the address bar said `/` no
- * matter where you were: a reload dropped you back on Search, the back button
- * left the app entirely, and a conversation could not be linked to at all.
- * Onyx keeps the chat id in the URL for the same reason — their
- * `services/searchParams.ts` names `chatId` and `searchId` as first-class
- * params. The server has always been ready for this; `serveStatic` falls back
- * to index.html so any path serves the app.
+ * Destinations are URLs, not `useState`, so a conversation can be linked to
+ * and reload lands where you were. `serveStatic` falls back to index.html so
+ * any path serves the app.
  *
  *   /search        the box, empty
  *   /search?q=…    results for a query
@@ -51,18 +46,10 @@ const IDLE: AnswerState = {
  *   /chat/:id      one conversation, linkable and reloadable
  *   /tools         what Badger can reach
  *
- * A reloaded `/search?q=…` **re-runs the search** rather than restoring stored
- * results. That is Onyx's rule too, and their `search_query` table says why in
- * a comment: less is stored "because the reply functionality is simply to
- * rerun the search query again as things may have changed". Retrieval costs no
- * model call, so re-running is cheap and never stale.
+ * A reloaded `/search?q=…` re-runs the search rather than restoring stored
+ * results. Retrieval costs no model call, so this is cheap and never stale.
  *
- * **A Dig does not start the agent.** It did — the answer began writing itself
- * above the results on every search — and it was the wrong default three times
- * over: it spent a model call and a slot from the daily answer budget on every
- * search including the ones that were a lookup, it put fifteen seconds of
- * streaming above a list already complete in one, and it made the two halves
- * impossible to judge separately. Search is retrieval; Chat is the agent.
+ * A search does not start the agent. Search is retrieval; Chat is the agent.
  */
 export default function App() {
   const navigate = useNavigate();
@@ -70,10 +57,8 @@ export default function App() {
   const [sources, setSources] = useState<SourcesResponse>({ mode: "none", sources: [] });
   const [budget, setBudget] = useState<Budget | null>(null);
   const [chats, setChats] = useState<ChatSummary[]>([]);
-  // The chat list is a Postgres round trip like everything else in history,
-  // so there is a real gap before it arrives. Without this the pane asserted
-  // "No chats yet" during every load — the confidently-wrong indicator this
-  // project keeps finding, and wrong for anyone who has chats.
+  // The chat list is a Postgres round trip, so there is a real gap before it
+  // arrives and the pane must not assert "No chats yet" during it.
   const [chatsLoading, setChatsLoading] = useState(true);
   const [searches, setSearches] = useState<SearchEntry[]>([]);
 
@@ -83,30 +68,20 @@ export default function App() {
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const cancelAsk = useRef<(() => void) | null>(null);
 
-  // Is an answer still being written? `cancelAsk` cannot say — it is never
-  // cleared on normal completion — and `turns` is not readable from the
-  // callbacks below without rebuilding them on every keystroke. This is the
-  // one flag, and `openChat` reads it to refuse to throw a live run away.
+  // Is an answer still being written? `cancelAsk` cannot say (never cleared on
+  // normal completion) and `turns` is not readable from the callbacks below.
+  // `openChat` reads this to refuse to throw a live run away.
   const runningRef = useRef(false);
 
-  // Which conversation is being answered right now, and which have finished
-  // without being looked at since.
-  //
-  // `runningRef` already tracks "is something running", but a boolean cannot
-  // colour a row: the sidebar needs to know WHICH conversation. These two are
-  // that, and they are deliberately the only new state — the app still runs
-  // one answer at a time, so `runningChatId` is either the active chat or
-  // null. Making runs survive a switch between conversations is a different
-  // and much larger change (turns keyed by chat, stream events routed per
-  // conversation) and is not what this is.
+  // Which conversation is being answered, and which finished unseen — the
+  // sidebar needs the id, not just runningRef's boolean. The app runs one
+  // answer at a time, so `runningChatId` is the active chat or null.
   const [runningChatId, setRunningChatId] = useState<string | null>(null);
   const [unseenChats, setUnseenChats] = useState<Set<string>>(new Set());
 
-  // Finished, and the reader was somewhere else when it did. Checked against
-  // the address bar rather than against `activeChatId`, because the run's
-  // conversation stays "active" while you are reading Search — being the
-  // active conversation and being on screen are different things, and only
-  // the second one means you saw the answer.
+  // Finished while the reader was elsewhere. Checked against the address bar,
+  // not `activeChatId`: a run's conversation stays active while you read
+  // Search, and only being on screen means you saw the answer.
   const markFinished = useCallback((id: string | null) => {
     setRunningChatId(null);
     if (!id) return;
@@ -122,9 +97,8 @@ export default function App() {
   const [loadingChat, setLoadingChat] = useState(false);
   const loadToken = useRef(0);
 
-  // The id is also read inside callbacks that must not be rebuilt on every
-  // change — a route effect that fires whenever its handler's identity moves
-  // would reload the conversation mid-stream.
+  // Read inside callbacks that must not be rebuilt on every change: a route
+  // effect firing on handler identity would reload the chat mid-stream.
   const activeIdRef = useRef<string | null>(null);
   const setActive = useCallback((id: string | null) => {
     activeIdRef.current = id;
@@ -145,28 +119,19 @@ export default function App() {
   /**
    * Has anything been ASKED in this conversation since it was opened?
    *
-   * Without this, opening a chat wrote it straight back: loading set `turns`,
-   * the effect below saw turns change, and saved with a fresh `updatedAt` —
-   * so clicking any conversation in the history jumped it to the top of the
-   * list. Reading is not writing, and the list orders by when a conversation
-   * was last *used*.
+   * Without it, opening a chat saved it back with a fresh `updatedAt` and
+   * every conversation clicked jumped to the top of the list.
    */
   const dirty = useRef(false);
 
   // Conversations this browser has already written a row for. See below.
   const listed = useRef<Set<string>>(new Set());
 
-  // Persist a conversation whenever a turn finishes — and once at the START of
-  // a new one, so its row exists while the answer is still being written.
-  //
-  // The rule used to be "skip running turns", on the reasoning that a
-  // half-streamed answer is not worth restoring. That is still true of the
-  // CONTENT and false of the ROW: with nothing saved until the answer landed,
-  // a question in flight was invisible in the sidebar, so there was nothing to
-  // click back to and no way to tell the agent was working. The first save of
-  // a conversation therefore goes in immediately; every later one still waits
-  // for the turn to finish, so a half-streamed answer is still never the
-  // version that gets stored.
+  // Persist whenever a turn finishes, and once at the START of a new
+  // conversation so its row exists while the answer is being written —
+  // otherwise a question in flight is invisible in the sidebar. Later saves
+  // still wait for the turn, so a half-streamed answer is never what is
+  // stored.
   useEffect(() => {
     if (!dirty.current) return;
     if (!activeChatId || turns.length === 0) return;
@@ -201,15 +166,12 @@ export default function App() {
       loadToken.current++;
       setLoadingChat(false);
 
-      // The first question in a new conversation mints its id and puts it in
-      // the address bar, so the answer being written is already linkable.
+      // The first question mints an id and puts it in the address bar, so the
+      // answer is linkable while it is written.
       //
-      // `replace` only when the question was asked from /chat, where /chat and
-      // /chat/<id> are the same conversation and back should leave rather than
-      // land on an empty composer. A question asked from the search home is a
-      // real move between two different places: replacing there overwrote the
-      // /search entry, so Back left the app entirely — from the first thing an
-      // evaluator is likely to do.
+      // `replace` only from /chat, where /chat and /chat/<id> are the same
+      // conversation. From the search home it is a real move, and replacing
+      // there would overwrite the /search entry so Back leaves the app.
       if (!activeIdRef.current) {
         const id = newChatId();
         setActive(id);
@@ -219,20 +181,15 @@ export default function App() {
       // The conversation so far, as plain text. The server strips the model's
       // Sources/Coverage boilerplate and enforces its own budget; a turn that
       // errored has nothing to contribute and is left out.
-      // `fresh` means "this is the first question of a new conversation", which
-      // is what a question asked from the search home is. It exists because
-      // `turns` here is a closure over the PREVIOUS conversation: the caller
-      // clears it with openChat(null) in the same tick, and the functional
-      // setTurns below sees that, but this array does not. Without the flag a
-      // question asked from Home would silently carry the last conversation's
-      // history into the prompt.
+      // `fresh` marks the first question of a new conversation. `turns` here
+      // is a closure over the PREVIOUS one — the caller clears it in the same
+      // tick and this array does not see that — so without the flag a question
+      // from Home carries the last conversation's history into the prompt.
       const priorTurns: Turn[] = (fresh ? [] : turns)
         .map((t) => ({ question: t.question, answer: t.answer.result?.answer ?? t.answer.text }))
         .filter((t) => t.answer.trim().length > 0);
 
-      // A hand-picked skill opens the trail as its own step, because the one
-      // thing the runtime cannot tell us — which skill is in play — is known
-      // here for certain: the user chose it.
+      // A hand-picked skill opens the trail as its own step.
       const seed = skill
         ? [{ name: "skill", args: { skill } }]
         : [];
@@ -249,37 +206,27 @@ export default function App() {
         return next;
       });
 
-      // The conversation this run belongs to, captured now. By the time the
-      // stream ends the reader may have opened another chat, and the dot has
-      // to land on the row that was actually answered.
+      // Captured now: by the time the stream ends the reader may have opened
+      // another chat, and the dot must land on the row that was answered.
       const askedIn = activeIdRef.current;
 
       cancelAsk.current = ask(
         question,
         {
           onTool: (name, args, index) => {
-            // Bookkeeping the reader does not need — see `isStepVisible`. It
-            // is dropped here rather than at render time so nothing downstream
-            // has to count around it, and any narration it was carrying stays
-            // in `text` to be attached to the next real step instead.
+            // Bookkeeping — see `isStepVisible`. Dropped here rather than at
+            // render time so nothing downstream counts around it; its
+            // narration stays in `text` for the next real step.
             if (!isStepVisible(name, args)) return;
-            // The skill in play can arrive three ways: seeded here when you
-            // picked it, announced by the server when it chose one, or as the
-            // model reading a SKILL.md itself. All three are the same event to
-            // a reader, so whichever lands second is dropped.
+            // The skill can arrive three ways — seeded here, announced by the
+            // server, or the model reading a SKILL.md. Same event to a reader,
+            // so whichever lands second is dropped.
             const slug =
               name === "skill" ? String(args.skill ?? "") || null : skillFromRead(args);
-            // Text written BEFORE a tool call is the model narrating its plan,
-            // not the answer — it kept working after writing it. The runtime
-            // streams both through one channel, so a tool call is the signal
-            // that moves it out of the answer area.
-            //
-            // MOVED, not deleted. Clearing it outright was the earlier fix and
-            // it caused a worse bug: a model that wrote prose and then called
-            // one more tool had that prose disappear from the screen, so the
-            // answer looked like it arrived, vanished, and arrived again.
-            // Attaching it to the step it was explaining keeps the answer area
-            // clean and loses nothing.
+            // Text written BEFORE a tool call is narration, not the answer.
+            // Both stream through one channel, so a tool call is the signal to
+            // move it out of the answer area — MOVED onto the step it explains,
+            // not deleted, or prose written mid-run vanishes off the screen.
             patchLast((s) => {
               if (slug && s.steps.some((step) => step.args.skill === slug)) return s;
               return {
@@ -289,8 +236,8 @@ export default function App() {
                   ...s.steps,
                   {
                     name,
-                    // A skill read is recorded under the skill's own slug so
-                    // the duplicate check above sees both forms alike.
+                    // Under the skill's slug, so the duplicate check above
+                    // sees both forms alike.
                     args: slug ? { ...args, skill: slug } : args,
                     index,
                     narration: s.text.trim() || undefined,
@@ -299,9 +246,8 @@ export default function App() {
               };
             });
           },
-          // The documents a search found, attached to the step that found
-          // them. Matched on the run's own call number rather than on array
-          // position, which the hidden steps and the skill row both shift.
+          // Matched on the run's own call number, not array position, which
+          // the hidden steps and the skill row both shift.
           onResults: (index, results) =>
             patchLast((s) => ({
               ...s,
@@ -331,15 +277,11 @@ export default function App() {
   /**
    * Abort the run in flight.
    *
-   * Cancelling the fetch is only half of it. `ask`'s canceller marks itself
-   * finished and aborts the socket, so no `onError` and no `onDone` ever
-   * arrive — which means nothing would clear `running`, and the turn would
-   * spin for the rest of the session. The state has to be closed here.
+   * `ask`'s canceller aborts the socket and marks itself finished, so no
+   * `onError` or `onDone` arrives and nothing else would clear `running`.
    *
-   * It closes as `stopped`, not as an error. The answer area renders nothing
-   * while a run is live, so a stopped turn has no answer to show — but an
-   * interruption is a choice the reader made, not a fault, and styling it as
-   * one puts a warning on screen for something that went exactly as asked.
+   * Closes as `stopped`, not as an error: an interruption is a choice the
+   * reader made, and a warning for that is wrong.
    */
   const stopAsk = useCallback(() => {
     cancelAsk.current?.();
@@ -352,23 +294,16 @@ export default function App() {
   /**
    * Point the conversation state at whatever `/chat/:id` currently names.
    *
-   * Deliberately a no-op when the id is already open, which is what keeps a
-   * running answer alive: `startAsk` navigates to the id it just minted, and
-   * without this guard the route change would immediately reload that
-   * conversation from storage and throw away the stream.
+   * A no-op when the id is already open, which is what keeps a running answer
+   * alive: `startAsk` navigates to the id it just minted, and without the
+   * guard the route change would reload it and discard the stream.
    *
-   * **The load is visible.** `getChat` is a request to Postgres, not a
-   * localStorage read — the store has been server-backed since the database
-   * landed — so clicking a past conversation changed the URL and then sat on
-   * the previous conversation for a few hundred milliseconds. The address bar
-   * said one thing and the screen said another, which reads as a click that
-   * did not register.
+   * The load is visible, because `getChat` is a Postgres request.
    */
   const openChat = useCallback(
     async (id: string | null, { force = false } = {}) => {
-      // Opening a conversation is what "seen" means, so the green dot goes
-      // before the early return — clicking the row you are already on is
-      // exactly the case where it must clear.
+      // Opening is what "seen" means, so the dot clears before the early
+      // return — clicking the row you are on is exactly that case.
       if (id) {
         setUnseenChats((prev) => {
           if (!prev.has(id)) return prev;
@@ -380,24 +315,12 @@ export default function App() {
       if (id === activeIdRef.current) return;
 
       // An answer being written is not something a click can throw away.
+      // While a run is live, bare `/chat` resolves to the conversation writing
+      // it rather than clearing the turns — so New chat waits for the answer
+      // or for Stop, which beats silently discarding it.
       //
-      // Bare `/chat` means "no conversation", and the branch below honoured
-      // that literally: it cancelled the run and cleared the turns. So asking
-      // a question and then pressing Chat in the sidebar — the natural way to
-      // get back to what you just asked — destroyed it. The turn had never
-      // been persisted, because the save effect skips a running turn, so the
-      // answer was gone from the thread AND from history, with the budget
-      // already spent on it.
-      //
-      // Navigating to Search or Tools mid-answer always worked, because the
-      // run lives above the routes. This makes coming back work too: while an
-      // answer is live, bare `/chat` resolves to the conversation writing it.
-      // The consequence is that New chat waits for the current answer, or for
-      // Stop — which is the right trade against silently discarding it.
-      // `force` is the caller saying "I am about to start a run, not throw one
-      // away" — askFromHome, which must land on a clean conversation. Without
-      // the exemption the guard below turned that reset into a no-op and the
-      // new question was appended to the running conversation instead.
+      // `force` is the caller saying "I am starting a run, not discarding
+      // one" — askFromHome, which must land on a clean conversation.
       if (!id && !force && runningRef.current && activeIdRef.current) {
         navigate(`/chat/${activeIdRef.current}`, { replace: true });
         return;
@@ -414,9 +337,7 @@ export default function App() {
         return;
       }
 
-      // Claim this load. Clicking a second conversation before the first
-      // arrives must not let the first one win the race and overwrite it —
-      // the two requests can complete in either order.
+      // Claim this load: the two requests can complete in either order.
       const token = ++loadToken.current;
       setActive(id);
       setTurns([]);
@@ -426,9 +347,8 @@ export default function App() {
       if (token !== loadToken.current) return;
       setLoadingChat(false);
 
-      // A link to a conversation this browser has never held — someone else's
-      // id, or one cleared since. Say so by landing on a new chat rather than
-      // showing an empty thread that pretends to be theirs.
+      // A conversation this browser has never held: land on a new chat rather
+      // than an empty thread pretending to be theirs.
       if (!chat) {
         navigate("/chat", { replace: true });
         return;
@@ -442,19 +362,12 @@ export default function App() {
    * A question asked from the search home.
    *
    * Always a new conversation. `activeChatId` survives navigating away from
-   * /chat — nothing clears it, because ChatRoute's effect is what opens and
-   * closes conversations and it does not run on /search — so without the
-   * explicit reset a question typed on Home would append to whatever was last
-   * open, minting no new id and appearing halfway down an old thread.
+   * /chat, so without the reset a question typed on Home would append to
+   * whatever was last open.
    *
-   * `openChat(null)` is safe to call synchronously here: its null branch has
-   * no await before `setActive`, which writes `activeIdRef` directly, so
-   * `startAsk` sees the cleared id rather than a stale one.
-   *
-   * `force` because the guard that keeps a live answer from being discarded
-   * would otherwise make this reset a no-op: asking from Home while an answer
-   * was still streaming would append the new question to the OLD
-   * conversation, under a turn left spinning forever.
+   * `openChat(null)` is safe synchronously: its null branch has no await
+   * before `setActive`. `force` because the live-answer guard would otherwise
+   * make this reset a no-op.
    */
   const askFromHome = useCallback(
     (question: string, skill: string | null) => {
@@ -484,9 +397,8 @@ export default function App() {
               <SearchRoute
                 onSearched={recordSearch}
                 onAsk={askFromHome}
-                // Authoring a skill happens in the pane, which lives on Chat.
-                // The param is the handover; ChatScreen opens the pane and
-                // strips it, so the URL does not stay in a one-shot state.
+                // The pane lives on Chat; ChatScreen opens it and strips the
+                // param so the URL does not stay in a one-shot state.
                 onAddSkill={() => navigate("/chat?new-skill=1")}
                 onManageSkills={() => navigate("/skills")}
               />
@@ -514,11 +426,9 @@ export default function App() {
 /**
  * Search, with the query in the URL.
  *
- * The URL is the single source of truth for what has been searched; the box
- * holds a draft, which is a different thing — you can type without having
- * searched. Submitting writes `?q=`, and the effect below is what actually
- * runs it, so a typed search, a suggestion click, a sidebar history item, the
- * back button and a pasted link all take exactly one path.
+ * The URL is the source of truth for what has been searched; the box holds a
+ * draft. Submitting writes `?q=` and the effect below runs it, so typing, a
+ * suggestion, history, Back and a pasted link all take one path.
  */
 function SearchRoute({
   onSearched,
@@ -559,10 +469,8 @@ function SearchRoute({
       .then((response) => {
         if (!live) return;
         setData(response);
-        // Record what the search actually cost, not just that it happened.
-        // `path` is the load-bearing one: index and live disagree between
-        // refreshes, so a history entry that did not say which answered
-        // could not be judged later.
+        // `path` is load-bearing: index and live disagree, so an entry that
+        // does not say which answered cannot be judged later.
         onSearched(query, {
           resultCount: response.total,
           path: response.path,
@@ -589,8 +497,7 @@ function SearchRoute({
       onAddSkill={onAddSkill}
       onManageSkills={onManageSkills}
       onSubmit={(raw) => {
-        // Guard the argument rather than trusting callers. An event handler
-        // that forwards its MouseEvent here fails silently inside React.
+        // An event handler forwarding its MouseEvent here fails silently.
         const next = (typeof raw === "string" ? raw : draft).trim();
         if (next) setParams({ q: next });
       }}
@@ -631,9 +538,8 @@ function ChatRoute({
     onOpen(id ?? null);
   }, [id, onOpen]);
 
-  // Home's "Add your own skill" arrives as ?new-skill=1, because the pane
-  // lives here. Consumed on arrival: leaving the param in the address bar
-  // would reopen the pane on every reload and on the back button.
+  // Home's "Add your own skill" arrives as ?new-skill=1. Consumed on arrival,
+  // or it would reopen the pane on every reload and on Back.
   const openSkillPane = params.get("new-skill") === "1";
   useEffect(() => {
     if (!openSkillPane) return;

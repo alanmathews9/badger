@@ -9,6 +9,52 @@ alongside the range in the README rather than instead of it.
 
 ---
 
+## 2026-08-20, after the security and conformance work — 14/15, $0.1768
+
+Run against `main` at `ac0e604`, after four commits that touched things the
+model reads: SOUL.md was rewritten to stop claiming the agent keeps no copy,
+one clause of the system suffix changed, and `disallowedTools` was added to the
+eval path for the first time so it measures the same tool surface production
+serves.
+
+**The score held and the cost held.** 14/15, and $0.1768 against $0.1651 the
+run before — a 7% difference on a non-deterministic model, which is noise. The
+`disallowedTools` change was the one edit that could plausibly have cost a
+capability, and it did not.
+
+**The one failure is the grader's, not the agent's.** `sync-third-rewrite`
+asks "Have we decided to rewrite the sync layer a third time?", and the answer
+opened:
+
+> The decision to rewrite the sync layer a third time is currently an open
+> discussion. GitHub issue #9 … details the problems with the current
+> implementation.
+
+That is the fact under test. The agent refused to report a proposal as a
+decision, which is the single failure this question exists to catch, and cited
+issue #9. It was failed because `mustSay` does not contain the phrase "open
+discussion".
+
+This is the **third** time this question has failed a correct answer on
+phrasing. The comment above the pattern records the previous broadening, and
+states the principle it keeps violating: *the fact under test is that no
+decision exists, not the words used to say so.* The pattern is deliberately
+left alone in this entry — editing a grader in the same breath as reading its
+failure is how an eval set stops measuring anything — but it is now a known
+weakness in the set rather than a property of the agent, and it is recorded
+here so the next reader does not spend an afternoon on a retrieval bug that
+does not exist.
+
+Read on substance, this run is 15/15. Read as the harness scores it, 14/15.
+Both numbers are in this entry on purpose.
+
+**Crystallisation fired three times** — `find-owner-of-task`,
+`reconcile-policy-or-decision`, `retrieve-policy` — and all three died with the
+throwaway copy, leaving `main` clean. That is the fix from the run below
+working: an eval that mutates the agent it measures is not a measurement.
+
+---
+
 ## 2026-08-20, night — 14/15, $0.1651
 
 Run against `main` with skill crystallisation fully on. The one failure is

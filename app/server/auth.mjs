@@ -1,24 +1,14 @@
 // The demo gate.
 //
-// One shared passphrase, handed out with the URL. Deliberately not an account
-// system, and the README says so in as many words: authentication here is a
-// gate, not the product. Badger has no per-user anything — one Composio
-// connected account, a user id in an env var — so a real login would hand us
-// an identity the product cannot yet use, while implying a per-user separation
-// that does not exist.
+// One shared passphrase, handed out with the URL. A gate, not an account
+// system: Badger has no per-user anything, so a real login would imply a
+// separation that does not exist.
 //
-// Rejected, and why:
-//
-//   Google SSO      an unverified OAuth app shows Google's full-page "this app
-//                   isn't verified" warning. That is the first thing an
-//                   evaluator would see, and it demonstrates nothing the task
-//                   asked for.
-//   Magic links     needs their email, and makes them wait on delivery.
-//   Self-signup     a user store, password hashing and a reset flow — real
-//                   auth code, which is where vulnerabilities live, to gate a
-//                   demo where every account would see identical data.
-//   Nothing at all  the URL will leak eventually, and every answer spends
-//                   Vertex credits and Composio quota.
+// Rejected: Google SSO (an unverified OAuth app shows Google's full-page
+// warning as the first thing an evaluator sees), magic links (needs their
+// email), self-signup (a user store and a reset flow — real auth code, where
+// vulnerabilities live — to gate a demo where every account sees the same
+// data), and nothing at all (the URL leaks, and every answer costs money).
 //
 // The session is a signed cookie, so there is no session store to secure.
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
@@ -55,12 +45,9 @@ export function passphraseMatches(candidate) {
 /**
  * `<uid>.<expiry>.<hmac>` — stateless, tamper-evident, and it expires.
  *
- * The uid is an opaque random per-browser identifier, minted at sign-in. It
- * existed to be the Composio end-user id, so each visitor's connected sources
- * were their own; per-user connect was removed when the seeded corpus became
- * the product, and nothing reads it today. It stays because it is what any
- * future per-browser state would key on, and because dropping a field from the
- * signed payload would invalidate every live session for nothing.
+ * The uid is an opaque random per-browser identifier minted at sign-in, and
+ * is what stored history keys on. Never caller-supplied: the HMAC covers
+ * `uid.expiry` undelimited, which is only safe while uid is fixed-width hex.
  */
 function sign(uid, expiresAt) {
   const mac = createHmac("sha256", SECRET).update(`${uid}.${expiresAt}`).digest("hex");
@@ -114,11 +101,10 @@ function readSession(req) {
  * Whose browser this is — the opaque uid from the signed cookie, and what
  * every stored conversation is keyed on.
  *
- * With the gate switched off there is no cookie and no session, which is the
- * localhost development case; everything lands under one well-known id rather
- * than being unattributable. This is deliberately NOT an account: the uid is
- * random per sign-in with nothing behind it, so "your history" means "this
- * browser's history" and the UI must not imply more.
+ * With the gate off there is no cookie, so everything lands under one
+ * well-known id — the localhost case. NOT an account: the uid is random per
+ * sign-in with nothing behind it, so "your history" means "this browser's",
+ * and the UI must not imply more.
  */
 export function sessionUid(req) {
   return readSession(req)?.uid ?? "local";

@@ -1,22 +1,14 @@
 // The web UI's view onto the agent's skills/ directory.
 //
-// Listing and creating both work on the same files the runtime loads, so a
-// skill added here exists to the agent on its very next run — the same
-// mechanism as the agent's own skill_learner, driven by a person instead.
-// The commit is deliberately left to a human (or to the caller): the server
-// writes the file; review-and-commit stays a person's job.
+// Listing and creating work on the same files the runtime loads, so a skill
+// added here exists to the agent on its next run. The server writes the file;
+// review-and-commit stays a person's job.
 //
-// Origin is recovered from frontmatter the different writers already leave
-// behind: skill_learner stamps `learned_from`, this store stamps
-// `added_via: badger-ui`, and anything else is hand-written.
+// Origin is recovered from frontmatter: skill_learner stamps `learned_from`,
+// this store stamps `added_via: badger-ui`, anything else is hand-written.
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
-// `slugify` and the three-field `createSkill` lived here and are gone with the
-// form that fed them. A skill was assembled from a name, a description and a
-// body, which meant this file owned a small markdown writer — the exact
-// machinery the one-box editor removes. There is now a single way a skill is
-// created, from a whole file, and it is the same path an upload takes.
 
 /** @returns {{slug: string, name: string, description: string, origin: "handwritten"|"learned"|"custom"}[]} */
 export function listSkills(skillsDir) {
@@ -68,10 +60,8 @@ export function createSkillFromFile(skillsDir, content) {
   const description = readField(fm[1], "description");
   if (!name || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name))
     throw new Error("frontmatter needs a kebab-case name: (e.g. name: my-skill)");
-  // `readField`, not a one-line regex. The regex captured ">" from a block
-  // scalar and called that a description, so a file whose `description: >` had
-  // nothing indented under it passed validation with an empty trigger — the
-  // one field the model actually reads before deciding.
+  // `readField`, not a regex: a regex captures ">" from a block scalar and
+  // calls that a description, so an empty one passes validation.
   if (!description) throw new Error("frontmatter needs a description: line — it is the trigger");
   const dir = join(skillsDir, name);
   if (existsSync(dir)) throw new Error(`a skill named "${name}" already exists`);
@@ -83,17 +73,12 @@ export function createSkillFromFile(skillsDir, content) {
 /**
  * Mark an uploaded file as having come in through the UI.
  *
- * "Written verbatim — it is their file" was the original rule and it had a
- * trap in it. Origin is not stored anywhere but the frontmatter, so a file
- * uploaded without `added_via` or `learned_from` reads back as hand-written —
- * and hand-written means built-in, which means it can be neither edited nor
- * deleted. Measured: upload a SKILL.md, then try to remove it, and the server
- * answers "built-in skills cannot be deleted". A file you added and can never
- * take away.
+ * Origin lives only in frontmatter, so a file uploaded without `added_via` or
+ * `learned_from` reads back as hand-written — which means built-in, which means
+ * it can never be edited or deleted.
  *
- * One line, and only when neither marker is already there, so a genuinely
- * learned skill exported and re-uploaded keeps saying it was learned.
- * Everything else about the file is still untouched.
+ * Only when neither marker is present, so a learned skill exported and
+ * re-uploaded still says it was learned.
  */
 function stampOrigin(text, frontmatter) {
   if (/^(added_via|learned_from):/m.test(frontmatter)) return text;
@@ -103,10 +88,9 @@ function stampOrigin(text, frontmatter) {
 /**
  * One frontmatter field, without a YAML dependency.
  *
- * Handles the two shapes that actually appear in these files: a plain value
- * on the same line, and a block scalar ("description: >" or "|") whose text
- * is indented beneath — which every hand-written skill here uses. Block text
- * is folded onto one line, because the caller is labelling a menu row.
+ * Two shapes: a plain value on the same line, and a block scalar
+ * ("description: >" or "|") indented beneath, which every hand-written skill
+ * uses. Block text is folded onto one line for the menu row.
  */
 function readField(frontmatter, key) {
   const lines = frontmatter.split(/\r?\n/);
@@ -130,12 +114,9 @@ function readField(frontmatter, key) {
 
 // ── Reading, editing and removing an existing skill ───────────────────────
 //
-// The three below are what the manage-skills page needs. They work on the raw
-// SKILL.md rather than on parsed fields, deliberately: the hand-written skills
-// use YAML block scalars and carry frontmatter this store knows nothing about
-// (`learned_from`, `added_at`), so round-tripping them through a three-field
-// form would quietly drop whatever the form has no box for. The file is the
-// artefact; the editor edits the file.
+// Raw SKILL.md rather than parsed fields: these files carry frontmatter this
+// store knows nothing about, and a field-based round trip drops whatever it
+// has no box for. The file is the artefact; the editor edits the file.
 
 /** A slug that is safe to join onto a path. */
 const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -143,9 +124,8 @@ const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 /**
  * The directory for a slug, or a thrown error.
  *
- * The regex is the whole of the path-traversal defence and it is enough: it
- * admits no dot, no slash and no backslash, so "../../etc" and "..%2f" and a
- * bare ".." all fail before `join` is ever reached. Validate here rather than
+ * The regex is the whole path-traversal defence: no dot, no slash, no
+ * backslash, so "../../etc" fails before `join` is reached. Here rather than
  * at the route, so a second caller cannot forget.
  */
 function skillDir(skillsDir, slug) {
@@ -172,10 +152,6 @@ export function readSkill(skillsDir, slug) {
   };
 }
 
-// Nothing edits a skill through the product any more, and `updateSkill`,
-// `editSkill` and their YAML-merging helpers are gone with the feature rather
-// than left behind as unreachable code that still writes files.
-//
 // Editing was tried and pulled. Splitting a SKILL.md into "the trigger" and
 // "the steps" meant two boxes that hid `license`, `allowed-tools` and
 // `metadata` while silently owning them on save, and it turned one artefact

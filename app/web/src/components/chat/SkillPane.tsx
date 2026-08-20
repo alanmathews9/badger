@@ -13,12 +13,10 @@ import { cn } from "@/lib/utils";
 /**
  * What a new skill starts as.
  *
- * The headings are not decoration. `## When to Use` is the single strongest
- * convention across the framework authors' own published agents — always the
- * first body heading — and here it is also load-bearing: `skill-match.mjs`
- * reads the quoted questions out of that section to decide when a skill
- * fires. The quoted phrases in `description:` are the other half of the same
- * mechanism, matched first.
+ * The headings are load-bearing, not decoration. `## When to Use` is the
+ * framework authors' own strongest convention, and `skill-match.mjs` reads the
+ * quoted questions out of that section to decide when a skill fires. The
+ * quoted phrases in `description:` are the other half, matched first.
  *
  * A skill written without either can only ever be invoked by hand with "/".
  * That is what the three-field form used to produce — a name, a prose trigger

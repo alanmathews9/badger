@@ -7,32 +7,19 @@ import { FoundRow } from "./SourceChip";
 /**
  * The run's work, as a connected trail of steps.
  *
- * **Steps accumulate downward.** They used to overwrite: only `steps.at(-1)`
- * was drawn while running, on the argument that a growing list is motion
- * without information. Watching a real run says otherwise — a line that
- * replaces itself gives the reader nothing to hold on to and no sense of how
- * far along the work is, and it throws away the shape of the search (GitHub,
- * then the issue, then Gmail) which is the most interesting thing on screen
- * during the wait.
+ * Steps accumulate downward rather than overwriting: the shape of the search
+ * (GitHub, then the issue, then Gmail) is the most interesting thing on screen
+ * during the wait, and a line that replaces itself throws it away.
  *
- * **The badger sits on the topmost row and the rows are chained to it.** It
- * used to be an avatar in a column beside the whole block, which said "this
- * turn is Badger's" but left the steps looking like a separate list that
- * happened to be next to it. Marking the first row and running a hairline
- * between the markers says the stronger thing: these are one thread of work,
- * and it is the badger's. Claude's trail is built the same way.
+ * The badger marks the topmost row and a hairline chains the rest to it, so
+ * the steps read as one thread of work rather than a list beside an avatar.
  *
- * Once the answer lands the whole trail collapses to one summary row —
- * "Searched GitHub and Gmail, read 3 sources" — still carrying the mark,
- * which expands to bring the steps back.
+ * Once the answer lands the trail collapses to one summary row, which expands
+ * to bring the steps back.
  *
- * It used to end with a verification badge ("3 citations, all retrieved") and
- * the model's own coverage note. Both are gone from here. Verification still
- * runs on every answer and still marks a bad citation `[UNVERIFIED]` inline,
- * where it changes what the reader believes; a green tick inside a panel
- * almost nobody opens changed nothing. The coverage note was the model
- * counting its own tool calls back at the reader, which the trail above
- * already shows and shows more honestly.
+ * No verification badge here. Verification still runs and still marks a bad
+ * citation `[UNVERIFIED]` inline, where it changes what the reader believes; a
+ * green tick inside a panel nobody opens changed nothing.
  */
 export function StepTrail({ answer }: { answer: AnswerState }) {
   const [open, setOpen] = useState(false);
@@ -62,11 +49,9 @@ export function StepTrail({ answer }: { answer: AnswerState }) {
     );
   }
 
-  // Stopped. The chain still stands — the badger on the lead row, whatever
-  // steps did run, and the interruption as the final row rather than as a
-  // stray line underneath. Without this the trail returned null the moment a
-  // run was cancelled, so "Interrupted" appeared alone with no mark beside
-  // it and nothing saying whose turn it was.
+  // Stopped. The chain still stands: the badger on the lead row, whatever
+  // steps ran, and the interruption as the final row rather than a stray line
+  // underneath with no mark beside it.
   if (answer.stopped) {
     return (
       <div className="mb-4 flex flex-col">
@@ -82,13 +67,9 @@ export function StepTrail({ answer }: { answer: AnswerState }) {
     );
   }
 
-  // Failed. Same shape as stopped, and for the same reason: the badger keeps
-  // the lead row, whatever steps ran stay on the chain, and the message is the
-  // final row rather than a boxed notice floating underneath. It used to be an
-  // amber alert panel with no mark beside it, which read as the page reporting
-  // a fault rather than as Badger saying it could not finish — and amber says
-  // "warning" for something that is simply an error. Red, and in Badger's own
-  // voice, in the place every other thing it says appears.
+  // Failed. Same shape as stopped: the message is the final row rather than a
+  // boxed notice floating underneath, which reads as the page reporting a
+  // fault rather than Badger saying it could not finish.
   if (answer.error) {
     return (
       <div className="mb-4 flex flex-col">
@@ -191,22 +172,19 @@ function TrailRow({
  * A step's line: the plain-language label, and — for a search — the documents
  * it found.
  *
- * The result list is the point of the row. "Searched Gmail" tells a reader
- * that something happened; the four subjects underneath tell them what Badger
- * is actually working from, which is the difference between waiting and
- * watching. The card scrolls rather than growing, so a search returning twelve
- * results does not push the composer off the screen.
+ * The result list is the point of the row: "Searched Gmail" says something
+ * happened, the subjects underneath say what Badger is working from. The card
+ * scrolls rather than growing, so twelve results do not push the composer off
+ * the screen.
  *
- * A null step is the moment before the first tool call: the model reading the
- * question, with nothing to expand yet.
+ * A null step is the moment before the first tool call.
  */
 function StepLine({ step, live }: { step: ToolStep | null; live: boolean }) {
   const [open, setOpen] = useState(false);
   const found = step?.found ?? [];
-  // Derived here, not read off the step — see `describeTool`. The tense has to
-  // follow whether this row is the running one, and a label stored at call
-  // time cannot know that. It also un-freezes the wording for conversations
-  // saved before the labels last changed.
+  // Derived here, not read off the step — see `describeTool`. A label stored
+  // at call time cannot know whether this row is the running one, and freezes
+  // the wording into every conversation already saved.
   const label = step ? describeTool(step.name, step.args, live) : "Thinking";
 
   return (
@@ -275,9 +253,8 @@ function StepLine({ step, live }: { step: ToolStep | null; live: boolean }) {
  * The call's arguments, compact enough to read on one or two lines.
  *
  * `_badger_*` are dropped: the preToolUse hook injects the run's user id and
- * repository into every call's arguments, and they are plumbing rather than
- * anything the model chose. Showing them put a session identifier on screen
- * inside what is meant to be a readout of the agent's own decisions.
+ * repository into every call, so they are plumbing rather than the model's
+ * decisions — and one of them is a session identifier.
  */
 function formatArgs(args: Record<string, unknown>): string {
   const entries = Object.entries(args).filter(
