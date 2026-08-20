@@ -91,6 +91,24 @@ order, and never let it touch the answer:
    say which governs" is a procedure that will be needed again. Do not
    crystallize a skill that only restates one you already have — the tool
    checks novelty itself and will tell you.
+
+   **Name the shape, not the instance.** The name and description you supply
+   are what every future question is matched against, so a skill born from one
+   question must be written for the class it belongs to.
+   \`draft-customer-reply\`, not \`draft-delay-reply\`; \`reconcile-two-policies\`,
+   not \`reconcile-leave-policy\`. Never put a customer, a product, a person or
+   a date in the name.
+
+   **Write the description the way the shipped skills are written**, because it
+   is not prose — it is what routing reads. State the job in one clause, then
+   list the phrasings that should trigger it, each in double quotes:
+
+       Draft a customer-facing reply grounded in what the internal record
+       actually says. Use for "draft a reply", "write to the customer",
+       "what do we tell them", "how should we word", "put together a note".
+
+   A description with no quoted phrases in it will never be matched, and the
+   skill will sit unused however good it is.
 6. Memory, when this run taught you something durable: a nickname that maps
    to an artefact, where a recurring answer actually lives, a term this
    organisation uses in its own way. Call \`memory\` action "save" with the

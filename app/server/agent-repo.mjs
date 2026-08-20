@@ -250,6 +250,33 @@ export function openAgentRepo(root) {
     // the right thing.
     git(["checkout", branch], template);
 
+    // Bring the template up to date with its OWN branch first.
+    //
+    // Boot fetched only the default branch, never this one, so the template's
+    // copy of the learning branch was whatever it held when the container
+    // started. A skill the agent crystallised and pushed was therefore on
+    // GitHub and invisible here — the Skills screen did not list it, and
+    // merging main against a stale base produced a spurious conflict in a file
+    // neither side had touched on this branch. Both symptoms, one cause.
+    //
+    // Fast-forward when we can. If the template holds local commits that are
+    // not pushed — a skill somebody added through the UI, which lives here as
+    // a commit until a run carries it up — rebase them on top instead of
+    // discarding them.
+    try {
+      git(["fetch", "origin", branch], template);
+      try {
+        git(["merge", "--ff-only", `origin/${branch}`], template);
+      } catch {
+        // Merge, never rebase. See sync() below for what rebasing cost.
+        git(["merge", "--no-edit", `origin/${branch}`], template);
+      }
+    } catch (err) {
+      // The branch may not exist on the remote yet, which is the ordinary
+      // first-run case and not worth a warning.
+      void err;
+    }
+
     // Bring the default branch INTO the learning branch, every boot.
     //
     // Without this the loop is one-way and the agent quietly freezes. The
@@ -404,7 +431,18 @@ export function openAgentRepo(root) {
      */
     async sync() {
       try {
-        await execFileAsync("git", ["pull", "--rebase", "origin", branch], {
+        // `--no-rebase`, and the flag is the whole point of this comment.
+        //
+        // This was `--rebase`, which rewrites whatever the template holds on
+        // top of the remote branch. What it held was main's commits, arriving
+        // through the boot merge — so rebasing gave them new object ids. The
+        // same commit then existed twice, once on main and once here with a
+        // different hash, and from that moment the two branches shared an
+        // ancestor ten commits back. Every later boot merge failed with a
+        // conflict in a file the branch had never touched, and the agent
+        // stopped seeing changes to main entirely. Merging keeps both
+        // histories intact and the merge base where it belongs.
+        await execFileAsync("git", ["pull", "--no-rebase", "--no-edit", "origin", branch], {
           cwd: template,
           env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
         });
