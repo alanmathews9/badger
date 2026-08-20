@@ -9,6 +9,49 @@ alongside the range in the README rather than instead of it.
 
 ---
 
+## 2026-08-20, night — 14/15, $0.1651
+
+Run against `main` with skill crystallisation fully on. The one failure is
+`why-late`, which passed in the runs either side of it.
+
+This is the same figure as the morning run below, and getting back to it took
+six runs and four real bugs. The entry under this one is the record of that,
+kept rather than replaced, because the interesting part is not the number.
+
+**What the number cost.** Switching on crystallisation — a feature that had
+never once fired in five days — dropped the set to 9/15. Four causes, three of
+them ours:
+
+1. The eval was **changing the agent it measured**: crystallize git-commits into
+   whatever directory the agent runs from, so a run left nine skills and nine
+   commits on `main`, and a skill learned on question 3 answered question 10.
+   It now runs against a throwaway copy.
+2. A **learned skill outranked a curated one**. A crystallised skill's body is
+   the two lines the model narrated; a hand-written one is a tested procedure.
+   `trace-release-delay` displaced `trace-decision` on the questions
+   trace-decision exists for. Curated skills are now matched first.
+3. **The record was being written before the work.** Asking for a tracking call
+   at each moment as it happened put bookkeeping between every pair of real
+   calls, and the model started treating the log as the job: three searches,
+   nothing opened, then paperwork. One question produced no answer at all. Now
+   the job is done first and logged afterwards. **This was worth two points on
+   its own** — 12/15 to 14/15.
+4. **Correct citations reported as fabricated**, because the model numbers its
+   Sources list and the marker travelled into the name.
+
+**And three questions were failing correct answers.** `refund-policy` had its
+pattern loosened twice before and failed a third phrasing ("a full month's
+credit"); `clearview-why` failed on "not pricing" where the regex wanted "not
+price"; `double-charge` described the retry mechanism precisely without using
+the word retry. All three now grade the fact rather than the transcription, and
+each was checked against a deliberately wrong answer to make sure the test still
+fails what it should.
+
+The honest read: the drop was real and it was ours, the recovery is real, and
+one run is still a sample.
+
+---
+
 ## 2026-08-20, evening — 12/15 across four runs, ~$0.19 each
 
 Run against `main` after the self-learning work landed. **Four runs, not one**,
