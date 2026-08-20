@@ -236,7 +236,12 @@ export function ChatScreen({
               )}
               <Composer
                 skills={skills}
-                running={running}
+                // Also while a stored conversation is still arriving. The
+                // composer stayed live under the loading skeleton, and a
+                // question submitted in that window kept the id being loaded
+                // while discarding its turns — so the single new turn was
+                // saved over the conversation the user had just clicked.
+                running={running || loading}
                 preset={pending}
                 prefill={prefill}
                 onSubmit={onAsk}

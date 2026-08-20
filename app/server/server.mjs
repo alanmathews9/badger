@@ -24,6 +24,7 @@ import { query } from "@open-gitagent/gitagent";
 import { openAuditLog } from "./audit.mjs";
 import { searchAll, SearchError } from "./search.mjs";
 import { hydrateFromDb, startRefreshTimer } from "./index-search.mjs";
+import { migrate } from "../../scripts/db-migrate.mjs";
 import { authEnabled, clearSessionCookie, hasValidSession, issueSessionCookie, passphraseMatches, sessionUid } from "./auth.mjs";
 import * as historyStore from "./history.mjs";
 import { TOOLKITS, TOOLKIT_LABELS, accountFor, listConnections, resolveContext } from "./connections.mjs";
@@ -332,6 +333,12 @@ async function handleAsk(req, res) {
     dir: ROOT,
     systemPromptSuffix: buildSystemSuffix(),
     maxTurns: 12,
+    // The shell and the two write tools, removed from the model's schema
+    // before it can ask for them. hooks/allowed-tools.txt blocks them too;
+    // this filter runs first (dist/sdk.js:179) and, unlike the hook, cannot
+    // fail open. A tool that is not in the schema is not a tool the model can
+    // report as unavailable, which is the failure mode of refusing one late.
+    disallowedTools: ["cli", "write", "edit"],
     // Whose GitHub this run reads. Declarative tools are spawned as
     // subprocesses with a snapshot of process.env, so an environment variable
     // would race between concurrent visitors. A preToolUse closure carries the
@@ -354,8 +361,18 @@ async function handleAsk(req, res) {
 
   // A browser that navigates away should stop the agent, not leave it burning
   // tokens into a closed socket.
-  req.on("close", () => {
-    run.abort?.();
+  //
+  // `res`, not `req`. An IncomingMessage emits 'close' when the REQUEST BODY
+  // is done, which for this POST already happened in readBody above — so a
+  // listener registered here never fired at all, and pressing stop aborted
+  // only the browser's fetch while the agent ran on to maxTurns, holding a
+  // concurrency slot and spending Vertex and Composio into a dead socket.
+  // Three stopped questions exhausted MAX_CONCURRENT_ASKS. The response
+  // stream closes when the client actually disconnects, which is the event
+  // this always meant. `writableEnded` distinguishes a real disconnect from
+  // our own end() on the happy path; slot.release() is idempotent.
+  res.on("close", () => {
+    if (!res.writableEnded) run.abort?.();
     slot.release();
   });
 
@@ -433,7 +450,7 @@ async function handleAsk(req, res) {
       process.env.BADGER_GITHUB_REPO ?? null,
       // The mailbox we actually indexed, so a mail citation can be addressed
       // by identity rather than by position. Cached after the first lookup.
-      { mailbox: await accountFor(resolveContext().userId, "gmail").catch(() => null) },
+      { mailbox: await accountFor(ctx.userId, "gmail").catch(() => null) },
     ),
     // Threads Badger opened in full and then did not cite. This is the gap the
     // design asks for: "N items were opened but not cited". It is deliberately
@@ -650,6 +667,21 @@ async function handleSkillsCreate(req, res) {
  */
 async function handleChats(req, res, url) {
   if (!historyStore.dbConfigured()) return json(res, 200, { persisted: false, chats: [] });
+  try {
+    return await chatsRoute(req, res, url);
+  } catch (err) {
+    // Configured but unreachable is not the same as absent, and it used to be
+    // worse than absent: the query threw, the generic 500 handler answered,
+    // and the client's catch turned that into an empty array — so the pane
+    // asserted "No conversations yet" to someone who has plenty. Degrade to
+    // the shape the client already understands for a server with no database
+    // at all, so it falls back to localStorage rather than lying.
+    console.warn(`[history] chats unavailable: ${err.message}`);
+    return json(res, 200, { persisted: false, chats: [], chat: null, saved: false });
+  }
+}
+
+async function chatsRoute(req, res, url) {
 
   const uid = sessionUid(req);
   const id = url.pathname.slice("/api/chats/".length);
@@ -695,6 +727,15 @@ async function handleChats(req, res, url) {
  */
 async function handleSearches(req, res) {
   if (!historyStore.dbConfigured()) return json(res, 200, { persisted: false, searches: [] });
+  try {
+    return await searchesRoute(req, res);
+  } catch (err) {
+    console.warn(`[history] searches unavailable: ${err.message}`);
+    return json(res, 200, { persisted: false, searches: [] });
+  }
+}
+
+async function searchesRoute(req, res) {
 
   const uid = sessionUid(req);
 
@@ -831,11 +872,28 @@ server.on("error", (err) => {
 // alternative — a default passphrase — is how a gate becomes decorative.
 const HOST = authEnabled ? (process.env.BADGER_HOST ?? "0.0.0.0") : "127.0.0.1";
 
+// Bring the schema up to date before anything reads it. There is no shell
+// step in the container and no human between `gcloud run deploy` and the
+// first request, so a migration that has to be remembered is a migration that
+// eventually is not. It is a no-op after the first boot, it never throws — a
+// server that cannot migrate still starts and serves live search — and
+// `--max-instances 1` means nothing races it.
+try {
+  const applied = await migrate({ quiet: true });
+  if (applied) console.log(`[db] applied ${applied} migration(s)`);
+} catch (err) {
+  console.warn(`[db] could not migrate: ${err.message}`);
+}
+
 // Recreate the index from Postgres BEFORE the port opens, not after. Cloud Run
 // starts sending traffic the moment the socket is listening, and a request
 // that arrives during hydration would find no index, answer live, and spawn a
 // crawl — spending forty seconds of API calls to rebuild something that was
 // two hundred milliseconds away. Boot pays the query; nobody else does.
+//
+// An empty database is not an error here: hydrateFromDb says so and returns
+// false, and the first search builds the index in the background. So a fresh
+// deploy against a fresh database needs no manual step at all.
 await hydrateFromDb();
 
 server.listen(PORT, HOST, async () => {

@@ -83,6 +83,12 @@ export default function App() {
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const cancelAsk = useRef<(() => void) | null>(null);
 
+  // Is an answer still being written? `cancelAsk` cannot say — it is never
+  // cleared on normal completion — and `turns` is not readable from the
+  // callbacks below without rebuilding them on every keystroke. This is the
+  // one flag, and `openChat` reads it to refuse to throw a live run away.
+  const runningRef = useRef(false);
+
   // A conversation is being fetched. See `openChat` — the store is Postgres.
   const [loadingChat, setLoadingChat] = useState(false);
   const loadToken = useRef(0);
@@ -183,6 +189,7 @@ export default function App() {
         : [];
 
       setTurns((ts) => [...ts, { question, answer: { ...IDLE, running: true, steps: seed } }]);
+      runningRef.current = true;
 
       cancelAsk.current = ask(
         question,
@@ -239,11 +246,15 @@ export default function App() {
             })),
           onDelta: (text) => patchLast((s) => ({ ...s, text: s.text + text })),
           onDone: (result) => {
+            runningRef.current = false;
             patchLast((s) => ({ ...s, running: false, text: result.answer, result }));
             // The budget just moved. Re-read it rather than decrementing a guess.
             fetchBudget().then(setBudget).catch(() => {});
           },
-          onError: (message) => patchLast((s) => ({ ...s, running: false, error: message })),
+          onError: (message) => {
+            runningRef.current = false;
+            patchLast((s) => ({ ...s, running: false, error: message }));
+          },
         },
         priorTurns,
         skill,
@@ -268,6 +279,7 @@ export default function App() {
   const stopAsk = useCallback(() => {
     cancelAsk.current?.();
     cancelAsk.current = null;
+    runningRef.current = false;
     patchLast((s) => (s.running ? { ...s, running: false, stopped: true } : s));
   }, [patchLast]);
 
@@ -289,7 +301,29 @@ export default function App() {
   const openChat = useCallback(
     async (id: string | null) => {
       if (id === activeIdRef.current) return;
+
+      // An answer being written is not something a click can throw away.
+      //
+      // Bare `/chat` means "no conversation", and the branch below honoured
+      // that literally: it cancelled the run and cleared the turns. So asking
+      // a question and then pressing Chat in the sidebar — the natural way to
+      // get back to what you just asked — destroyed it. The turn had never
+      // been persisted, because the save effect skips a running turn, so the
+      // answer was gone from the thread AND from history, with the budget
+      // already spent on it.
+      //
+      // Navigating to Search or Tools mid-answer always worked, because the
+      // run lives above the routes. This makes coming back work too: while an
+      // answer is live, bare `/chat` resolves to the conversation writing it.
+      // The consequence is that New chat waits for the current answer, or for
+      // Stop — which is the right trade against silently discarding it.
+      if (!id && runningRef.current && activeIdRef.current) {
+        navigate(`/chat/${activeIdRef.current}`, { replace: true });
+        return;
+      }
+
       cancelAsk.current?.();
+      runningRef.current = false;
       dirty.current = false;
       if (!id) {
         setActive(null);

@@ -54,6 +54,14 @@ export function pool() {
     // Ten seconds, not the default of forever: a hung connect on the search
     // path must fall through to the index rather than hold the request open.
     connectionTimeoutMillis: 10_000,
+    // And ten on the query itself. connectionTimeoutMillis bounds only the
+    // handshake, so a pooler that accepts TCP and then never answers — the
+    // shape a paused Supabase free-plan project takes — left the boot-time
+    // index pull hanging forever in front of server.listen. The port never
+    // opened, Cloud Run's startup probe killed the container, and the
+    // revision crash-looped while live search, which needs no database at
+    // all, would have worked fine.
+    query_timeout: 10_000,
     // Supabase terminates TLS with a certificate chain Node does not ship a
     // root for. The alternative is bundling their root cert and pinning it;
     // this is a demo corpus of fictional data over a link that is still
