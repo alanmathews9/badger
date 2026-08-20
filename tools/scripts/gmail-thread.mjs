@@ -19,10 +19,17 @@ run(async (args) => {
     const hit = indexDocs((d) => d.source === "gmail" && d.meta?.threadId === String(thread_id));
     if (hit) {
       const msgs = [...hit.rows].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      // Same header line as the live path below, to the character. It is not
+      // cosmetic: the server recovers a thread's human name by matching
+      // `thread <id> — "<subject>"` out of tool output (labelOpened in
+      // server.mjs). This path used to print the message count there and the
+      // subject on the next line, so once retrieval became index-first every
+      // mail open kept its raw id as its label — and the follow-up chip under
+      // the answer read "What was in 19ec95436f796f88?".
       return (
         hit.note +
-        `thread ${thread_id} — ${msgs.length} message(s)\n` +
-        `subject: ${msgs[0].title}\n\n` +
+        `thread ${thread_id} — "${msgs[0].title}"\n` +
+        `${msgs.length} message(s)\n\n` +
         msgs
           .map(
             (m, i) =>

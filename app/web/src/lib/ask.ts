@@ -17,9 +17,8 @@ export type OpenedItem = {
 /**
  * One document a search turned up, as the step that found it lists it.
  *
- * These are *found*, not cited and not necessarily read — they are what
- * Badger had in front of it. `OpenedItem` above is a different thing: what it
- * opened in full, and what the answer went on to cite.
+ * Found, not cited and not necessarily read. `OpenedItem` above is what was
+ * opened in full and what the answer cited.
  */
 export type FoundDoc = {
   source: SourceId;
@@ -37,19 +36,11 @@ export type ToolStep = {
   name: string;
   args: Record<string, unknown>;
   /**
-   * Whatever the model wrote immediately before making this call — its own
-   * account of why it is about to do this.
+   * Whatever the model wrote immediately before this call — its account of why.
    *
-   * It used to be thrown away. Text arriving before a tool call is narration
-   * by definition (the model kept working after writing it), so the answer
-   * area was cleared to stop a wall of "I will now search Gmail…" standing
-   * where the answer belongs. But deleting it meant that a model which wrote
-   * real prose and *then* called another tool had its words vanish from the
-   * screen mid-run — text appearing, disappearing and reappearing, which
-   * reads as a bug because it is one.
-   *
-   * Moving it here fixes both: the answer area still shows only the answer,
-   * and the narration becomes the step's own explanation instead of loss.
+   * Text arriving before a tool call is narration by definition, so it is kept
+   * out of the answer area; keeping it here rather than discarding it means
+   * real prose written mid-run does not vanish off the screen.
    */
   narration?: string;
   /** The run's tool-call number — see `onTool`. Absent on the skill row,
@@ -98,16 +89,26 @@ export type AskHandlers = {
 export type Turn = { question: string; answer: string };
 
 /**
+ * The one thing a failed run says, in red, under the step trail.
+ *
+ * Every internal failure string names components the reader has never heard
+ * of. A new chat is the real remedy: a failed run leaves the conversation
+ * holding an answerless turn that the next question carries back in.
+ *
+ * NOT used for a refusal the server explains itself — a spent budget or a rate
+ * limit, where "try again in a new chat" would be wrong advice.
+ */
+const RUN_FAILED = "Badger failed to respond, try again in a new chat.";
+
+/**
  * Stream one agent run.
  *
- * fetch + ReadableStream rather than EventSource: the endpoint is a POST now,
- * because a whole conversation travels in the body and would not reliably fit
- * in a URL. The response is still SSE — the small parser below understands
- * exactly the frames our own server sends. Aborting the fetch closes the
- * socket, which the server treats as "stop the agent" — the run aborts rather
- * than burning tokens into a socket nobody is reading.
+ * fetch + ReadableStream rather than EventSource, because a whole conversation
+ * travels in the POST body. The response is still SSE.
  *
- * Returns a function that cancels the run.
+ * Returns a function that cancels the run — on screen. Aborting closes the
+ * socket and frees the concurrency slot, but the run continues to its turn
+ * limit: `query().abort()` is a no-op (docs/UPSTREAM.md finding 4).
  */
 export function ask(
   question: string,
@@ -139,9 +140,8 @@ export function ask(
     else if (event === "done") {
       finished = true;
       handlers.onDone(data);
-    } else if (event === "error") fail(data.message ?? "the agent failed");
-    // "warning" frames exist and are deliberately not surfaced here, same as
-    // the EventSource version never listened for them.
+    } else if (event === "error") fail(RUN_FAILED);
+    // "warning" frames exist and are deliberately not surfaced.
   };
 
   (async () => {
@@ -154,12 +154,12 @@ export function ask(
         signal: controller.signal,
       });
     } catch {
-      if (!controller.signal.aborted) fail("lost the connection to Badger");
+      if (!controller.signal.aborted) fail(RUN_FAILED);
       return;
     }
 
     if (!response.ok || !response.body) {
-      let message = "the agent failed";
+      let message = RUN_FAILED;
       try {
         message = (await response.json()).error ?? message;
       } catch {
@@ -183,9 +183,9 @@ export function ask(
           if (frame.trim()) dispatch(frame);
         }
       }
-      if (!finished) fail("lost the connection to Badger");
+      if (!finished) fail(RUN_FAILED);
     } catch {
-      if (!controller.signal.aborted) fail("lost the connection to Badger");
+      if (!controller.signal.aborted) fail(RUN_FAILED);
     }
   })();
 
@@ -198,14 +198,12 @@ export function ask(
 /**
  * Split the agent's own trailing sections off the prose.
  *
- * Badger's skills tell it to end an answer with a **Sources** list and a
- * **Coverage** note. Both are worth keeping, but not inside the body: the
- * sources belong in the grid, which is built from verified citations rather
- * than from whatever the model typed, and coverage is a footnote. Rendering
- * all three would show the same links twice.
+ * Skills tell the agent to end with **Sources** and **Coverage**. The sources
+ * belong in the grid, built from verified citations rather than what the model
+ * typed, and coverage is a footnote — inside the body they render twice.
  *
- * Anything unrecognised is left in the body — a missing section is normal,
- * and swallowing prose would be much worse than a duplicated heading.
+ * Anything unrecognised stays in the body: swallowing prose is worse than a
+ * duplicated heading.
  */
 export function splitAnswer(text: string): { body: string; coverage: string | null } {
   const source = String(text ?? "");
@@ -228,42 +226,23 @@ export function splitAnswer(text: string): { body: string; coverage: string | nu
           .trim() || null
       : null;
 
-  // If the split leaves nothing, the model wrote only sections. Keep the
-  // original rather than showing an empty answer.
+  // Only sections and no prose: keep the original rather than show nothing.
   return { body: body || source.trim(), coverage };
 }
 
 /**
  * Turn a tool call into the line the user reads.
  *
- * **The tense follows the state.** The running step is happening now, so it
- * reads "Searching Drive"; a step that has finished reads "Searched Drive".
- * An earlier version used past tense throughout, on the argument that rows
- * persist so most rows a reader ever sees are finished ones — true of every
- * row except the one they are actually watching.
+ * The tense follows the state: "Searching Drive" while it runs, "Searched
+ * Drive" once done. This works only because the label is computed at RENDER
+ * time from the tool name and arguments — a stored label freezes both its
+ * tense and its wording into every conversation already saved.
  *
- * That only works because the label is computed at RENDER time from the tool
- * name and arguments, rather than being computed once and stored on the step.
- * A stored label freezes whatever tense it had when the call was made, and it
- * freezes the wording too: conversations saved before this file last changed
- * still carried "Searching Gmail for “…”" long after the query came out of
- * the label. Deriving it from data that does not change fixes both, including
- * for conversations already in the database.
+ * All ten tools. Mail and Drive are opened by opaque id, so the line says what
+ * is being done rather than showing the id.
  *
- * All ten tools, not the five GitHub ones. The five Google tools fell through
- * to `default`, so while Badger searched the mailbox the status line read the
- * literal slug `gmail_search`.
- *
- * Mail and Drive are opened by opaque id, so there is nothing readable to name
- * — the line says what is being done rather than showing a raw id.
- *
- * **A search does not name its query.** It used to — `Searched Gmail for
- * “brightsmile march”` — and the query is the least useful thing on the row:
- * it is a keyword-reduced version of the question the reader just typed, so
- * it reads as the machine repeating them back, and it made the one row that
- * carries a result card the widest and noisiest in the trail. The query is
- * still one click away in the step's own arguments, where someone auditing
- * the work will look for it.
+ * A search does not name its query: it is a keyword-reduced echo of what the
+ * reader just typed, and it is one click away in the step's arguments.
  */
 export function describeTool(
   name: string,
@@ -301,16 +280,14 @@ export function describeTool(
       return args.action === "save"
         ? t("Saving to memory", "Saved to memory")
         : t("Recalling memory", "Recalled memory");
-    // A skill the MODEL chose. See `skillFromRead` — this is a plain file
-    // read, and the path is what makes it a skill. No tense: using a skill is
-    // a state that holds for the rest of the run, not an act that completes.
+    // A skill the MODEL chose — a plain file read, identified by its path. No
+    // tense: using a skill is a state, not an act that completes.
     case "read": {
       const slug = skillFromRead(args);
       return slug ? `Using ${skillDisplayName(slug)}` : t("Reading a file", "Read a file");
     }
-    // The skill the USER chose, seeded by the composer rather than emitted by
-    // the runtime. Same wording, so the two are indistinguishable on screen —
-    // which is right, because to the reader they are the same event.
+    // The skill the USER chose, seeded by the composer. Same wording: to the
+    // reader the two are the same event.
     case "skill":
       return `Using ${skillDisplayName(String(args.skill ?? ""))}`;
     default:
@@ -321,21 +298,13 @@ export function describeTool(
 /**
  * The skill a `read` call is loading, if that is what it is doing.
  *
- * **This is how a self-chosen skill becomes visible, and it took reading the
- * runtime to find.** GAP has no skill concept at the tool layer: no skill
- * tool, no skill event, nothing to subscribe to. What it has is a block in
- * the system prompt — `formatSkillsForPrompt` in the runtime's `skills.js` —
- * instructing the model to "load its full instructions using the `read` tool:
- * `skills/<name>/SKILL.md`". So loading a skill IS a file read, and the path
- * is the entire signal.
+ * GAP has no skill concept at the tool layer — no skill tool, no event. What
+ * it has is a system-prompt block telling the model to `read`
+ * `skills/<name>/SKILL.md`, so loading a skill IS a file read and the path is
+ * the whole signal.
  *
- * Which means the earlier note in this project — that the runtime cannot tell
- * us which skill is in play, so only a hand-picked one can ever be shown —
- * was wrong. It can, as long as you look at the argument rather than the tool
- * name.
- *
- * Anchored to `skills/` and `/SKILL.md` so an ordinary read of some other
- * file, or of a skill's `references/`, does not masquerade as a skill firing.
+ * Anchored to `skills/` and `/SKILL.md` so an ordinary read, or a read of a
+ * skill's `references/`, does not masquerade as a skill firing.
  */
 export function skillFromRead(args: Record<string, unknown>): string | null {
   const path = typeof args.path === "string" ? args.path : "";
@@ -345,22 +314,13 @@ export function skillFromRead(args: Record<string, unknown>): string | null {
 /**
  * Which tool calls get a line in the trail.
  *
- * Every step is written in the past tense above, including the one currently
- * running. That looks wrong for about a second and is right for the rest of
- * the conversation: rows now persist rather than being overwritten, so almost
- * every row a reader ever looks at is a finished one. Claude's own trail does
- * the same ("Loaded plugins skill" while it is loading).
+ * The hidden set is the runtime's bookkeeping — task_tracker, skill_learner,
+ * and the file and shell tools. None of it says anything about the answer, and
+ * a twelve-turn run spent half its rows on it.
  *
- * The hidden set is the runtime's bookkeeping — `task_tracker` writing down
- * what it is about to do, `skill_learner` reflecting afterwards, and the file
- * and shell tools, which a read-only agent should never reach anyway. None of
- * it tells the reader anything about the answer, and a twelve-turn run spent
- * half its rows on it.
- *
- * Two runtime tools are deliberately NOT in that set. "Recalled memory" and
- * "Using Find an expert" are the rows that show what Badger actually is — a
- * git repo whose skills and memory are files it reads — and they are the rows
- * Claude shows too. The second is a `read`, which is why this takes arguments.
+ * Memory and skill reads are deliberately NOT hidden: they are the rows that
+ * show this is a git repo whose skills and memory are files it reads. The
+ * second is a `read`, which is why this takes arguments.
  */
 const HIDDEN_TOOLS = new Set(["task_tracker", "skill_learner", "write", "edit", "cli"]);
 
@@ -376,9 +336,8 @@ export function isStepVisible(name: string, args: Record<string, unknown> = {}):
 }
 
 /**
- * The one-line summary the collapsed trail carries — "Searched GitHub and
- * Gmail, read 3 threads". Built from what the run did rather than from a
- * count, because "Worked through 9 steps" says nothing about the answer.
+ * The collapsed trail's one-line summary — "Searched GitHub and Gmail, read 3
+ * threads". From what the run did, not a step count.
  */
 export function summariseSteps(steps: ToolStep[]): string {
   if (steps.length === 0) return "Answered without searching";
@@ -396,17 +355,15 @@ export function summariseSteps(steps: ToolStep[]): string {
   ).length;
 
   const parts: string[] = [];
-  // The skill leads, when there is one. It is the thing that shaped every
-  // step after it, and it is the one row that says this is a GAP agent
-  // rather than a search box with a model attached.
+  // The skill leads when there is one: it shaped every step after it.
   const skill = steps.find((s) => s.args.skill)?.args.skill;
   if (skill) parts.push(`Used ${skillDisplayName(String(skill))}`);
   if (searched.length) parts.push(`${skill ? "searched" : "Searched"} ${listOf(searched)}`);
   if (opened) parts.push(`read ${opened} ${opened === 1 ? "source" : "sources"}`);
   if (steps.some((s) => s.name === "memory")) parts.push("checked memory");
 
-  // A run made entirely of steps this summary has no phrase for still needs a
-  // line, and the count is the honest fallback.
+  // A run of steps with no phrase still needs a line; the count is the
+  // fallback.
   if (parts.length === 0) {
     return `Worked through ${steps.length} ${steps.length === 1 ? "step" : "steps"}`;
   }
@@ -456,20 +413,15 @@ export function skillDisplayName(slug: string): string {
 
 // ── The slash-command picker, shared ──────────────────────────────────────
 //
-// The chat composer and the home bar both let you name a skill by typing "/",
-// and they must agree on what "/" means: which skills are offered, how the
-// filter narrows them, and how a typed "/slug question" is split back apart.
-// These three live here rather than in either component so the two cannot
-// drift — the composer's version was the original, and a second hand-rolled
-// copy on Home is exactly how "/find-expert" would come to mean two things.
+// The chat composer and the home bar both let you name a skill by typing "/".
+// These three live here so the two cannot drift on which skills are offered,
+// how the filter narrows them, or how "/slug question" is split apart.
 
 /**
  * Which skills the picker offers.
  *
- * Not all of them, on purpose. `trace-decision` and `onboard-to-project` are
- * procedures the agent should reach for on its own when the question calls for
- * it; putting every skill in a menu invites picking one as a category, which
- * is the opposite of how skills are meant to be selected.
+ * Not all of them: some are procedures the agent should reach for on its own,
+ * and a full menu invites picking a skill as a category.
  */
 export function pickableSkills(skills: SkillInfo[], filter = ""): SkillInfo[] {
   const f = filter.toLowerCase();
