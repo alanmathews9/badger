@@ -80,10 +80,19 @@ async function ask(q) {
   let crash = null;
 
   try {
+    // Same three the server withholds. Without this the full builtin set is in
+    // the model's schema — `cli` included, which spawns a shell with
+    // `shell: true` and the whole of process.env (dist/tools/cli.js:20-25) —
+    // and the only thing left is `hooks/allow-tools.sh`, which fails OPEN on a
+    // crash, a timeout or any non-JSON output (dist/hooks.js:83-107). These two
+    // run on a laptop against the real .env, so that is the wrong place to
+    // depend on a hook. It also makes the eval measure the same tool surface
+    // production serves.
     const result = query({
       prompt: q.question,
       dir: AGENT_DIR,
       systemPromptSuffix: buildSystemSuffix(),
+      disallowedTools: ["cli", "write", "edit"],
     });
     // The audit trail the runtime keeps only on its CLI path — see audit.mjs.
     const audit = openAuditLog(AGENT_DIR);

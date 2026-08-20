@@ -18,6 +18,7 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { redact } from "./agent-repo.mjs";
 
 export function openAuditLog(agentDir) {
   const dir = join(agentDir, ".gitagent");
@@ -35,13 +36,20 @@ export function openAuditLog(agentDir) {
   try {
     mkdirSync(dir, { recursive: true });
   } catch {}
+  // Every line is redacted on the way out, tool arguments and results
+  // included. This log goes to stdout in production, which is Cloud Logging
+  // with 30-day retention — the exact sink a git error already published a
+  // live PAT into once. Tool output is model-visible text and an argument is
+  // model-written, so neither can be assumed credential-free.
   const write = (event, data = {}) => {
-    const line = JSON.stringify({
-      timestamp: new Date().toISOString(),
-      session_id: sessionId,
-      event,
-      ...data,
-    });
+    const line = redact(
+      JSON.stringify({
+        timestamp: new Date().toISOString(),
+        session_id: sessionId,
+        event,
+        ...data,
+      }),
+    );
     if (toStdout) console.log(line);
     try {
       appendFileSync(path, line + "\n", "utf8");

@@ -40,6 +40,7 @@ import { attachSourceUrls } from "./source-links.mjs";
 import { parseToolResults } from "./tool-results.mjs";
 import { matchSkill, readProcedure } from "./skill-match.mjs";
 import { openAgentRepo, redact } from "./agent-repo.mjs";
+import { guardRuntimeTool } from "./tool-guard.mjs";
 
 // The repo root, which is also the agent directory query() loads. The reach
 // from app/ upward into the agent is one-way and never the reverse.
@@ -337,11 +338,25 @@ async function handleAsk(req, res) {
     // arguments instead — per request, and invisible to the model.
     hooks: {
       preToolUse: (hookCtx) => {
+        const blocked = guardRuntimeTool(hookCtx.toolName, hookCtx.args);
+        if (blocked) return { action: "block", reason: blocked };
+
         const args = {
           ...hookCtx.args,
           _badger_user: ctx.userId,
           _badger_repo: ctx.repo,
         };
+
+        // The runtime builds its memory commit with
+        // `git commit -m "${message}"` through a shell and escapes only the
+        // quote (dist/tools/memory.js:120), so `$`, a backtick or a backslash
+        // in a model-supplied message executes as a command inside the
+        // container. Stripping them rather than blocking: a legitimate commit
+        // message never needs one, so this changes nothing the agent does and
+        // costs it no turn.
+        if (hookCtx.toolName === "memory" && typeof args.message === "string") {
+          args.message = args.message.replace(/[$`\\]/g, "");
+        }
 
         // Tell the learning loop which skill was used, because the model
         // often will not. `task_tracker end` fires reinforcement only if handed
