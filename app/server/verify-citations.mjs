@@ -57,7 +57,24 @@ function extractSourceLines(s) {
 
     const asMail = body.match(/^(.+?)\s+—\s+mail,\s*([^,]+?),/i);
     if (asMail) {
-      mail.push({ subject: stripLink(asMail[1]), sender: asMail[2].trim() });
+      // Strip a leading reference marker off the subject.
+      //
+      // RULES.md asks for `- {subject} — mail, {sender}, {date}`, and the
+      // model has started writing `- #1 Our reminders are going out at 3am —
+      // mail, …` instead, numbering its sources the way it numbers GitHub
+      // issues. The number then travelled into the subject, so verification
+      // looked for the literal "#1 Our reminders…" in tool output that
+      // contains "1. Our reminders…" — and reported a perfectly real message
+      // as unretrieved. Five citations on one answer, on a run whose retrieval
+      // was correct.
+      //
+      // Stripped rather than forbidden, because this is the model formatting a
+      // list and it is not wrong to number things. What must not happen is a
+      // formatting habit reading as a fabricated source.
+      mail.push({
+        subject: stripLink(asMail[1]).replace(/^#\d+\s+/, "").trim(),
+        sender: asMail[2].trim(),
+      });
       continue;
     }
 
