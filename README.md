@@ -468,7 +468,22 @@ so the boundary is stated as a choice.
 1. **Read-only (this).** Federated live query, retrieve, synthesise, cite.
    Glean built Actions on top of a working retrieval engine; same order here.
 2. **Propose, don't execute.** Draft the reply or the ticket and hand it over
-   unsent. Nothing mutates, so it stays inside the guarantee.
+   unsent. Nothing mutates, so it stays inside the guarantee. **The composing
+   half of this is live.**
+
+   `RULES.md` used to forbid "draft" in the same list as "send" and "upload",
+   then close the bullet by telling the agent to hand over the draft text — so
+   which half won depended on how the model weighed one sentence against
+   another, in the file that is supposed to be the hard boundary. That
+   conflated two unrelated things. Changing a source is an action, and it is
+   stopped by the tool list rather than by the agent's restraint. Writing text
+   in a chat window is not an action; it changes nothing, and refusing it
+   leaves the reader with a pile of links and the work still to do.
+
+   So Badger writes the reply, the wording, the summary — grounded in what it
+   retrieved in that run — and says in a line that sending it is yours. The
+   half still absent is the one that matters: nothing carries a draft to a
+   source, because nothing can.
 3. **Actions.** Real writes, per-source, each a deliberate allowlist addition
    with its own credential scope.
 
