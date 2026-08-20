@@ -78,11 +78,23 @@ export function SourceRail({
   })).filter((entry) => entry.outcome);
 
   const driveRows = rows.filter((r) => r.source === "drive");
+  // Documents and Spreadsheets are always listed, at zero if that is the
+  // answer. They used to be dropped when empty, together with the rule below
+  // that nested nothing unless two kinds survived — so a search returning four
+  // Drive documents and no spreadsheets showed no breakdown at all, and the
+  // reader could not tell "no spreadsheets matched" from "this rail does not
+  // do spreadsheets". A zero is information.
+  //
+  // Folders and PDFs appear only when a search finds some. They are not the
+  // two things a Drive corpus is made of, and this one holds no PDFs at all,
+  // so pinning them open would be a permanently dead row — the opposite of the
+  // fix.
+  const ALWAYS = ["Documents", "Spreadsheets"];
   const driveKinds = DRIVE_KINDS.map((k) => ({
     label: k.label,
     kind: k.id[0],
     count: driveRows.filter((r) => kindGroupOf(r) === k.label).length,
-  })).filter((k) => k.count > 0);
+  })).filter((k) => k.count > 0 || ALWAYS.includes(k.label));
 
   return (
     <aside className="w-[240px] shrink-0">
@@ -105,10 +117,9 @@ export function SourceRail({
       {counts.map(({ id, outcome, count }) => {
         const Logo = BRAND_LOGOS[id];
         const failed = outcome?.ok === false;
-        // Only Drive nests, and only when there is genuinely more than one
-        // kind to split into — a single child restating its parent's count is
-        // noise.
-        const open = id === "drive" && driveKinds.length > 1;
+        // Only Drive nests, and only when Drive actually found something —
+        // a breakdown of nothing under a row already reading zero is noise.
+        const open = id === "drive" && !failed && count > 0;
         return (
           <div key={id}>
             <Row
@@ -131,6 +142,7 @@ export function SourceRail({
                   // filters to are recognisably the same.
                   icon={<DriveMark kind={k.kind} size={15} badge={false} />}
                   indent
+                  disabled={k.count === 0}
                   selected={active === "drive" && kind === k.label}
                   // Clicking the selected one again returns to all of Drive,
                   // which is the only other place the reader could want to go

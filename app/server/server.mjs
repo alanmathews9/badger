@@ -316,6 +316,8 @@ async function handleAsk(req, res) {
   const startedAt = Date.now();
   const toolOutputs = [];
   const toolCalls = [];
+  // The runtime's tool-call id -> the step index it was announced as.
+  const callIndex = new Map();
   const opened = [];
   let answer = "";
 
@@ -380,14 +382,17 @@ async function handleAsk(req, res) {
     for await (const msg of run) {
       audit.record(msg);
       switch (msg.type) {
-        case "tool_use":
+        case "tool_use": {
           toolCalls.push(msg.toolName);
           recordOpened(opened, msg);
-          // The step's index travels with it, so the result frame that arrives
-          // later can be attached to the right row rather than to whatever
-          // step happens to be last when it lands.
-          send("tool", { index: toolCalls.length - 1, name: msg.toolName, args: msg.args ?? {} });
+          const index = toolCalls.length - 1;
+          // Remember which step this call is, by the runtime's own id for it.
+          // See the tool_result branch for why a positional guess is not good
+          // enough.
+          if (msg.toolCallId != null) callIndex.set(msg.toolCallId, index);
+          send("tool", { index, name: msg.toolName, args: msg.args ?? {} });
           break;
+        }
         case "tool_result": {
           // Everything Badger actually retrieved. This is the corpus a
           // citation has to appear in to count as verified.
@@ -395,14 +400,24 @@ async function handleAsk(req, res) {
             typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
           toolOutputs.push(content);
           // …and, for a search, the documents it found, so the reader can see
-          // what Badger is working from while it is still working. The agent
-          // loop is sequential, so the result belongs to the call just made;
-          // the runtime names the tool on this message too when it can, and
-          // that is preferred over the positional guess.
+          // what Badger is working from while it is still working.
+          //
+          // Attached by the runtime's `toolCallId`, which rides both the
+          // tool_use and the tool_result frame (dist/sdk.js:376,385). This
+          // used to attach to `toolCalls.length - 1` on the reasoning that the
+          // agent loop is sequential — and it is not. The model issues several
+          // calls in one turn, so the frames arrive as use,use,use then
+          // result,result,result, and every result landed on the last step:
+          // Drive documents filed under "Searched GitHub", search hits filed
+          // under "Read issue #10", and the two searches that really found
+          // them showing nothing but their arguments.
           const from = msg.toolName ?? toolCalls.at(-1);
           const results = parseToolResults(from, content);
           if (results.length) {
-            send("results", { index: toolCalls.length - 1, results });
+            const index = callIndex.has(msg.toolCallId)
+              ? callIndex.get(msg.toolCallId)
+              : toolCalls.length - 1;
+            send("results", { index, results });
           }
           break;
         }

@@ -46,6 +46,47 @@ export function Markdown({ text }: { text: string }) {
           );
         }
 
+        // A pipe table: a header row, a |---|---| separator, then rows. Without
+        // this the whole block fell through to the paragraph branch below and
+        // printed as a wall of pipes with the newlines collapsed — which is
+        // what any answer comparing things across columns produced, and the
+        // model reaches for a table unprompted whenever it is comparing.
+        const table = parseTable(lines);
+        if (table) {
+          return (
+            <div key={i} className="mt-3 -mx-1 overflow-x-auto px-1">
+              <table className="w-full border-collapse text-left text-[13.5px]">
+                <thead>
+                  <tr>
+                    {table.header.map((cell, j) => (
+                      <th
+                        key={j}
+                        className="border-b border-stone-300 py-1.5 pr-4 align-bottom font-medium text-stone-900 last:pr-0"
+                      >
+                        {inline(cell)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {table.rows.map((row, j) => (
+                    <tr key={j}>
+                      {row.map((cell, k) => (
+                        <td
+                          key={k}
+                          className="border-b border-stone-100 py-1.5 pr-4 align-top text-stone-700 last:pr-0"
+                        >
+                          {inline(cell)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
+
         const heading = block.match(/^(#{1,3})\s+(.*)$/);
         if (heading) {
           return (
@@ -63,6 +104,36 @@ export function Markdown({ text }: { text: string }) {
       })}
     </>
   );
+}
+
+/**
+ * A pipe table, or null if these lines are not one.
+ *
+ * Deliberately strict: a header, a separator row of dashes, and at least one
+ * body row. Anything looser and a sentence containing a stray pipe becomes a
+ * one-column table. Ragged rows are padded rather than dropped — a model that
+ * miscounts a cell should cost the reader an empty box, not the whole table.
+ */
+function parseTable(lines: string[]): { header: string[]; rows: string[][] } | null {
+  if (lines.length < 3) return null;
+  if (!lines.every((l) => l.trim().startsWith("|"))) return null;
+  if (!/^\s*\|(\s*:?-{2,}:?\s*\|)+\s*$/.test(lines[1])) return null;
+
+  const cells = (line: string) =>
+    line
+      .trim()
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .map((c) => c.trim());
+
+  const header = cells(lines[0]);
+  const rows = lines.slice(2).map((l) => {
+    const row = cells(l);
+    while (row.length < header.length) row.push("");
+    return row.slice(0, header.length);
+  });
+  return rows.length ? { header, rows } : null;
 }
 
 /** Bold, inline code and links, in one pass. */

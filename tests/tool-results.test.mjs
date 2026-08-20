@@ -109,7 +109,11 @@ test("Drive results carry the file id and distinguish a sheet from a doc", () =>
     title: "Android release notes v2.4",
     detail: "document",
   });
-  assert.equal(rows[1].kind, "doc");
+  // The kind is the real one, not a flattened "doc". The trail draws its mark
+  // from this field, and while it said "doc" for everything a spreadsheet got
+  // the plain Drive triangle in the chat while the results list two clicks
+  // away drew a Sheets grid for the same file.
+  assert.equal(rows[1].kind, "sheet");
   assert.equal(rows[1].detail, "spreadsheet");
 });
 

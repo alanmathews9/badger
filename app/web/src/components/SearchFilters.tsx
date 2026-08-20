@@ -89,9 +89,17 @@ export function SearchFilters({
   filters: Filters;
   onChange: (next: Filters) => void;
 }) {
-  // Only offer what is actually there. A menu full of options that all lead to
-  // an empty list is worse than no menu.
-  const kinds = KINDS.filter((k) => rows.some((r) => k.id.includes(r.kind)));
+  // Every kind the corpus can hold, with its count for this search — zeros
+  // included. The rule used to be "only offer what is actually there", which
+  // sounds right and reads wrong: Spreadsheets simply vanished from the menu
+  // on a search that matched none, so there was no way to tell an empty
+  // category from a category the product does not have. A zero is information;
+  // an absence is a question. Counts make the menu answer it without a click,
+  // and the zeros are disabled so nothing offers a dead end.
+  const countOf = (k: (typeof KINDS)[number]) =>
+    rows.filter((r) => k.id.includes(r.kind)).length;
+  const kinds = KINDS.map((k) => ({ ...k, count: countOf(k) }));
+  const present = kinds.filter((k) => k.count > 0);
   const authors = [...new Set(rows.map((r) => r.author).filter(Boolean))].sort();
   const windows = WINDOWS.filter(
     (w) =>
@@ -108,7 +116,7 @@ export function SearchFilters({
   // without, and they are disabled rather than live: three menus whose only
   // entry is their own default would be the dead control this product keeps
   // finding, dressed as a feature.
-  if (kinds.length < 2 && authors.length < 2) {
+  if (present.length < 2 && authors.length < 2) {
     return (
       <div className="flex flex-wrap items-center gap-2">
         <Menu label="Anytime" disabled />
@@ -129,14 +137,19 @@ export function SearchFilters({
           onPick={(value) => onChange({ ...filters, days: value === "null" ? null : Number(value) })}
         />
       )}
-      {kinds.length > 1 && (
+      {present.length > 1 && (
         <Menu
           label={filters.kind ?? "Any type"}
           active={filters.kind != null}
           value={filters.kind ?? ""}
           options={[
             { value: "", label: "Any type" },
-            ...kinds.map((k) => ({ value: k.label, label: k.label })),
+            ...kinds.map((k) => ({
+              value: k.label,
+              label: k.label,
+              count: k.count,
+              disabled: k.count === 0,
+            })),
           ]}
           onPick={(value) => onChange({ ...filters, kind: value || null })}
         />
@@ -187,7 +200,7 @@ function Menu({
 }: {
   label: string;
   active?: boolean;
-  options?: { value: string; label: string }[];
+  options?: { value: string; label: string; count?: number; disabled?: boolean }[];
   value?: string;
   onPick?: (value: string) => void;
   /** On screen for the shape of the row, with nothing behind it to pick. */
@@ -232,9 +245,19 @@ function Menu({
             {i === 1 && <DropdownMenuSeparator />}
             <DropdownMenuCheckItem
               checked={option.value === value}
-              onSelect={() => onPick?.(option.value)}
+              disabled={option.disabled}
+              onSelect={() => {
+                if (!option.disabled) onPick?.(option.value);
+              }}
             >
-              {option.label}
+              <span className="flex w-full items-center justify-between gap-6">
+                <span>{option.label}</span>
+                {option.count != null && (
+                  <span className="font-mono text-[11px] text-stone-400 tabular-nums">
+                    {option.count}
+                  </span>
+                )}
+              </span>
             </DropdownMenuCheckItem>
           </div>
         ))}

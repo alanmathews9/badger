@@ -65,16 +65,24 @@ export function AppSidebar({
             the same mark, and reusing the favicon means the tab icon and the
             rail icon can never drift apart. */}
         <div className="flex items-center gap-2.5 px-1 py-1.5 group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:gap-1.5 group-data-[collapsible=icon]:px-0">
-          <img
-            src="/logo.svg"
-            alt="Badger"
-            className="h-9 w-auto shrink-0 group-data-[collapsible=icon]:hidden"
-          />
-          <img
-            src="/favicon.svg"
-            alt="Badger"
-            className="hidden size-[26px] shrink-0 rounded-lg group-data-[collapsible=icon]:block"
-          />
+          {/* The mark goes home, the way a masthead does everywhere else.
+              `/search` with no query is the home box, not a results page. */}
+          <NavLink
+            to="/search"
+            aria-label="Badger home"
+            className="flex shrink-0 items-center rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-stone-300 group-data-[collapsible=icon]:justify-center"
+          >
+            <img
+              src="/logo.svg"
+              alt="Badger"
+              className="h-9 w-auto shrink-0 group-data-[collapsible=icon]:hidden"
+            />
+            <img
+              src="/favicon.svg"
+              alt="Badger"
+              className="hidden size-[26px] shrink-0 rounded-lg group-data-[collapsible=icon]:block"
+            />
+          </NavLink>
           <SidebarTrigger className="ml-auto shrink-0 rounded-full text-stone-500 group-data-[collapsible=icon]:mx-0 group-data-[collapsible=icon]:border group-data-[collapsible=icon]:border-stone-200 group-data-[collapsible=icon]:bg-white" />
         </div>
       </SidebarHeader>

@@ -141,10 +141,13 @@ function parseDrive(lines) {
     if (!ref) continue;
     rows.push({
       source: "drive",
-      // Everything in Drive is one kind to the reader — the mark is the same
-      // and the citation machinery already calls them all "doc". The word
-      // that distinguishes them goes in the detail, matching `labelOpened`.
-      kind: "doc",
+      // The real Drive kind, not a flattened "doc". This used to say they were
+      // all one kind to the reader, which stopped being true when search grew
+      // composed Docs and Sheets marks: the trail then drew the plain Drive
+      // triangle on a spreadsheet while the results list two clicks away drew
+      // a Sheets grid for the same file. Only the trail reads this field —
+      // citations resolve through OpenedItem, which is untouched.
+      kind: DRIVE_KIND[title[3]] ?? "file",
       ref,
       title: title[2].trim(),
       detail: DRIVE_WORD[title[3]] ?? title[3],
@@ -152,6 +155,20 @@ function parseDrive(lines) {
   }
   return rows;
 }
+
+/**
+ * The kind the marks are drawn from, normalised to what `DriveMark` knows.
+ * Anything it cannot name falls back to "file", which draws the plain Drive
+ * triangle — genuinely all we know about it.
+ */
+const DRIVE_KIND = {
+  doc: "doc",
+  sheet: "sheet",
+  slides: "slides",
+  pdf: "pdf",
+  folder: "folder",
+  file: "file",
+};
 
 /** The plain word for a Drive kind, phrased as `labelOpened` already phrases it. */
 const DRIVE_WORD = {
