@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Search, Sparkles } from "lucide-react";
+import { MessagesSquare, Search } from "lucide-react";
 import { DigInput } from "./DigInput";
 import { SkillMenu } from "./chat/SkillMenu";
 import {
@@ -112,7 +112,7 @@ export function HomeBar({
         <Tab active={!chat} onClick={() => setMode("search")} icon={<Search className="size-3.5" strokeWidth={2} />}>
           Search
         </Tab>
-        <Tab active={chat} onClick={() => setMode("chat")} icon={<Sparkles className="size-3.5" strokeWidth={2} />}>
+        <Tab active={chat} onClick={() => setMode("chat")} icon={<MessagesSquare className="size-3.5" strokeWidth={2} />}>
           Chat
         </Tab>
 
@@ -155,7 +155,7 @@ export function HomeBar({
           tone="plain"
           inputRef={inputRef}
           command={chat ? command : null}
-          icon={chat ? <Sparkles className="size-full" strokeWidth={1.9} /> : undefined}
+          icon={chat ? <MessagesSquare className="size-full" strokeWidth={1.9} /> : undefined}
           actionLabel={chat ? "Ask" : "Dig"}
           placeholder={chat ? "Ask anything" : "Search for anything"}
           onKeyDown={(e) => {

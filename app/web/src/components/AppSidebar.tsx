@@ -1,4 +1,4 @@
-import { MessagesSquare, Search, Sparkles, Wrench } from "lucide-react";
+import { FileText, MessagesSquare, Search, Wrench } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { BRAND_LOGOS } from "./BrandLogos";
 import {
@@ -154,10 +154,15 @@ export function AppSidebar({
                     opens a slash menu would never have found it.
 
                     Last, after Tools, and the order is the reading order: what
-                    Badger can reach, then what it knows how to do with it. */}
+                    Badger can reach, then what it knows how to do with it.
+
+                    The page icon, the same one the skill picker uses on every
+                    row: a skill is a SKILL.md you can open, edit and download.
+                    Sparkles said "AI happens here", which is the opposite of
+                    the point. */}
                 <SidebarMenuButton asChild isActive={pathname.startsWith("/skills")} tooltip="Skills">
                   <NavLink to="/skills">
-                    <Sparkles />
+                    <FileText />
                     <span>Skills</span>
                   </NavLink>
                 </SidebarMenuButton>
