@@ -694,15 +694,26 @@ gcloud run deploy badger --source . --region us-central1 \
   --service-account badger-run@$PROJECT.iam.gserviceaccount.com \
   --allow-unauthenticated --max-instances 1 --concurrency 20 \
   --set-env-vars GOOGLE_CLOUD_PROJECT=$PROJECT,GOOGLE_CLOUD_LOCATION=us-central1,\
-NODE_ENV=production,BADGER_USER_ID=...,BADGER_GITHUB_REPO=owner/repo \
-  --set-secrets COMPOSIO_API_KEY=...,BADGER_SESSION_SECRET=...,BADGER_PASSPHRASE=...
+NODE_ENV=production,BADGER_USER_ID=...,BADGER_GITHUB_REPO=owner/repo,\
+BADGER_AGENT_REPO_URL=https://github.com/owner/badger.git \
+  --set-secrets COMPOSIO_API_KEY=...,BADGER_SESSION_SECRET=...,BADGER_PASSPHRASE=...,\
+DATABASE_URL=...,BADGER_AGENT_REPO_TOKEN=...
 ```
+
+`--set-env-vars` replaces the whole set rather than adding to it, so every
+variable has to be named on every deploy or one of them silently disappears.
 
 `--max-instances 1` does double duty: it caps cost absolutely, and it makes the
 in-memory rate limits *correct* — they are per instance, so a second instance
 would silently double every limit.
 
-Three secrets live in Secret Manager, never as plain environment variables. The
+`BADGER_AGENT_REPO_TOKEN` is the learning loop's, and it is the only
+write-capable credential Badger holds. Scope it to Badger's own repository with
+`contents: write` and nothing else — it exists to push a learned skill onto one
+branch. Leave it and `BADGER_AGENT_REPO_URL` out and the deploy is valid: the
+agent runs from the image and learns only for as long as the instance lives.
+
+Secrets live in Secret Manager, never as plain environment variables. The
 service runs as a dedicated account holding exactly two roles rather than the
 default compute account, which carries far more.
 
