@@ -706,12 +706,22 @@ non-deterministic, so one run is a sample rather than a score, and the set says
 so rather than implying a precision it does not have.
 
 Dated runs are recorded in **[`evals/RESULTS.md`](evals/RESULTS.md)** — the
-score, the failure, and why it failed. The most recent reads 14/15 for about
-ten cents, and the one failure is worth the click: the agent named the right
-person for the right reason and then attributed a real mail thread to a
-sender it never had. Right answer, invented evidence, caught by the citation
-verifier and graded as a failure — which is the only defensible call for a
+score, the failure, and why it failed. The most recent entry reads **12/15**,
+about nineteen cents, measured over four runs rather than one because the first
+came in well below the band and a single sample could not settle whether that
+was noise or a regression. It was mostly neither: switching on skill
+crystallisation had side effects, and finding them is written up there.
+
+The entry above it reads 14/15, and that failure is worth the click: the agent
+named the right person for the right reason and then attributed a real mail
+thread to a sender it never had. Right answer, invented evidence, caught by the
+citation verifier and graded as a failure — the only defensible call for a
 product whose whole proposition is that the citation can be trusted.
+
+One question, `refund-policy`, has failed in every run for days: it gives the
+policy and does not reliably name the exception someone authorised against it.
+That is a real weakness rather than variance, it has never been fixed, and it
+is recorded rather than rounded away.
 
 ---
 
