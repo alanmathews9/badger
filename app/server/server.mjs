@@ -394,6 +394,28 @@ async function handleAsk(req, res) {
         // certain, because it is the one that selected the procedure and put
         // it in the prompt (see `chosen` above), and the model is merely
         // failing to repeat it back.
+        // Lower-case the loop's enum arguments before they are validated.
+        //
+        // task_tracker and skill_learner declare `action` and `outcome` as
+        // literal constants — "success", not "Success" — and a capitalised
+        // value is a hard validation failure, not a coercion. Measured: the
+        // model sent {"action":"end","outcome":"Success"}, the call was
+        // rejected, the task stayed `active`, and the skill_learner call that
+        // followed refused with "did not succeed (status: active)". One
+        // capital letter took out the entire learning loop for that run, and
+        // nothing in the answer showed it.
+        //
+        // The house rule applies — fix it in the tool layer, not by asking the
+        // model to be more careful — and this is a normalisation rather than a
+        // guess: every legal value of both fields is already lower-case, so
+        // lowering can only turn an invalid argument into the valid one the
+        // model plainly meant.
+        if (hookCtx.toolName === "task_tracker" || hookCtx.toolName === "skill_learner") {
+          for (const field of ["action", "outcome"]) {
+            if (typeof args[field] === "string") args[field] = args[field].toLowerCase();
+          }
+        }
+
         if (
           hookCtx.toolName === "task_tracker" &&
           args.action === "end" &&

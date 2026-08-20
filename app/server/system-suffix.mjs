@@ -61,7 +61,10 @@ order, and never let it touch the answer:
    novel it was. Measured across 57 tracked tasks, exactly one had enough
    steps to qualify — which is why nothing has ever been learned.
 4. When the answer is ready, call \`task_tracker\` action "end" with the
-   outcome.
+   outcome. **Before you call "end", check that you have called "update" at
+   least twice.** If you have not, call it now, once for each thing you
+   actually did — the steps are what make step 5 possible, and after "end"
+   it is too late to add them.
 5. \`skill_learner\` action "evaluate" after "end", whenever the run took more
    than one search and its approach would repeat for other questions of the
    same SHAPE — not the same subject. If it comes back worthy, call
