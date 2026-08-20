@@ -29,14 +29,22 @@ WORKDIR /app
 # openAgentRepo() catches the ENOENT and falls back to running from the image
 # — which is exactly the silent degradation this line exists to prevent.
 #
+# ca-certificates is NOT optional here, and leaving it out cost two deploys.
+# The line this replaces asserted "ca-certificates ships with the base image,
+# so HTTPS to GitHub already works", which conflated two different trust
+# stores: Node carries its own bundled CA list — which is why fetch, npm and
+# every Composio call work — while git goes through libcurl and wants the
+# SYSTEM store, which node:24-slim does not have. The clone failed in
+# production with
+#
+#   fatal: unable to access 'https://github.com/...': server certificate
+#   verification failed. CAfile: none CRLfile: none
+#
 # --no-install-recommends because the recommended set pulls perl-modules and
-# the full documentation, none of which a clone needs. The cost has NOT been
-# measured here (no Docker on the build machine) — read it off the registry
-# after the next deploy and write the real number in, the way the node_modules
-# figure above was arrived at. ca-certificates ships with the base image, so
-# HTTPS to GitHub already works.
+# the full documentation, none of which a clone needs. Registry images went
+# 101MB → 132MB across the deploy that added git, so call it ~31MB for both.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git \
+ && apt-get install -y --no-install-recommends git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
 # Production dependencies only: @composio/core for the agent's tools, the
