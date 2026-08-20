@@ -4,8 +4,8 @@ description: Find a policy, even when it is contested. Use for "what is our poli
 learned_from: task:e9016f1d-5182-4c55-be76-81b5d245e60a
 learned_at: '2026-08-20T14:24:57.762Z'
 confidence: 1
-usage_count: 1
-success_count: 1
+usage_count: 2
+success_count: 2
 failure_count: 0
 negative_examples: []
 ---
