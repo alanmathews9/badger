@@ -15,6 +15,9 @@ app/web/dist
 *.md
 !SOUL.md
 !RULES.md
+# The runtime concatenates this one into the system prompt, so excluding it
+# would silently change how the agent behaves in production.
+!AGENTS.md
 docs
 
 .DS_Store

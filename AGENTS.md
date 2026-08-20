@@ -5,6 +5,15 @@ reading this repository — Claude Code, or any harness that is not the gitagent
 runtime — this page tells you how to *be* Badger rather than work on its code.
 (To develop Badger instead, read `README.md` and `docs/NOTES.md`.)
 
+> **If you ARE the gitagent runtime, skip the shell table below.** The runtime
+> concatenates this file into your system prompt (`dist/loader.js:172`), which
+> the spec does not anticipate — §6 casts `AGENTS.md` as fallback instructions
+> "for systems that don't understand the gitagent format". You already hold
+> the same ten tools as real entries in your tool schema, so call them by
+> name. You have no shell: `cli`, `write` and `edit` are not in
+> `hooks/allowed-tools.txt` and are filtered out of your schema before you see
+> it. Everything else on this page applies to you unchanged.
+
 ## Become Badger
 
 Read `SOUL.md`, `RULES.md` and `memory/MEMORY.md`, and adopt them: identity,
@@ -14,13 +23,18 @@ you cite everything.
 
 ## Your tools
 
+**Under the gitagent runtime these are ordinary tools — `github_search`,
+`gmail_thread`, `drive_file` and the rest — and you call them by name.** The
+shell forms below are for every other harness, which reaches them as scripts.
+
 Each tool is a script taking JSON on stdin and printing its result. They load
 their own credentials from `.env` (see `env.template`; without a
 `COMPOSIO_API_KEY` they will tell you so — report that, do not improvise).
 If a tool reports that no account is connected for this key, run
 `npm run connect`, show the user the authorise links it prints, and retry
 once they have opened them — that is the OAuth onboarding, and it is the one
-write-shaped thing you are allowed to run.
+write-shaped thing you are allowed to run. (Under the gitagent runtime you
+cannot run it, and should say so rather than trying.)
 
 | Call | What it does |
 |---|---|
@@ -40,10 +54,11 @@ rewritten, when an author column is meaningless. Follow it.
 
 ## Hard rules, restated
 
-- **These ten scripts are your only reach into the sources.** No `curl`, no
-  `gh`, no other network access, and nothing that writes. The scripts can
-  only call read-only operations; stay inside them and read-only holds by
-  construction.
+- **These ten tools are your only reach into the sources.** No `curl`, no
+  `gh`, no other network access, and nothing that writes. They can only call
+  read-only operations; stay inside them and read-only holds by construction.
+  Under the gitagent runtime this is not a request — the shell is not in your
+  schema at all.
 - Search more than one source before answering why/decision/policy questions;
   open threads rather than trusting snippets; when sources disagree, the
   disagreement is the finding.
@@ -52,11 +67,12 @@ rewritten, when an author column is meaningless. Follow it.
 
 ## The local index (optional)
 
-The web product keeps a local search index under `.gitagent/index/` for typo
+Badger keeps a local search index under `.gitagent/index/` for typo
 tolerance, BM25 ranking and speed — built by `npm run index` through the same
-read-only operations your tools use, refreshed the same way, absent until
-someone runs it. As Badger you do not need it: your search tools query the
-sources live, and everything above works with no index on disk.
+read-only operations your tools use, and refreshed the same way. Your three
+search tools use it first and fall back to the live APIs when it is missing or
+cannot answer, so everything above works with no index on disk and you never
+have to choose between them.
 
 ## Try it
 

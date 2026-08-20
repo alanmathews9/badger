@@ -17,7 +17,7 @@
 //   Files are named <timestamp>_<slug>.sql and applied in lexical order,
 //   which for that format is chronological order. The name is the key, so
 //   renaming an applied migration makes it run again — don't.
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { pool, closeDb } from "../tools/scripts/_db.mjs";
@@ -41,18 +41,24 @@ async function applied(client) {
   return new Set(rows.map((r) => r.name));
 }
 
-async function main() {
+/**
+ * Apply outstanding migrations. Exported because the server calls it at boot.
+ *
+ * The container has no shell step and no `npm run db:migrate` — a deploy that
+ * needed a human to migrate first is a deploy that ships a broken revision
+ * the one time the human forgets. `--max-instances 1` means there is never a
+ * second migrator racing this one, and each file already commits with its
+ * ledger row or not at all, so running it on every boot is a no-op after the
+ * first.
+ *
+ * Returns the number applied, or null when there is no database configured.
+ * It never throws for the caller: a server that cannot migrate must still
+ * start and serve live search, exactly as one with no DATABASE_URL does.
+ */
+export async function migrate({ statusOnly = false, quiet = false } = {}) {
   const db = pool();
-  if (!db) {
-    console.error(
-      "DATABASE_URL is not set.\n" +
-        "Add the Supabase TRANSACTION POOLER string (port 6543) to .env —\n" +
-        "the direct connection is IPv6-only and will fail on Cloud Run.",
-    );
-    process.exit(1);
-  }
+  if (!db) return null;
 
-  const statusOnly = process.argv.includes("--status");
   const client = await db.connect();
 
   try {
@@ -63,12 +69,12 @@ async function main() {
     if (statusOnly) {
       for (const name of files) console.log(`${done.has(name) ? "applied" : "PENDING"}  ${name}`);
       if (!files.length) console.log("no migrations on disk");
-      return;
+      return 0;
     }
 
     if (!pending.length) {
-      console.log(`nothing to do — ${files.length} migration(s) already applied`);
-      return;
+      if (!quiet) console.log(`nothing to do — ${files.length} migration(s) already applied`);
+      return 0;
     }
 
     for (const name of pending) {
@@ -88,13 +94,31 @@ async function main() {
       }
     }
     console.log(`${pending.length} migration(s) applied`);
+    return pending.length;
   } finally {
+    // Release only. Closing the pool is the CLI's job — the server keeps
+    // using this same pool for the index pull and every history query.
     client.release();
-    await closeDb();
   }
 }
 
-main().catch((err) => {
-  console.error(`\nmigration failed: ${err.message}`);
-  process.exit(1);
-});
+// CLI: `npm run db:migrate`. Only when run directly, so importing this from
+// the server does not exit the process.
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const db = pool();
+  if (!db) {
+    console.error(
+      "DATABASE_URL is not set.\n" +
+        "Add the Supabase TRANSACTION POOLER string (port 6543) to .env —\n" +
+        "the direct connection is IPv6-only and will fail on Cloud Run.",
+    );
+    process.exit(1);
+  }
+  migrate({ statusOnly: process.argv.includes("--status") })
+    .then(() => closeDb())
+    .catch(async (err) => {
+      console.error(`\nmigration failed: ${err.message}`);
+      await closeDb().catch(() => {});
+      process.exit(1);
+    });
+}

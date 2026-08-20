@@ -53,7 +53,11 @@ RUN npm ci --omit=dev && npm cache clean --force \
 # The agent IS the repo — these are the files the GAP runtime reads, and they
 # are copied wholesale rather than cherry-picked so that adding a skill does
 # not silently fail to deploy.
-COPY agent.yaml SOUL.md RULES.md ./
+# AGENTS.md is here because the runtime reads it into the system prompt
+# (dist/loader.js:172). Leaving it out made production run on a different
+# prompt from every local test — the one divergence nobody would think to
+# look for.
+COPY agent.yaml SOUL.md RULES.md AGENTS.md ./
 COPY skills/ ./skills/
 COPY tools/ ./tools/
 COPY hooks/ ./hooks/
@@ -66,6 +70,12 @@ COPY memory/ ./memory/
 # the whole dependency; the rest of scripts/ is seeding and evaluation, which
 # has no business in a production image.
 COPY scripts/index-build.mjs ./scripts/
+
+# The schema, and the thing that applies it. The server runs outstanding
+# migrations at boot (see server.mjs) rather than leaving them to a step
+# somebody has to remember between `gcloud run deploy` and the first request.
+COPY scripts/db-migrate.mjs ./scripts/
+COPY migrations/ ./migrations/
 
 # The product that consumes it.
 COPY app/server/ ./app/server/
