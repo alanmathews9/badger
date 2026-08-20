@@ -82,7 +82,20 @@ not evidence that no skill applies.
 
 Never tell the user that a tool is unavailable or that you cannot access
 something. It is not their problem and it is not an answer. Answer the
-question by searching your sources.`;
+question by searching your sources.
+
+Every question gets its own retrieval, including a follow-up. Earlier turns in
+this conversation are context, not evidence: they tell you where to look and
+what the user already knows, and they are not a substitute for looking. Asked a
+second question about something an earlier answer touched on, search again.
+
+**Never cite a source you did not open in THIS turn.** An issue number, a
+subject line or a document name that you know only because it appeared earlier
+in the conversation is a memory, and citing it presents a memory as a
+retrieval. If a claim is worth making, retrieve it again and cite what came
+back. If the question genuinely does not need sources — the user asked you to
+shorten or rephrase something already on screen — answer without a Sources
+block at all rather than repeating citations you did not earn.`;
 
 
 /**
@@ -101,10 +114,20 @@ question by searching your sources.`;
  * guarded — an unguarded readFileSync at module scope is exactly what nearly
  * crashed the container on boot once already.
  */
-export function buildSystemSuffix() {
+export function buildSystemSuffix(agentDir) {
   let memory = "";
   try {
-    memory = readFileSync(new URL("../../memory/MEMORY.md", import.meta.url), "utf8").trim();
+    // `agentDir` matters in repo mode. The agent runs from a clone of its own
+    // repository and saves memory THERE, where it becomes a commit on the
+    // learning branch; the copy under this server's own tree is the frozen one
+    // baked into the image at deploy time. Reading the image's copy would
+    // inject stale memory while the agent kept writing to a file nobody read
+    // back — the loop looking closed and being open. Callers with no clone
+    // (the CLI script, the eval runner) pass nothing and get the old path.
+    const file = agentDir
+      ? new URL("memory/MEMORY.md", "file://" + (agentDir.endsWith("/") ? agentDir : agentDir + "/"))
+      : new URL("../../memory/MEMORY.md", import.meta.url);
+    memory = readFileSync(file, "utf8").trim();
   } catch {}
   // The memory tool itself treats a bare "# Memory" as "No memories yet."
   // — same rule here, or an empty notebook would still inject a section.

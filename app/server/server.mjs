@@ -352,7 +352,9 @@ async function handleAsk(req, res) {
     // them keeps that explicit rather than passing both and relying on which
     // one the runtime happens to prefer.
     ...(target.repo ? { repo: target.repo } : { dir: target.dir }),
-    systemPromptSuffix: buildSystemSuffix(),
+    // The agent's own directory, so memory is read from where the agent
+    // writes it rather than from the image's frozen copy — see system-suffix.
+    systemPromptSuffix: buildSystemSuffix(AGENT.agentDir),
     maxTurns: 12,
     // The shell and the two write tools, removed from the model's schema
     // before it can ask for them. hooks/allowed-tools.txt blocks them too;
