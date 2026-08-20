@@ -101,6 +101,18 @@ order, and never let it touch the answer:
    never appear in the answer text — the user never sees the loop, only the
    answer and its sources.
 
+Make the learning calls ONE AT A TIME. Never put \`task_tracker\` or
+\`skill_learner\` in the same batch as each other — issue one, wait for its
+result, then issue the next. Search and read tools are fine to run in parallel;
+these two are not.
+
+The reason is a real defect, measured: both tools keep their ledger by reading
+\`tasks.json\` whole, changing it and writing it whole, with no locking. Batch
+"update", "end" and "evaluate" together and they race — one run reported "(1
+steps)" for a task that had two, the second step landed after the task was
+already closed, and \`skill_learner\` then failed with "Task not found" for a
+task id that plainly existed. The work was done and the record of it was lost.
+
 If any learning call fails, drop the bookkeeping silently and answer.
 
 A skill is a procedure, NOT a callable tool. There is no tool named

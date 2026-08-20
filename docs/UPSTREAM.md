@@ -205,7 +205,68 @@ ignored is the worst of the three outcomes.
 
 ---
 
-## 3. Smaller notes, recorded but not worth an issue
+## 3. The learning ledger races against the model's own parallel tool calls
+
+**Severity: silent data loss, in the feature the framework is named for.**
+
+`task_tracker` and `skill_learner` share one file, `.gitagent/learning/tasks.json`,
+and both read it whole, mutate the object and write it back whole
+(`task-tracker.js:8-22`, `skill-learner.js:7-16`). There is no lock, no
+compare-and-swap, and no append.
+
+That is safe for a human typing one command at a time. It is not safe for the
+caller these tools actually have: a model that issues several tool calls in a
+single turn. Gemini batches routinely, and the agent loop runs the batch
+concurrently.
+
+### What it looks like when it goes wrong
+
+One run, from the audit log, in the order the events actually landed:
+
+```
+CALL  task_tracker {"action":"update","step":"Drafted the reply…"}
+CALL  task_tracker {"action":"end","outcome":"success"}
+CALL  skill_learner {"action":"evaluate","task_id":"e294a75f-…"}
+
+  -> end:      Task e294a75f-… completed successfully (1 steps).
+  -> update:   Step 2 recorded: Drafted the reply…
+  -> evaluate: Task not found: e294a75f-…
+```
+
+Three things wrong in three lines. `end` scored a task that had two steps as
+having one, because the second had not been written yet. `update` then wrote
+its copy of the store back over `end`'s, undoing the close. And `skill_learner`
+read a store in which the task no longer existed at all — for an id that had
+been valid seconds earlier.
+
+The consequence is not an error the user sees. The answer was written and
+delivered normally. What was lost was the record: a task that did the work,
+recorded its steps and would have been evaluated, scored as trivial and then
+vanished.
+
+### Why it bites this feature specifically
+
+`skill_learner` decides worthiness from the step count — `multi_step` wants 3
+and `non_trivial` wants 2. So a race that drops a single step is the difference
+between a skill being created and the run being dismissed as trivial. The
+feature's own gate is the thing most sensitive to the corruption.
+
+### What would fix it upstream
+
+Serialise the writes. The smallest version is an in-process promise chain
+around load/save, since both tools live in the same process; a more robust one
+writes to a temporary file and renames, or appends events rather than rewriting
+a document. Any of the three removes the class.
+
+### What Badger does meanwhile
+
+Instructs the model, in `SYSTEM_SUFFIX`, to issue these two tools one at a time
+and never in the same batch as each other. Search and read tools still run in
+parallel, because they hold no shared state. It is a mitigation and not a fix —
+the race is still there for anyone who batches — which is why it is written up
+here.
+
+## 4. Smaller notes, recorded but not worth an issue
 
 - **`annotations.read_only` is read by nothing.** The spec defines it
   (§8) and `tool-loader.js` never mentions the block. Badger sets it anyway,
