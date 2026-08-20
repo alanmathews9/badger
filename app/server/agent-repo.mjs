@@ -169,10 +169,19 @@ export function openAgentRepo(root) {
   const template = process.env.BADGER_AGENT_DIR || join(tmpdir(), "badger-agent");
   try {
     if (!existsSync(template)) {
-      // --no-single-branch so the learning branch is fetchable; depth 1
-      // because the agent needs the files, not the history. A human reading
-      // the history reads it on GitHub.
-      git(["clone", "--depth", "1", "--no-single-branch", authedUrl(url, token), template]);
+      // A FULL clone, deliberately, and the missing --depth 1 is the point.
+      //
+      // Shallow looked obviously right — the agent needs the files, not the
+      // history — and it broke the loop in a way that only showed up under
+      // test. With depth 1 the clone holds exactly one commit of the default
+      // branch, so once the learning branch exists and main moves on there is
+      // no common ancestor between them, and the boot merge below dies on
+      // "fatal: refusing to merge unrelated histories". The agent then never
+      // sees a change to main again.
+      //
+      // The saving was never worth defending: this repository is ~9MB of git
+      // objects and clones in about 1.4 seconds, once per container start.
+      git(["clone", authedUrl(url, token), template]);
     }
     // Strip the token straight back out of the stored remote. Every run sets
     // it again inside its own copy and finalize() strips it there too, so the
