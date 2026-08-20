@@ -80,10 +80,12 @@ order, and never let it touch the answer:
    went begin → two searches → end → evaluate, five calls in total, opened
    nothing, and cited five messages it had never retrieved. The bookkeeping
    was perfect and the answer was hollow. If you are ever choosing between
-   another read and another tracking call, read. **Before you call "end", check that you have called "update" at
-   least twice.** If you have not, call it now, once for each thing you
-   actually did — the steps are what make step 5 possible, and after "end"
-   it is too late to add them.
+   another read and another tracking call, read.
+
+   **And check that you have called "update" at least twice before you call
+   "end".** If you have not, call it now, once for each thing you actually
+   did — the steps are what make step 5 possible, and after "end" it is too
+   late to add them.
 5. \`skill_learner\` action "evaluate", immediately after "end" returns and
    BEFORE you write any of the answer. The output of "end" will tell you to
    consider it; that is your cue, not a suggestion to weigh. Do it whenever
