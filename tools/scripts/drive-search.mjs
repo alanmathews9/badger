@@ -28,8 +28,38 @@ run(async (args) => {
 
   // Index first, live as the second look — see _index-tool.mjs. Kind-filtered
   // calls and non-demo users go straight to live.
-  if (!kind && indexServes({ user: args._badger_user })) {
-    const viaIndex = indexAnswer("drive", query, { limit });
+  const KINDS = {
+    doc: "document", docs: "document", document: "document", documents: "document",
+    sheet: "spreadsheet", sheets: "spreadsheet", spreadsheet: "spreadsheet",
+    spreadsheets: "spreadsheet", table: "spreadsheet", tables: "spreadsheet",
+    folder: "folder", folders: "folder", dir: "folder", directory: "folder",
+  };
+  const want = KINDS[String(kind ?? "").trim().toLowerCase()];
+
+  // What `kind` means to the INDEX, whose Drive rows are typed doc / sheet /
+  // folder. The two vocabularies differ because one is a Google mime type and
+  // the other is what kindOf() prints, so the mapping is spelled out rather
+  // than assumed to line up.
+  const INDEX_TYPES = { document: ["doc"], spreadsheet: ["sheet"], folder: ["folder"] };
+
+  // Index first — including when a kind was asked for.
+  //
+  // This used to be `if (!kind && ...)`, so any filtered search went straight
+  // to the live API. Measured in production on "how many days of annual leave
+  // carry over?": the model sent kind="document", the search took 5 seconds
+  // against Drive, and the same search from the index takes about 200ms. The
+  // filter was never the obstacle — indexAnswer has taken a `types` list since
+  // it was written, which is how github_search filters to issues and PRs. Only
+  // Drive was passing nothing and paying for it.
+  //
+  // An unrecognised kind still reaches here with `want` undefined, which means
+  // no type filter, which is the same "search everything" the live path does
+  // with it — the two behave alike rather than one dead-ending.
+  if (indexServes({ user: args._badger_user })) {
+    const viaIndex = indexAnswer("drive", query, {
+      limit,
+      types: want ? INDEX_TYPES[want] : null,
+    });
     if (viaIndex) return viaIndex;
   }
 
@@ -45,13 +75,6 @@ run(async (args) => {
   // The house rule applies: fix it in the tool, not in a prompt telling the
   // model to be more careful. An unrecognised value now searches everything,
   // which is the same result as omitting the filter and can never dead-end.
-  const KINDS = {
-    doc: "document", docs: "document", document: "document", documents: "document",
-    sheet: "spreadsheet", sheets: "spreadsheet", spreadsheet: "spreadsheet",
-    spreadsheets: "spreadsheet", table: "spreadsheet", tables: "spreadsheet",
-    folder: "folder", folders: "folder", dir: "folder", directory: "folder",
-  };
-  const want = KINDS[String(kind ?? "").trim().toLowerCase()];
 
   const extra = [];
   if (want) extra.push(`mimeType = 'application/vnd.google-apps.${want}'`);
