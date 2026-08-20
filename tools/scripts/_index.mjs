@@ -160,6 +160,13 @@ const BM25_K1 = 1.2;
 // no longer able to dilute it.
 const W_TITLE = 3;
 const W_BODY = 1;
+
+// Exact-phrase weights. Deliberately larger than a single term's BM25
+// contribution: someone who quotes a phrase is asking for those words in that
+// order, and a document that has them verbatim is a better answer than one
+// that happens to contain each word separately.
+const W_PHRASE_TITLE = 6;
+const W_PHRASE_BODY = 3;
 // Titles are nearly uniform in length, so normalising them hard punishes
 // detail for no reason — a document called "Refund Policy for Deposits" is not
 // less about refunds than one called "Refund Policy". Bodies vary by orders of
@@ -229,7 +236,33 @@ export function createSearcher(index) {
   }
 
   function search(query, { limit = 20 } = {}) {
-    const plan = planQuery(query, { max: 10 });
+    let plan = planQuery(query, { max: 10 });
+
+    // A quoted query used to mean "the index cannot help".
+    //
+    // planQuery returns passthrough with ZERO terms the moment it sees a
+    // double quote, because on the live engines a quoted phrase must be handed
+    // over untouched rather than split and OR'd. The index searcher inherited
+    // that and produced no terms, therefore no rows, therefore
+    // `indexAnswer` returned null and every quoted query went live. And the
+    // model quotes constantly, because our own tool description tells it to:
+    // "A \"quoted phrase\" is searched exactly as written instead of being
+    // reduced." Measured on a live run: three searches, every one carrying
+    // quoted phrases, all three live, none touching the index.
+    //
+    // But holding the text is exactly what makes an exact phrase CHEAP —
+    // it is a substring test over 190 documents. So the phrases are pulled
+    // out and matched directly, and whatever sits outside the quotes is
+    // planned and scored normally.
+    const phrases = plan.passthrough
+      ? [...String(query ?? "").matchAll(/"([^"]+)"/g)]
+          .map((m) => m[1].trim().toLowerCase())
+          .filter(Boolean)
+      : [];
+    if (phrases.length) {
+      plan = planQuery(String(query ?? "").replace(/"[^"]*"/g, " "), { max: 10 });
+    }
+
     const corrections = [];
     const unmatched = [];
 
@@ -296,8 +329,48 @@ export function createSearcher(index) {
       rows.sort((a, b) => b.score - a.score || String(b.date).localeCompare(String(a.date)));
     }
 
+    // Exact phrases, scored on top of whatever the loose terms found. A phrase
+    // is a much stronger signal than a word, so it outweighs one: a document
+    // containing "Clearview Dental" verbatim beats one that merely mentions
+    // both words apart. Flat weights rather than BM25 — a phrase either occurs
+    // or it does not, and there is no document frequency worth estimating over
+    // 190 documents.
+    if (phrases.length) {
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      for (const doc of docs) {
+        const title = String(doc.title ?? "").toLowerCase();
+        const body = String(doc.body ?? "").toLowerCase();
+        let bonus = 0;
+        const hit = [];
+        const hitTitle = [];
+        for (const phrase of phrases) {
+          const inTitle = title.includes(phrase);
+          const inBody = body.includes(phrase);
+          if (!inTitle && !inBody) continue;
+          bonus += inTitle ? W_PHRASE_TITLE : W_PHRASE_BODY;
+          hit.push(phrase);
+          if (inTitle) hitTitle.push(phrase);
+        }
+        if (!bonus) continue;
+        const existing = byId.get(doc.id);
+        if (existing) {
+          existing.score = Number((existing.score + bonus).toFixed(4));
+          existing.matchedTerms = [...existing.matchedTerms, ...hit];
+          existing.matchedInTitle = [...existing.matchedInTitle, ...hitTitle];
+        } else {
+          rows.push({
+            ...doc,
+            score: Number(bonus.toFixed(4)),
+            matchedTerms: hit,
+            matchedInTitle: hitTitle,
+          });
+        }
+      }
+      rows.sort((a, b) => b.score - a.score || String(b.date).localeCompare(String(a.date)));
+    }
+
     return {
-      terms,
+      terms: [...terms, ...phrases],
       droppedTerms: plan.droppedTerms,
       corrections,
       unmatched,
