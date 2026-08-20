@@ -15,6 +15,7 @@ import { SkillMenu } from "./SkillMenu";
 export function Composer({
   skills,
   running,
+  busy = false,
   preset,
   prefill,
   onSubmit,
@@ -25,7 +26,15 @@ export function Composer({
   onPrefillUsed,
 }: {
   skills: SkillInfo[];
+  /** An answer is being written. This is what puts Stop on screen. */
   running: boolean;
+  /**
+   * The composer cannot be used, but nothing is running — a stored
+   * conversation is still arriving. Kept separate from `running` because
+   * folding the two together put a Stop button on screen with no run behind
+   * it: pressing it called a spent canceller and did nothing at all.
+   */
+  busy?: boolean;
   /** A skill to pre-fill — set when the add-skill pane has just written one. */
   preset: string | null;
   /** Text to drop into the box, from a suggestion. Never sent on its own. */
@@ -90,7 +99,7 @@ export function Composer({
   }, [filter, menuVisible]);
 
   const submit = (text: string) => {
-    if (running) return;
+    if (running || busy) return;
     const parsed = parseSkillCommand(text, command, skills);
     if (!parsed) return;
     setDraft("");
@@ -186,7 +195,7 @@ export function Composer({
             )}
             <button
               onClick={() => submit(draft)}
-              disabled={!draft.trim() || running}
+              disabled={!draft.trim() || running || busy}
               aria-label="Send"
               className="inline-flex size-8 items-center justify-center rounded-lg bg-stone-900 text-stone-50 disabled:opacity-30"
             >

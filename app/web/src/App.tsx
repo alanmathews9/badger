@@ -159,12 +159,17 @@ export default function App() {
 
       // The first question in a new conversation mints its id and puts it in
       // the address bar, so the answer being written is already linkable.
-      // `replace`, not `push`: /chat and /chat/<id> are the same conversation,
-      // and back should leave it rather than land on an empty composer.
+      //
+      // `replace` only when the question was asked from /chat, where /chat and
+      // /chat/<id> are the same conversation and back should leave rather than
+      // land on an empty composer. A question asked from the search home is a
+      // real move between two different places: replacing there overwrote the
+      // /search entry, so Back left the app entirely — from the first thing an
+      // evaluator is likely to do.
       if (!activeIdRef.current) {
         const id = newChatId();
         setActive(id);
-        navigate(`/chat/${id}`, { replace: true });
+        navigate(`/chat/${id}`, { replace: !fresh });
       }
 
       // The conversation so far, as plain text. The server strips the model's
@@ -299,7 +304,7 @@ export default function App() {
    * did not register.
    */
   const openChat = useCallback(
-    async (id: string | null) => {
+    async (id: string | null, { force = false } = {}) => {
       if (id === activeIdRef.current) return;
 
       // An answer being written is not something a click can throw away.
@@ -317,7 +322,11 @@ export default function App() {
       // answer is live, bare `/chat` resolves to the conversation writing it.
       // The consequence is that New chat waits for the current answer, or for
       // Stop — which is the right trade against silently discarding it.
-      if (!id && runningRef.current && activeIdRef.current) {
+      // `force` is the caller saying "I am about to start a run, not throw one
+      // away" — askFromHome, which must land on a clean conversation. Without
+      // the exemption the guard below turned that reset into a no-op and the
+      // new question was appended to the running conversation instead.
+      if (!id && !force && runningRef.current && activeIdRef.current) {
         navigate(`/chat/${activeIdRef.current}`, { replace: true });
         return;
       }
@@ -368,10 +377,15 @@ export default function App() {
    * `openChat(null)` is safe to call synchronously here: its null branch has
    * no await before `setActive`, which writes `activeIdRef` directly, so
    * `startAsk` sees the cleared id rather than a stale one.
+   *
+   * `force` because the guard that keeps a live answer from being discarded
+   * would otherwise make this reset a no-op: asking from Home while an answer
+   * was still streaming would append the new question to the OLD
+   * conversation, under a turn left spinning forever.
    */
   const askFromHome = useCallback(
     (question: string, skill: string | null) => {
-      openChat(null);
+      openChat(null, { force: true });
       startAsk(question, skill, true);
     },
     [openChat, startAsk],
