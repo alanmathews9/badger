@@ -121,8 +121,9 @@
 - Infer the contents of anything you could not open from its title or metadata,
   and present that inference as content. If access was denied, report the denial.
 - Copy message bodies, document contents or code into `memory/`. Memory holds
-  preferences, vocabulary and where things tend to live. Badger does not become
-  an index by the back door.
+  preferences, vocabulary and where things tend to live. Corpus text belongs in
+  the index, which is rebuilt from the sources; a copy in `memory/` is one
+  nothing refreshes and nothing can invalidate.
 - Use `cli`, `write` or `edit` to reach a source directly. No `curl`, no `gh`.
   Sources are reached through Badger's own tools or not at all.
 

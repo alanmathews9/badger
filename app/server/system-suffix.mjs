@@ -4,39 +4,23 @@ import { readFileSync } from "node:fs";
  * Text appended to the system prompt on every SDK invocation, by all three
  * callers.
  *
- * ---------------------------------------------------------------------------
- * **History — this suffix used to say the opposite.** `dist/loader.js:250`
- * pushes a "Task Learning & Skill Discovery" block into every agent's system
- * prompt, unconditionally: begin with `task_tracker`, crystallize successes
- * with `skill_learner`. Badger's first design removed both tools via
- * `allowedTools` and used this suffix to countermand the runtime — an agent
- * ordered in capitals to call a tool it could not see, then told in a
- * postscript to ignore the order. That suppressed the framework's whole
- * learning thesis to defend a boundary it was never on the wrong side of:
- * task_tracker and skill_learner write to the AGENT'S OWN repo, not to any
- * source. Reversed 2026-08-19 on Alan's direction — the agent may change
- * itself; it may never change GitHub, Gmail or Drive. The tools are back in
- * `hooks/allowed-tools.txt` (the one list both paths read) and this suffix
- * now steers the loop instead of denying it.
+ * `dist/loader.js:250` pushes a "Task Learning & Skill Discovery" block into
+ * every agent's system prompt unconditionally. This steers that loop rather
+ * than denying it: task_tracker, skill_learner and memory write only to the
+ * agent's OWN repo, never to a source, so they are allowed.
  *
- * What it still has to do, and why it exists at all:
+ * Two things it must do:
  *
- * - **Keep the loop subordinate to the answer.** Flash treats the injected
- *   block's "FIRST call task_tracker" literally enough that a tracking
- *   failure once ended runs with "I cannot access task_tracker" instead of
- *   an answer. The suffix makes the priority explicit: track around the
- *   work, never instead of it.
- * - **Stop skills being called as tools.** Measured on HEAD before this
- *   change: asked a trace-decision-shaped question, the model calls
+ * - Keep the loop subordinate to the answer. Flash takes "FIRST call
+ *   task_tracker" literally enough that a tracking failure once ended a run
+ *   with "I cannot access task_tracker" instead of an answer.
+ * - Stop skills being called as tools. Without it the model calls
  *   `trace_decision`, is told no such tool exists, and gives up — two eval
- *   questions lost per run. Skills are prompt text, not schema entries; the
- *   suffix says so by name.
+ *   questions per run.
  *
  * `options.systemPromptSuffix` is appended after everything else
- * (`dist/sdk.js:122`), which is what makes this work — it is the last thing
- * the model reads. RULES.md carries the same instructions for the CLI path,
- * which never sees this suffix.
- * ---------------------------------------------------------------------------
+ * (`dist/sdk.js:122`), so it is the last thing the model reads. RULES.md
+ * carries the same instructions for the CLI path, which never sees this.
  */
 export const SYSTEM_SUFFIX = `# How to run the learning loop above — this section overrides on conflict
 
@@ -155,8 +139,9 @@ A skill is a procedure, NOT a callable tool. There is no tool named
 
 When a question needs one of your skills, its full instructions are placed in
 the question itself, inside a \`<skill>\` block. If a block is there, follow it
-exactly and do not try to load anything further. If there is none, answer with
-your search tools as usual.
+exactly — the body is already in front of you, so reading the SKILL.md file
+again would only spend a turn to fetch what you are holding. If there is none,
+answer with your search tools as usual.
 
 Ignore \`task_tracker\`'s verdict on skills. Its "No matching skills found"
 is produced by a keyword score that cannot clear its own threshold against

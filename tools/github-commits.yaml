@@ -19,15 +19,16 @@ input_schema:
       type: integer
       description: Maximum commits, 1-50. Default 15.
 implementation:
+  # Both spellings: the runtime reads `script`, the schema requires
+  # `type` + `path`. See docs/UPSTREAM.md finding 2.
+  type: script
+  path: scripts/commits.mjs
   script: scripts/commits.mjs
   runtime: node
 
-# Read-only, in the standard's own vocabulary. Runtime 2.1.0 does not read
-# annotations (dist/tool-loader.js never mentions the block) — enforcement is
-# hooks/allowed-tools.txt, the eight-action Composio enable list and the
-# DIRECT_TOOLS preset. This is the declaration, not the enforcement, and for
-# an agent whose whole claim is read-only it is worth making in the format the
-# spec defines for it.
+# Declaration, not enforcement: runtime 2.1.0 does not read annotations.
+# Enforcement is hooks/allowed-tools.txt, the Composio enable list and the
+# DIRECT_TOOLS preset.
 annotations:
   read_only: true
   idempotent: true

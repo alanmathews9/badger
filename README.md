@@ -299,8 +299,25 @@ reproductions in **[`docs/UPSTREAM.md`](docs/UPSTREAM.md)**:
 2. **A spec-valid tool is invisible to the runtime, silently.** The schema
    wants `implementation.type` and `path`; the loader requires
    `implementation.script` and skips the file without logging. Badger's tools
-   use `script`, because a tool that validates and does not exist is worse than
-   one that exists and warns.
+   carry all three, because a tool that validates and does not exist is worse
+   than one that exists and warns — which leaves exactly one unavoidable error
+   per tool file, `must NOT have additional properties`, and nothing else.
+3. **`query().abort()` does not abort anything.** The SDK builds an
+   `AbortController`, calls `.abort()` on it, and passes its signal to nothing;
+   the working `abort()` one layer down is never called. Any agent with a stop
+   button has a stop button that lies, and it is the obvious thing to rest a
+   `kill_switch` compliance claim on. Badger rests that claim on its daily
+   answer ceiling instead.
+
+**One warning class is ours, and it stays.** Badger's ten tools are named
+`github_search`, not `github-search`, and the spec asks for kebab-case
+throughout. That is a real divergence and it is deliberate: the names are
+model-facing, they appear in `hooks/allowed-tools.txt`, in every skill's
+`allowed-tools`, in `RULES.md` and in the eval's expectations, and renaming
+them days before submission would churn all of it to move a warning count on
+files that cannot pass anyway. It is listed here rather than in
+`docs/UPSTREAM.md`, because that document is for the standard's defects and
+this one is Badger's.
 
 This is the part of "framework understanding" that only shows up if you
 actually run the thing.
