@@ -43,12 +43,22 @@ import { annotateUnverified, extractCitations, mentions, verifyCitations } from 
 import { attachSourceUrls } from "./source-links.mjs";
 import { parseToolResults } from "./tool-results.mjs";
 import { matchSkill, readProcedure } from "./skill-match.mjs";
+import { openAgentRepo } from "./agent-repo.mjs";
 
 // The repo root, which is also the agent directory query() loads. The server
 // lives two levels down under app/ precisely so that this is an explicit,
 // one-way reach *upward* into the agent — never the reverse.
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const WEB_DIST = join(ROOT, "app", "web", "dist");
+// Where the agent itself runs from. With a repo URL and a token that is a git
+// clone on a long-lived learning branch, so a skill it crystallises is a
+// commit somebody can read; without them it is ROOT and nothing changes. See
+// agent-repo.mjs — the fallback is the whole reason this is safe to ship.
+const AGENT = openAgentRepo(ROOT);
+// The skills the product lists, adds to and edits. Same directory the agent
+// reads, whichever mode is in play: two skill directories that disagree is the
+// bug this one constant exists to make impossible.
+const SKILLS_DIR = join(AGENT.agentDir, "skills");
 // Cloud Run injects PORT and expects the server to listen on it. BADGER_PORT
 // is the local convention; PORT wins so the same image runs in both places.
 const PORT = Number(process.env.PORT || process.env.BADGER_PORT) || 4000;
@@ -269,7 +279,7 @@ async function handleAsk(req, res) {
   // Only a skill that exists on disk reaches the prompt; a stale or invented
   // slug degrades to a plain question rather than an error.
   const skill =
-    parsed.skill && listSkills(join(ROOT, "skills")).some((s) => s.slug === parsed.skill)
+    parsed.skill && listSkills(SKILLS_DIR).some((s) => s.slug === parsed.skill)
       ? parsed.skill
       : null;
 
@@ -289,8 +299,8 @@ async function handleAsk(req, res) {
   // for none of them and tells the model "No matching skills found. Solve
   // from scratch." See `skill-match.mjs` for the arithmetic.
   const matched = skill
-    ? { slug: skill, procedure: readProcedure(join(ROOT, "skills"), skill) }
-    : matchSkill(join(ROOT, "skills"), question);
+    ? { slug: skill, procedure: readProcedure(SKILLS_DIR, skill) }
+    : matchSkill(SKILLS_DIR, question);
   const chosen = matched?.slug ?? null;
 
   const prompt = buildPrompt(history, question, {
@@ -328,11 +338,20 @@ async function handleAsk(req, res) {
     return res.end();
   }
 
+  // One private copy of the agent repo for this run, or ROOT in dir mode.
+  // Awaited before query() because the runtime does its own git work inside
+  // initLocalSession and needs the directory to already be there.
+  const target = await AGENT.queryTarget();
+
   // maxTurns bounds a runaway loop, which is the failure mode that costs money
   // rather than time.
   const run = query({
     prompt,
-    dir: ROOT,
+    // `repo` and `dir` are alternatives, not a pair — sdk.js:98-112 takes
+    // repo.dir when repo is present and ignores dir. Spreading exactly one of
+    // them keeps that explicit rather than passing both and relying on which
+    // one the runtime happens to prefer.
+    ...(target.repo ? { repo: target.repo } : { dir: target.dir }),
     systemPromptSuffix: buildSystemSuffix(),
     maxTurns: 12,
     // The shell and the two write tools, removed from the model's schema
@@ -440,6 +459,13 @@ async function handleAsk(req, res) {
   } finally {
     audit.end();
     slot.release();
+    // The runtime has already committed and pushed whatever the agent learned
+    // — finalize() runs on both the success and the error path inside query()
+    // — so by here the copy has served its purpose and the template can pick
+    // up what was pushed. Both are best-effort and neither is awaited into the
+    // answer: a failed cleanup must not turn a good answer into an error.
+    target.release();
+    AGENT.sync();
   }
 
   const verification = verifyCitations(answer, toolOutputs);
@@ -600,7 +626,7 @@ function isCited(item, cited) {
  * kept by hand.
  */
 function handleSkillsList(res) {
-  return json(res, 200, { skills: listSkills(join(ROOT, "skills")) });
+  return json(res, 200, { skills: listSkills(SKILLS_DIR) });
 }
 
 /**
@@ -620,7 +646,7 @@ function handleSkillsList(res) {
  */
 async function handleSkillOne(req, res, url) {
   const slug = decodeURIComponent(url.pathname.slice("/api/skills/".length));
-  const dir = join(ROOT, "skills");
+  const dir = SKILLS_DIR;
   try {
     if (req.method === "GET") return json(res, 200, readSkill(dir, slug));
 
@@ -659,7 +685,7 @@ async function handleSkillsCreate(req, res) {
   try {
     // One way in: a whole SKILL.md. Written in the box or loaded from a file,
     // it is the same string by the time it arrives here.
-    const { slug } = createSkillFromFile(join(ROOT, "skills"), body?.file);
+    const { slug } = createSkillFromFile(SKILLS_DIR, body?.file);
     return json(res, 201, { slug });
   } catch (err) {
     return json(res, 400, { error: err.message });

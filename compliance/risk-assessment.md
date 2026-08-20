@@ -77,6 +77,25 @@ toolkit does not offer, so taking it means going around Composio and reopening
 the multi-user problem that chose Composio in the first place. Reviewed
 quarterly (`validation-schedule.yaml`).
 
+### 3a. The agent holds a write token for its own repository
+
+Introduced with the learning loop. `BADGER_AGENT_REPO_TOKEN` lets the runtime
+commit and push what the agent learns onto one branch of Badger's own repo, so
+that a crystallised skill is a commit rather than a file that dies with the
+container.
+
+Controls: it is scoped to a single repository — the agent's own, which holds no
+corpus and no customer data. It reaches no source. The agent never writes to
+`main`; every run appends to `gitagent/learning`, and a human merges. And it is
+given its own variable name rather than reusing `GITHUB_TOKEN`, which the
+runtime would otherwise fall back to (`dist/sdk.js:101`), so a token that
+writes to the agent cannot be silently reused as one that reaches a source.
+
+Residual: a compromised container could push arbitrary content to that one
+branch. It could not merge it — that needs a human — and it could not touch a
+source. Unset the two variables and this risk disappears along with the
+feature, which is the fallback the module is built around.
+
 ### 4. Prompt injection from retrieved content
 
 Badger reads issue bodies, mail and document comments written by other people.

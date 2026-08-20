@@ -1,13 +1,22 @@
 # Installed dependencies. The root node_modules belongs to the AGENT, not to
 # app/: tools/scripts/_github.mjs imports @composio/core, so a GAP agent with
 # runtime:node tools has real npm dependencies. app/web keeps its own.
-node_modules/
+#
+# No trailing slash, and that is not cosmetic. A trailing slash matches a
+# DIRECTORY only, and when the agent runs from a clone these two are symlinks
+# back into the image (app/server/agent-repo.mjs) — which git does not treat as
+# directories. With `node_modules/` the runtime's closing `git add -A` committed
+# both symlinks onto the learning branch, so a later clone got a dangling link
+# pointing at a path inside a container that no longer exists. Measured, then
+# fixed here.
+node_modules
 
 # Vite output, built at deploy time and served by app/server.
 dist/
 
 # Runtime state: sessions, audit logs, learned-skill metadata. Not source.
-.gitagent/
+# No trailing slash, for the symlink reason above.
+.gitagent
 
 # Credentials. The runtime auto-loads this file from the agent dir.
 .env

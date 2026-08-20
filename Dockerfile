@@ -23,6 +23,22 @@ FROM node:24-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 
+# git, because the agent runs from a clone of its own repository so that a
+# skill it learns is a commit rather than a file that dies with the instance.
+# See app/server/agent-repo.mjs. node:24-slim does not ship it, and without it
+# openAgentRepo() catches the ENOENT and falls back to running from the image
+# — which is exactly the silent degradation this line exists to prevent.
+#
+# --no-install-recommends because the recommended set pulls perl-modules and
+# the full documentation, none of which a clone needs. The cost has NOT been
+# measured here (no Docker on the build machine) — read it off the registry
+# after the next deploy and write the real number in, the way the node_modules
+# figure above was arrived at. ca-certificates ships with the base image, so
+# HTTPS to GitHub already works.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git \
+ && rm -rf /var/lib/apt/lists/*
+
 # Production dependencies only: @composio/core for the agent's tools, the
 # gitagent runtime the server calls query() on, and pg.
 #

@@ -66,8 +66,25 @@ has a defined shape to grow into — a `writer` that drafts and stops, with no
 - **State isolation: full.** Each role operates with its own memory and state.
   Trivially satisfied while one agent holds one role.
 - **Credential segregation: separate.** Each role carries its own credential
-  scope. Today this means the read credential is the only credential that
-  exists.
+  scope, and as of the learning loop there are two credentials rather than one.
+  They are separate in the way that matters:
+
+  | Credential | Reaches | Can write |
+  |---|---|---|
+  | The Composio connection | GitHub, Gmail, Drive — the **sources** | No path to it; see the four layers |
+  | `BADGER_AGENT_REPO_TOKEN` | Badger's **own** repository, one branch | Yes, and only there |
+
+  The second one exists because GAP's learning loop is git: a skill the agent
+  crystallises has to become a commit or it dies with the container. It is
+  scoped to a single repository — Badger's — and the runtime would happily have
+  read it from `GITHUB_TOKEN`, which `app/server/agent-repo.mjs` deliberately
+  refuses to do so that a write token for the agent's own repo can never be
+  confused with one that reaches a source.
+
+  This is not a hole in the `source_write` handoff below. That handoff governs
+  writing to a **source**. Writing to the agent's own definition is a different
+  action with a different reviewer: the agent commits to a branch, never to
+  `main`, and a human merges it.
 
 The honest caveat, stated here because it is stated in the README too: the
 Composio connected account underneath Badger is an OAuth2 grant holding

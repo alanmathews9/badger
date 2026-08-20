@@ -305,6 +305,50 @@ reproductions in **[`docs/UPSTREAM.md`](docs/UPSTREAM.md)**:
 This is the part of "framework understanding" that only shows up if you
 actually run the thing.
 
+### What the agent learns, and where it goes
+
+GAP's thesis is that an agent's learned skills and self-written memory are
+commits you can read. On a laptop that is simply true. In the container it was
+not, and the gap was invisible: `.dockerignore` excludes `.git`, the image
+never installed git, and `skill_learner crystallize` writes a real `SKILL.md`,
+reports **"crystallized and committed"**, and commits nothing — the git call
+sits inside a bare `catch {}` and the success message is unconditional
+(`dist/tools/skill-learner.js:73-86, 213`). Hosted Badger learned, then forgot
+at the next scale-to-zero.
+
+The framework has a first-class answer, and it is one of OpenGAP's own named
+patterns — *"Human-in-the-Loop for RL Agents: when an agent learns a new skill
+or writes to memory, it opens a branch + PR for human review before merging."*
+`query({ repo: { url, token, dir, session } })` clones the repo, runs the agent
+inside it, and commits and pushes on the way out. `app/server/agent-repo.mjs`
+wires that up:
+
+- **One branch, not one per question.** With no `session`, the runtime mints
+  `gitagent/session-<hex>` per run. A fixed session id makes it one long-lived
+  `gitagent/learning` branch that every run appends to. `main` is never touched
+  by the agent; a human merges, which is the review gate the pattern names.
+- **One private copy per run.** Two answers sharing a clone is not a
+  theoretical race: the second run's `reset --hard` lands on the tree the first
+  is reading files out of. Each run gets its own copy, made locally from a
+  boot-time clone.
+- **Nothing silently lost.** When two runs push from the same base the second
+  is rejected, and the runtime swallows that in a bare catch. Measured with
+  three concurrent runs, then fixed: the copy is checked for unpushed commits
+  before it is deleted, rebased and pushed again, and if that still fails it
+  says so.
+- **Unset the two variables and none of this happens.** The agent runs from the
+  image exactly as before. A missing secret cannot take the product down.
+
+Two bugs came out of testing this rather than reasoning about it, and both
+would have shipped. `git add -A` committed the `node_modules` and `.gitagent`
+symlinks, because `.gitignore` said `node_modules/` — a trailing slash matches
+a *directory*, and a symlink is not one — after which every later pull failed
+and the branch stopped advancing. And the learning branch has to exist before
+the first run: `session.js:57-63` tries `checkout <branch>` then `checkout -b
+<branch> origin/<branch>` with no third fallback, so on a repo where it exists
+in neither place both throw and **every question fails**, not just the
+learning.
+
 ### Read-only as a duty policy, not a promise
 
 `DUTIES.md` and `compliance.segregation_of_duties` state the read-only
