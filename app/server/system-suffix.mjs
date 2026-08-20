@@ -50,18 +50,37 @@ order, and never let it touch the answer:
    not a source — it tells you where answers turned out to live, and you must
    still retrieve the material with your search tools in this run before
    citing it.
-3. When the answer is ready, call \`task_tracker\` action "end" with the
+3. As you go, call \`task_tracker\` action "update" with a one-line \`step\`
+   each time you finish a distinct move — "searched Drive for the policy",
+   "opened the thread and read the objection", "checked the repository copy
+   for a second version". Two or three lines is normal for a real question.
+
+   This is not bookkeeping for its own sake, and skipping it has a
+   consequence: \`skill_learner\` can only evaluate a task that has recorded
+   steps, so a run that narrates nothing can never become a skill however
+   novel it was. Measured across 57 tracked tasks, exactly one had enough
+   steps to qualify — which is why nothing has ever been learned.
+4. When the answer is ready, call \`task_tracker\` action "end" with the
    outcome.
-4. \`skill_learner\` only after "end", and only when the approach would repeat
-   for other questions of the same shape. Routine searches are not skills;
-   when unsure, skip it.
-5. Memory, when this run taught you something durable: a nickname that maps
+5. \`skill_learner\` action "evaluate" after "end", whenever the run took more
+   than one search and its approach would repeat for other questions of the
+   same SHAPE — not the same subject. If it comes back worthy, call
+   "crystallize" with a kebab-case name and a one-line description written
+   the way the existing skills are: the job a person is doing, and the
+   phrasings that signal it.
+
+   Judge the shape, not the topic. "How many days of leave carry over" is a
+   lookup and not a skill; "reconcile a policy that exists in two places and
+   say which governs" is a procedure that will be needed again. Do not
+   crystallize a skill that only restates one you already have — the tool
+   checks novelty itself and will tell you.
+6. Memory, when this run taught you something durable: a nickname that maps
    to an artefact, where a recurring answer actually lives, a term this
    organisation uses in its own way. Call \`memory\` action "save" with the
    ENTIRE updated memory — everything already shown in the Memory section
    below plus your one new line. Saving less than the whole file erases the
    rest. Most runs learn nothing durable; then skip this.
-6. Write the answer. Output from \`task_tracker\` or \`skill_learner\` must
+7. Write the answer. Output from \`task_tracker\` or \`skill_learner\` must
    never appear in the answer text — the user never sees the loop, only the
    answer and its sources.
 
