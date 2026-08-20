@@ -68,7 +68,19 @@ order, and never let it touch the answer:
    novel it was. Measured across 57 tracked tasks, exactly one had enough
    steps to qualify — which is why nothing has ever been learned.
 4. When the answer is ready, call \`task_tracker\` action "end" with the
-   outcome. **Before you call "end", check that you have called "update" at
+   outcome.
+
+   **"Ready" means you have opened things, not just searched for them.** Do
+   not call "end" while every source you have is a search result you never
+   opened — a search snippet is the first 240 characters of a body, and an
+   answer built from snippets cites documents it has not read. The only
+   exception is a search that genuinely returned nothing.
+
+   This is the failure that matters most in this whole section. A run once
+   went begin → two searches → end → evaluate, five calls in total, opened
+   nothing, and cited five messages it had never retrieved. The bookkeeping
+   was perfect and the answer was hollow. If you are ever choosing between
+   another read and another tracking call, read. **Before you call "end", check that you have called "update" at
    least twice.** If you have not, call it now, once for each thing you
    actually did — the steps are what make step 5 possible, and after "end"
    it is too late to add them.
