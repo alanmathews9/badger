@@ -47,6 +47,8 @@ const OPENERS = [
 export function ChatScreen({
   turns,
   chats,
+  runningChatId,
+  unseenChats,
   activeId,
   loading,
   chatsLoading,
@@ -59,6 +61,10 @@ export function ChatScreen({
 }: {
   turns: ChatTurn[];
   chats: ChatSummary[];
+  /** The conversation being answered right now, if any. */
+  runningChatId: string | null;
+  /** Finished while the reader was elsewhere, and not opened since. */
+  unseenChats: Set<string>;
   activeId: string | null;
   /** A past conversation is being fetched — see `openChat` in App. */
   loading: boolean;
@@ -129,20 +135,41 @@ export function ChatScreen({
           ) : chats.length === 0 ? (
             <p className="px-2 pt-1 text-[11.5px] text-stone-400">No chats yet</p>
           ) : (
-            chats.map((c) => (
-              <button
-                key={c.id}
-                onClick={() => onSelectChat(c.id)}
-                className={
-                  "block w-full truncate rounded-md px-2.5 py-1.5 text-left text-[12.5px] " +
-                  (c.id === activeId
-                    ? "bg-stone-200/70 text-stone-900"
-                    : "text-stone-600 hover:bg-stone-100")
-                }
-              >
-                {c.title}
-              </button>
-            ))
+            chats.map((c) => {
+              // Amber while it is being answered, green when it finished
+              // somewhere the reader was not looking. The dot sits in a fixed
+              // 1.5-unit column that is always there, so a title never
+              // reflows or re-truncates when the state changes under it.
+              const state = c.id === runningChatId ? "running" : unseenChats.has(c.id) ? "done" : null;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => onSelectChat(c.id)}
+                  title={
+                    state === "running"
+                      ? "Answering…"
+                      : state === "done"
+                        ? "Finished — not opened yet"
+                        : c.title
+                  }
+                  className={
+                    "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12.5px] " +
+                    (c.id === activeId
+                      ? "bg-stone-200/70 text-stone-900"
+                      : "text-stone-600 hover:bg-stone-100")
+                  }
+                >
+                  <span className="min-w-0 flex-1 truncate">{c.title}</span>
+                  <span className="flex size-1.5 shrink-0 items-center justify-center">
+                    {state === "running" ? (
+                      <span className="size-1.5 animate-pulse rounded-full bg-amber-500" />
+                    ) : state === "done" ? (
+                      <span className="size-1.5 rounded-full bg-emerald-500" />
+                    ) : null}
+                  </span>
+                </button>
+              );
+            })
           )}
         </div>
       </aside>

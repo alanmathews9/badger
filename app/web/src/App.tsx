@@ -89,6 +89,35 @@ export default function App() {
   // one flag, and `openChat` reads it to refuse to throw a live run away.
   const runningRef = useRef(false);
 
+  // Which conversation is being answered right now, and which have finished
+  // without being looked at since.
+  //
+  // `runningRef` already tracks "is something running", but a boolean cannot
+  // colour a row: the sidebar needs to know WHICH conversation. These two are
+  // that, and they are deliberately the only new state — the app still runs
+  // one answer at a time, so `runningChatId` is either the active chat or
+  // null. Making runs survive a switch between conversations is a different
+  // and much larger change (turns keyed by chat, stream events routed per
+  // conversation) and is not what this is.
+  const [runningChatId, setRunningChatId] = useState<string | null>(null);
+  const [unseenChats, setUnseenChats] = useState<Set<string>>(new Set());
+
+  // Finished, and the reader was somewhere else when it did. Checked against
+  // the address bar rather than against `activeChatId`, because the run's
+  // conversation stays "active" while you are reading Search — being the
+  // active conversation and being on screen are different things, and only
+  // the second one means you saw the answer.
+  const markFinished = useCallback((id: string | null) => {
+    setRunningChatId(null);
+    if (!id) return;
+    if (window.location.pathname.startsWith(`/chat/${id}`)) return;
+    setUnseenChats((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
+
   // A conversation is being fetched. See `openChat` — the store is Postgres.
   const [loadingChat, setLoadingChat] = useState(false);
   const loadToken = useRef(0);
@@ -124,12 +153,27 @@ export default function App() {
    */
   const dirty = useRef(false);
 
-  // Persist a conversation whenever a turn finishes. Running turns are skipped
-  // — a half-streamed answer is not worth restoring.
+  // Conversations this browser has already written a row for. See below.
+  const listed = useRef<Set<string>>(new Set());
+
+  // Persist a conversation whenever a turn finishes — and once at the START of
+  // a new one, so its row exists while the answer is still being written.
+  //
+  // The rule used to be "skip running turns", on the reasoning that a
+  // half-streamed answer is not worth restoring. That is still true of the
+  // CONTENT and false of the ROW: with nothing saved until the answer landed,
+  // a question in flight was invisible in the sidebar, so there was nothing to
+  // click back to and no way to tell the agent was working. The first save of
+  // a conversation therefore goes in immediately; every later one still waits
+  // for the turn to finish, so a half-streamed answer is still never the
+  // version that gets stored.
   useEffect(() => {
     if (!dirty.current) return;
     if (!activeChatId || turns.length === 0) return;
-    if (turns[turns.length - 1].answer.running) return;
+    const streaming = turns[turns.length - 1].answer.running;
+    const firstSave = !listed.current.has(activeChatId);
+    if (streaming && !firstSave) return;
+    if (firstSave) listed.current.add(activeChatId);
     const record = { id: activeChatId, title: turns[0].question, updatedAt: Date.now(), turns };
     history
       .saveChat(record)
@@ -195,6 +239,20 @@ export default function App() {
 
       setTurns((ts) => [...ts, { question, answer: { ...IDLE, running: true, steps: seed } }]);
       runningRef.current = true;
+      // activeIdRef, not activeChatId: the id was minted a few lines above and
+      // the state has not re-rendered yet.
+      setRunningChatId(activeIdRef.current);
+      setUnseenChats((prev) => {
+        if (!activeIdRef.current || !prev.has(activeIdRef.current)) return prev;
+        const next = new Set(prev);
+        next.delete(activeIdRef.current);
+        return next;
+      });
+
+      // The conversation this run belongs to, captured now. By the time the
+      // stream ends the reader may have opened another chat, and the dot has
+      // to land on the row that was actually answered.
+      const askedIn = activeIdRef.current;
 
       cancelAsk.current = ask(
         question,
@@ -252,12 +310,14 @@ export default function App() {
           onDelta: (text) => patchLast((s) => ({ ...s, text: s.text + text })),
           onDone: (result) => {
             runningRef.current = false;
+            markFinished(askedIn);
             patchLast((s) => ({ ...s, running: false, text: result.answer, result }));
             // The budget just moved. Re-read it rather than decrementing a guess.
             fetchBudget().then(setBudget).catch(() => {});
           },
           onError: (message) => {
             runningRef.current = false;
+            markFinished(askedIn);
             patchLast((s) => ({ ...s, running: false, error: message }));
           },
         },
@@ -265,7 +325,7 @@ export default function App() {
         skill,
       );
     },
-    [turns, navigate, patchLast, setActive],
+    [turns, navigate, patchLast, setActive, markFinished],
   );
 
   /**
@@ -285,6 +345,7 @@ export default function App() {
     cancelAsk.current?.();
     cancelAsk.current = null;
     runningRef.current = false;
+    setRunningChatId(null);
     patchLast((s) => (s.running ? { ...s, running: false, stopped: true } : s));
   }, [patchLast]);
 
@@ -305,6 +366,17 @@ export default function App() {
    */
   const openChat = useCallback(
     async (id: string | null, { force = false } = {}) => {
+      // Opening a conversation is what "seen" means, so the green dot goes
+      // before the early return — clicking the row you are already on is
+      // exactly the case where it must clear.
+      if (id) {
+        setUnseenChats((prev) => {
+          if (!prev.has(id)) return prev;
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }
       if (id === activeIdRef.current) return;
 
       // An answer being written is not something a click can throw away.
@@ -333,6 +405,7 @@ export default function App() {
 
       cancelAsk.current?.();
       runningRef.current = false;
+      setRunningChatId(null);
       dirty.current = false;
       if (!id) {
         setActive(null);
@@ -421,11 +494,11 @@ export default function App() {
           />
           <Route
             path="/chat"
-            element={<ChatRoute turns={turns} chats={chats} loading={loadingChat} chatsLoading={chatsLoading} onOpen={openChat} onAsk={startAsk} onStop={stopAsk} />}
+            element={<ChatRoute turns={turns} chats={chats} loading={loadingChat} chatsLoading={chatsLoading} runningChatId={runningChatId} unseenChats={unseenChats} onOpen={openChat} onAsk={startAsk} onStop={stopAsk} />}
           />
           <Route
             path="/chat/:id"
-            element={<ChatRoute turns={turns} chats={chats} loading={loadingChat} chatsLoading={chatsLoading} onOpen={openChat} onAsk={startAsk} onStop={stopAsk} />}
+            element={<ChatRoute turns={turns} chats={chats} loading={loadingChat} chatsLoading={chatsLoading} runningChatId={runningChatId} unseenChats={unseenChats} onOpen={openChat} onAsk={startAsk} onStop={stopAsk} />}
           />
           <Route path="/skills" element={<SkillsScreen />} />
           <Route path="/tools" element={<ToolsScreen sources={sources} />} />
@@ -534,12 +607,16 @@ function ChatRoute({
   chats,
   loading,
   chatsLoading,
+  runningChatId,
+  unseenChats,
   onOpen,
   onAsk,
   onStop,
 }: {
   turns: ChatTurn[];
   chats: ChatSummary[];
+  runningChatId: string | null;
+  unseenChats: Set<string>;
   loading: boolean;
   chatsLoading: boolean;
   onOpen: (id: string | null) => void;
@@ -570,6 +647,8 @@ function ChatRoute({
       openSkillPane={openSkillPane}
       turns={turns}
       chats={chats}
+      runningChatId={runningChatId}
+      unseenChats={unseenChats}
       activeId={id ?? null}
       loading={loading}
       chatsLoading={chatsLoading}
