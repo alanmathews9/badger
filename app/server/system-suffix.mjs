@@ -50,17 +50,20 @@ order, and never let it touch the answer:
    not a source — it tells you where answers turned out to live, and you must
    still retrieve the material with your search tools in this run before
    citing it.
-3. Call \`task_tracker\` action "update" with a one-line \`step\` at each of
-   these moments, as they happen — not as a summary afterwards:
-
-   - once you have run your searches and can see what exists
-   - once you have opened the threads or documents and read them
-   - once you know what the answer is, before you write it
-
-   That is three calls on an ordinary question, and it is the count that
-   matters as much as the wording: the evaluation in step 5 scores a task by
-   its steps, and one step fails it outright. A run that did the work and
-   logged it once is judged as trivial.
+3. Do the whole job before you record any of it.
+   
+   Search, open what the search found, read it, and know your answer. Only then
+   come back and log what you did: two or three \`task_tracker\` "update" calls
+   in a row, one per move — "searched three sources", "opened the thread and
+   the churn review", "found the exception in the margin".
+   
+   Recording as you go was the earlier instruction and it was a mistake. It put
+   a bookkeeping call between every pair of real calls, and the model started
+   treating the record as the work: measured across a full eval run, answers
+   went search, search, search, then straight to the tracking, having opened
+   nothing — one question produced no answer at all and two more missed the
+   fact they were asked for, because the thread holding it was never read. The
+   log is a record of the work. It cannot come before the work exists.
 
    This is not bookkeeping for its own sake, and skipping it has a
    consequence: \`skill_learner\` can only evaluate a task that has recorded
