@@ -19,7 +19,7 @@ export type HomeMode = "search" | "chat";
  * Badger has always had both a search and an agent, and the home screen only
  * ever offered one of them: you typed, you got twenty rows, and the way to ask
  * a question instead was to notice Chat in the sidebar and start again. Glean
- * solves this by putting the choice on the box itself — Search and Chat as two
+ * solves this by putting the choice on the box itself — Search and Ask as two
  * tabs over one input — and that is the right place for it, because the choice
  * is about what happens when you press Enter, not about which page you are on.
  *
@@ -113,7 +113,7 @@ export function HomeBar({
           Search
         </Tab>
         <Tab active={chat} onClick={() => setMode("chat")} icon={<MessagesSquare className="size-3.5" strokeWidth={2} />}>
-          Chat
+          Ask
         </Tab>
 
         {/* Only in chat, but the row's height does not depend on it — see the
@@ -156,7 +156,7 @@ export function HomeBar({
           inputRef={inputRef}
           command={chat ? command : null}
           icon={chat ? <MessagesSquare className="size-full" strokeWidth={1.9} /> : undefined}
-          actionLabel={chat ? "Ask" : "Dig"}
+          actionLabel={chat ? "Ask" : "Search"}
           placeholder={chat ? "Ask anything" : "Search for anything"}
           onKeyDown={(e) => {
             if (menuVisible && (e.key === "ArrowDown" || e.key === "ArrowUp")) {

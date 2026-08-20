@@ -132,7 +132,8 @@ function setSecurityHeaders(res) {
   res.setHeader("referrer-policy", "no-referrer");
   res.setHeader("x-content-type-options", "nosniff");
   res.setHeader("x-frame-options", "DENY");
-  res.setHeader("permissions-policy", "camera=(), microphone=(), geolocation=()");
+  // microphone=(self) or dictation is blocked with no prompt and no error.
+  res.setHeader("permissions-policy", "camera=(), microphone=(self), geolocation=()");
   res.setHeader("strict-transport-security", "max-age=31536000; includeSubDomains");
 }
 

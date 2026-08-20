@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
-import { Search, X } from "lucide-react";
+import { Check, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ListeningHint, MicButton } from "@/components/MicButton";
+import { useDictation } from "@/hooks/use-dictation";
 import { cn } from "@/lib/utils";
 
 /**
@@ -17,7 +19,7 @@ export function DigInput({
   busy = false,
   autoFocus = false,
   placeholder,
-  actionLabel = "Dig",
+  actionLabel = "Search",
   command = null,
   tone = "bold",
   icon,
@@ -32,7 +34,7 @@ export function DigInput({
   autoFocus?: boolean;
   /** Overrides the default wording. The two modes ask for different things. */
   placeholder?: string;
-  /** The submit button's label — "Dig" for search, "Ask" for chat. */
+  /** The submit button's label — "Search" for search, "Ask" for chat. */
   actionLabel?: string;
   /** A picked skill, drawn as a /slug token ahead of the text. */
   command?: string | null;
@@ -54,6 +56,7 @@ export function DigInput({
   const ownRef = useRef<HTMLInputElement>(null);
   const inputRef = externalRef ?? ownRef;
   const large = size === "large";
+  const mic = useDictation(onChange);
 
   // ⌘K focuses the input from anywhere, which is the shortcut the design
   // advertises on Home. Deliberately focus-only: no palette to open yet, and
@@ -110,7 +113,12 @@ export function DigInput({
           // A caller that handled the key owns it. Without this the menu's
           // Enter would pick a skill AND submit the half-typed "/fin".
           if (e.defaultPrevented) return;
-          if (e.key === "Enter" && value.trim()) onSubmit();
+          if (e.key !== "Enter") return;
+          if (mic.listening) {
+            mic.stop();
+            return;
+          }
+          if (value.trim()) onSubmit();
         }}
         placeholder={
           placeholder ?? (large ? "Ask a question, or search for a doc, repo or person" : "Search")
@@ -131,16 +139,35 @@ export function DigInput({
         </button>
       )}
 
+      {mic.listening && large && <ListeningHint className="shrink-0" />}
+
+      {mic.supported && (
+        <MicButton
+          listening={mic.listening}
+          starting={mic.starting}
+          error={mic.error}
+          onClick={() => (mic.listening ? mic.cancel() : mic.toggle(value))}
+          size={large ? 18 : 15}
+          className={large ? "size-9" : "size-6"}
+        />
+      )}
+
       {large && (
         <Button
           // Wrapped, never passed directly: onClick would hand the Button's
           // MouseEvent to onSubmit, where it arrives as the query and throws.
-          onClick={() => onSubmit()}
-          disabled={busy || !value.trim()}
-          className="h-10 gap-2 rounded-lg px-[15px] text-[13px]"
+          onClick={() => (mic.listening ? mic.stop() : onSubmit())}
+          disabled={mic.listening ? false : busy || !value.trim()}
+          aria-label={mic.listening ? "Keep dictated text" : undefined}
+          className="h-10 rounded-lg px-[15px] text-[13px]"
         >
-          {busy ? "Digging…" : actionLabel}
-          <span className="font-mono text-[10.5px] text-stone-400">↵</span>
+          {mic.listening ? (
+            <Check className="size-4" strokeWidth={2.2} />
+          ) : busy ? (
+            "Searching…"
+          ) : (
+            actionLabel
+          )}
         </Button>
       )}
     </div>

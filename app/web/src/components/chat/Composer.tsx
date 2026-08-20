@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Plus, Square } from "lucide-react";
+import { ArrowUp, Check, Plus, Square } from "lucide-react";
 import { parseSkillCommand, pickableSkills, slashFilter, type SkillInfo } from "@/lib/ask";
+import { ListeningHint, MicButton } from "@/components/MicButton";
+import { useDictation } from "@/hooks/use-dictation";
 import { SkillMenu } from "./SkillMenu";
 
 /**
@@ -54,6 +56,7 @@ export function Composer({
   /** Which menu row the keyboard has highlighted. */
   const [hi, setHi] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const mic = useDictation(setDraft);
 
   // Slash mode: the draft is "/" plus a token still being typed. Once the
   // token ends in a space the command is settled and becomes the token.
@@ -100,6 +103,7 @@ export function Composer({
 
   const submit = (text: string) => {
     if (running || busy) return;
+    mic.stop();
     const parsed = parseSkillCommand(text, command, skills);
     if (!parsed) return;
     setDraft("");
@@ -177,7 +181,18 @@ export function Composer({
           >
             <Plus className="size-[18px]" strokeWidth={1.9} />
           </button>
+          {mic.listening && <ListeningHint className="ml-2" />}
+          {mic.starting && <span className="ml-2 text-[12px] text-stone-500">Starting…</span>}
           <div className="ml-auto flex items-center gap-1.5">
+            {mic.supported && (
+              <MicButton
+                listening={mic.listening}
+                starting={mic.starting}
+                error={mic.error}
+                onClick={() => (mic.listening ? mic.cancel() : mic.toggle(draft))}
+                className="size-8"
+              />
+            )}
             {/* Stop is only ever present while a run is in flight, and it sits
                 beside Send rather than replacing it — replacing would move the
                 target under a cursor already heading for it. Aborting the
@@ -193,14 +208,25 @@ export function Composer({
                 <Square className="size-3 fill-current" strokeWidth={0} />
               </button>
             )}
-            <button
-              onClick={() => submit(draft)}
-              disabled={!draft.trim() || running || busy}
-              aria-label="Send"
-              className="inline-flex size-8 items-center justify-center rounded-lg bg-stone-900 text-stone-50 disabled:opacity-30"
-            >
-              <ArrowUp className="size-4" strokeWidth={2} />
-            </button>
+            {mic.listening ? (
+              <button
+                onClick={() => mic.stop()}
+                aria-label="Keep dictated text"
+                title="Keep"
+                className="inline-flex size-8 items-center justify-center rounded-lg bg-stone-900 text-stone-50"
+              >
+                <Check className="size-4" strokeWidth={2.2} />
+              </button>
+            ) : (
+              <button
+                onClick={() => submit(draft)}
+                disabled={!draft.trim() || running || busy}
+                aria-label="Send"
+                className="inline-flex size-8 items-center justify-center rounded-lg bg-stone-900 text-stone-50 disabled:opacity-30"
+              >
+                <ArrowUp className="size-4" strokeWidth={2} />
+              </button>
+            )}
           </div>
         </div>
       </div>
