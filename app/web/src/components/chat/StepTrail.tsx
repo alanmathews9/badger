@@ -238,7 +238,18 @@ function StepLine({ step, live }: { step: ToolStep | null; live: boolean }) {
         )}
       </div>
 
-      {found.length > 0 && (
+      {/* What a search found, open while that search is the step in progress
+          and folded away once the run has moved on.
+          
+          They used to be open on every row at once. Three searches in a row
+          therefore stacked three result lists on screen, the trail grew to
+          most of the viewport while the reader was waiting, and then the whole
+          thing collapsed to one summary line when the answer landed — a jump
+          rather than a settling. Showing only the live step keeps the trail
+          about the height of its steps: the current one is open because it is
+          what the agent is doing right now, and the finished ones say how many
+          they found and wait behind the chevron for anyone who wants them. */}
+      {found.length > 0 && (live || open) && (
         <div className="max-h-[164px] divide-y divide-stone-100 overflow-y-auto rounded-lg border border-stone-200 bg-white">
           {found.map((doc) => (
             <FoundRow key={doc.source + doc.kind + doc.ref} doc={doc} />
