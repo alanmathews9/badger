@@ -20,8 +20,8 @@ negative_examples: []
 ## When to Use
 
 The question is about a choice the organisation made, or about the reasoning
-behind something. "Why was the Android app five weeks late?" "Did we decide to
-rewrite the sync layer again?" "What is our refund policy for an outage?"
+behind something. "Why did a release slip?" "Did we decide to rebuild that
+component again?" "What is our refund policy for an outage?"
 "Have we decided to do this a second time?" "Why is a customer leaving us?"
 "Are we still going ahead with the free tier?" "Who agreed to this deadline?"
 "What is our position on discounting?" "Why do we do it this way?"
@@ -40,14 +40,19 @@ knows about the others.**
 | **GitHub** | The argument. Issues and PR threads where the team worked out what they actually thought. |
 | **Gmail** | What was said to whom, and when. What a client was actually told, and what was said internally about telling them. |
 
-The five-week slip on Android 4.2 is the worked example. The Drive release
-notes say the release was *delayed by App Store review*. GitHub issue #8 does
-the arithmetic and finds review took four of the thirty-five days, the rest
-being a sync layer written twice — and PR #30 sits closed and unmerged as
-evidence of the first attempt. The April mail thread shows the team choosing
-that wording deliberately, over an objection. A February thread shows the
-customer being told "early March" while the team already expected April, which
-no document records at all.
+The shape to expect, on any question of this kind: a tidy document names one
+cause, a GitHub thread does the arithmetic and finds a different one, a mail
+thread shows the wording being chosen deliberately over an objection, and an
+earlier mail shows the customer being told something no document records at
+all. Four sources, four versions, and the disagreement between them is the
+finding.
+
+**This section deliberately contains no specific facts, and that is a rule
+rather than an oversight.** A skill that names an issue number or states an
+outcome hands the model an answer it can recite without searching for it —
+which is exactly what happened here once, producing a fluent answer with no
+tool calls behind it and citations the verifier correctly refused to confirm.
+A skill teaches the procedure. The corpus holds the answers.
 
 When sources disagree, **that gap is the answer.** Report all of them, named.
 Never silently pick one, and never average them into a summary that flattens
@@ -78,10 +83,11 @@ said what.
 ### 2a. Check the margin of every document you rely on
 
 `drive_comments` on any Drive document that answers a contested question. The
-customer-facing release notes carry a comment naming exactly what the document
-omits, and the Clearview churn review carries a comment disputing the reason it
-gives. A document read without its comments will produce a confidently wrong
-answer.
+pattern is reliable: a customer-facing document is where a cause gets softened,
+and the objection to that softening is left in the margin rather than in the
+text. A document read without its comments will produce a confidently wrong
+answer. Which documents those are is for the search to tell you, not for this
+file to say.
 
 ### 3. Establish whether it is settled
 
@@ -104,9 +110,10 @@ written-down version too — `drive_search` for a document, `github_file` for a
 repository file. A decision that made it into the handbook is settled in a way
 a thread alone is not.
 
-Beware that there may be **two** official versions. The leave policy exists as
-a Drive document and as `handbook/leave.md`, and they give different numbers.
-If you find one, look for the other before quoting a figure.
+Beware that there may be **two** official versions of the same policy — one in
+Drive and one committed to the repository — and that they may give different
+numbers, because one of them stopped being updated. If you find one, look for
+the other before quoting a figure, and if they disagree, report both.
 
 ### 5. Check whether anything superseded it
 
@@ -163,11 +170,12 @@ user cannot see.
   before concluding anything.
 - **A thread that just stops.** That is a finding: report the positions and say
   it was never resolved.
-- **Answering from one source because it looked complete.** The Drive retro
-  reads as a finished, authoritative document. It is also the version with the
-  cause removed. Completeness of tone is not evidence of completeness.
+- **Answering from one source because it looked complete.** A client-facing
+  retro reads as finished and authoritative precisely because the awkward cause
+  was taken out of it. Completeness of tone is not evidence of completeness.
 - **A document read without its comments.** See step 2a. This is the single
   most likely way to produce a confident wrong answer on this corpus.
-- **Treating a client mail as the internal position.** What Tomas told Joris
-  and what Tomas told Priya on the same day are different, deliberately. Quote
-  whichever the question asked for, and say which it was.
+- **Treating a client mail as the internal position.** What one person writes
+  to a customer and what the same person writes to a colleague on the same day
+  are different, deliberately. Quote whichever the question asked for, and say
+  which it was.

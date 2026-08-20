@@ -208,6 +208,44 @@ export function openAgentRepo(root) {
     // not imagined. Sitting on the branch is also what makes sync() below pull
     // the right thing.
     git(["checkout", branch], template);
+
+    // Bring the default branch INTO the learning branch, every boot.
+    //
+    // Without this the loop is one-way and the agent quietly freezes. The
+    // runtime checks out the session branch and pulls only that branch
+    // (session.js:64-68), so once gitagent/learning exists it never sees main
+    // again — which means editing a skill, fixing RULES.md or deploying a new
+    // version of the agent would have NO effect on the running agent, forever.
+    // Found by fixing a skill and realising the fix could not reach it.
+    //
+    // A conflict is possible in principle: a person edits a SKILL.md body on
+    // main while the agent rewrites the same file's frontmatter counters here.
+    // In practice those are different hunks and git merges them cleanly. When
+    // it does not, abort and keep running on the branch as it stands — a stale
+    // agent is bad, a half-merged one is worse — and say so loudly, because
+    // this is the one case that needs a person.
+    try {
+      const defaultBranch = git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], template)
+        .replace(/^origin\//, "");
+      git(["fetch", "origin", defaultBranch], template);
+      const behind = git(["rev-list", "--count", `HEAD..origin/${defaultBranch}`], template);
+      if (behind !== "0") {
+        git(["merge", "--no-edit", `origin/${defaultBranch}`], template);
+        console.log(`[agent-repo] merged ${behind} commit(s) from ${defaultBranch} into ${branch}`);
+      }
+    } catch (err) {
+      try {
+        git(["merge", "--abort"], template);
+      } catch {
+        /* nothing to abort */
+      }
+      console.warn(
+        `[agent-repo] could NOT merge the default branch into ${branch} — the agent is ` +
+          "running on the learning branch as it stands and will not pick up changes to " +
+          `main until this is resolved by hand: ${String(err.message).split("\n")[0]}`
+      );
+    }
+
     linkRuntimeDirs(template, root);
   } catch (err) {
     console.warn(
