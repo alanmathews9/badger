@@ -46,6 +46,27 @@ export function extractCitations(text) {
  * number is conspicuous; a fabricated mail subject attributed to a real
  * colleague reads as authoritative and is the more dangerous invention.
  */
+/**
+ * Drop a leading reference marker from a free-text source name.
+ *
+ * RULES.md asks for `- {subject} — mail, …` and `- {name} — doc, …`, and the
+ * model numbers its list instead: `- #1 Refund Policy — doc, 2026-08-18.` The
+ * number then travelled into the name, so verification searched tool output
+ * containing "1. Refund Policy" for the literal "#1 Refund Policy" and reported
+ * a document that had plainly been read as unretrieved.
+ *
+ * It applied to mail first and to documents a run later, which is the whole
+ * reason this is one function rather than three copies of a regex: the fix was
+ * made twice because the second place was missed.
+ *
+ * Stripped rather than forbidden. Numbering a list is not wrong, and a
+ * formatting habit must never read as a fabricated source. A name that
+ * genuinely never appeared is still reported.
+ */
+function unnumber(text) {
+  return String(text ?? "").replace(/^#\d+\s+/, "").trim();
+}
+
 function extractSourceLines(s) {
   const mail = [];
   const documents = [];
@@ -57,18 +78,32 @@ function extractSourceLines(s) {
 
     const asMail = body.match(/^(.+?)\s+—\s+mail,\s*([^,]+?),/i);
     if (asMail) {
-      mail.push({ subject: stripLink(asMail[1]), sender: asMail[2].trim() });
+      // Strip a leading reference marker off the subject.
+      //
+      // RULES.md asks for `- {subject} — mail, {sender}, {date}`, and the
+      // model has started writing `- #1 Our reminders are going out at 3am —
+      // mail, …` instead, numbering its sources the way it numbers GitHub
+      // issues. The number then travelled into the subject, so verification
+      // looked for the literal "#1 Our reminders…" in tool output that
+      // contains "1. Our reminders…" — and reported a perfectly real message
+      // as unretrieved. Five citations on one answer, on a run whose retrieval
+      // was correct.
+      //
+      // Stripped rather than forbidden, because this is the model formatting a
+      // list and it is not wrong to number things. What must not happen is a
+      // formatting habit reading as a fabricated source.
+      mail.push({ subject: unnumber(stripLink(asMail[1])), sender: asMail[2].trim() });
       continue;
     }
 
     const asDoc = body.match(/^(.+?)\s+—\s+(doc|sheet|document|spreadsheet)\b/i);
     if (asDoc) {
-      documents.push(stripLink(asDoc[1]));
+      documents.push(unnumber(stripLink(asDoc[1])));
       continue;
     }
 
     const asComment = body.match(/^(.+?),\s*comment by\s+([^—]+?)\s*—/i);
-    if (asComment) documents.push(stripLink(asComment[1]));
+    if (asComment) documents.push(unnumber(stripLink(asComment[1])));
   }
 
   return { mail, documents };

@@ -186,16 +186,48 @@ export function matchSkill(skillsDir, question) {
   const skills = listSkills(skillsDir);
   let best = null;
 
+  // A curated skill outranks a learned one, always.
+  //
+  // Both are real skills and both are matched the same way. The difference is
+  // what is behind the description: a hand-written skill carries a tested
+  // procedure — open the thread, check the margin, establish whether it is
+  // settled — while a freshly crystallised one carries the two lines the model
+  // narrated about its own run:
+  //
+  //     ## Steps
+  //     1. Gathered information from Gmail, Drive and GitHub…
+  //     2. Drafted the reply based on the gathered information.
+  //
+  // Measured, and this is why the rule exists: an eval run crystallised nine
+  // skills, several of them narrower restatements of questions the built-in
+  // four already cover, and from the moment each appeared it started winning
+  // the match. `trace-release-delay` displaced `trace-decision` on exactly the
+  // questions trace-decision was written for, and the score fell from 14/15 to
+  // 9/15 — not because learning is wrong, but because a two-line procedure
+  // replaced a tested one.
+  //
+  // So learning stays on and stays visible; it just fills gaps rather than
+  // overwriting the curated set. A learned skill routes when nothing built in
+  // claims the question, which is the case it was created for in the first
+  // place.
+  const byOrigin = [
+    skills.filter((s) => s.origin !== "learned"),
+    skills.filter((s) => s.origin === "learned"),
+  ];
+
   // First signal: an advertised trigger phrase appearing verbatim. This is a
   // deliberate claim by the skill's author on that wording, so it is trusted
   // outright and the longest — most specific — claim wins.
-  for (const skill of skills) {
-    for (const trigger of triggersOf(skill.description)) {
-      if (!asked.includes(" " + trigger + " ")) continue;
-      if (!best || trigger.length > best.trigger.length) {
-        best = { slug: skill.slug, name: skill.name, trigger, via: "trigger" };
+  for (const tier of byOrigin) {
+    for (const skill of tier) {
+      for (const trigger of triggersOf(skill.description)) {
+        if (!asked.includes(" " + trigger + " ")) continue;
+        if (!best || trigger.length > best.trigger.length) {
+          best = { slug: skill.slug, name: skill.name, trigger, via: "trigger" };
+        }
       }
     }
+    if (best) break;
   }
 
   // Second signal, only if no phrase matched: how close the question is to one
@@ -204,7 +236,7 @@ export function matchSkill(skillsDir, question) {
   // rewrite the sync layer a third time?" against "Did we decide to rewrite
   // the sync layer again?".
   if (!best) {
-    for (const skill of skills) {
+    for (const skill of [...byOrigin[0], ...byOrigin[1]]) {
       for (const example of examplesOf(skillsDir, skill.slug)) {
         const score = questionSimilarity(question, example);
         if (score < EXAMPLE_THRESHOLD) continue;

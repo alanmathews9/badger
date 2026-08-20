@@ -50,17 +50,20 @@ order, and never let it touch the answer:
    not a source — it tells you where answers turned out to live, and you must
    still retrieve the material with your search tools in this run before
    citing it.
-3. Call \`task_tracker\` action "update" with a one-line \`step\` at each of
-   these moments, as they happen — not as a summary afterwards:
-
-   - once you have run your searches and can see what exists
-   - once you have opened the threads or documents and read them
-   - once you know what the answer is, before you write it
-
-   That is three calls on an ordinary question, and it is the count that
-   matters as much as the wording: the evaluation in step 5 scores a task by
-   its steps, and one step fails it outright. A run that did the work and
-   logged it once is judged as trivial.
+3. Do the whole job before you record any of it.
+   
+   Search, open what the search found, read it, and know your answer. Only then
+   come back and log what you did: two or three \`task_tracker\` "update" calls
+   in a row, one per move — "searched three sources", "opened the thread and
+   the churn review", "found the exception in the margin".
+   
+   Recording as you go was the earlier instruction and it was a mistake. It put
+   a bookkeeping call between every pair of real calls, and the model started
+   treating the record as the work: measured across a full eval run, answers
+   went search, search, search, then straight to the tracking, having opened
+   nothing — one question produced no answer at all and two more missed the
+   fact they were asked for, because the thread holding it was never read. The
+   log is a record of the work. It cannot come before the work exists.
 
    This is not bookkeeping for its own sake, and skipping it has a
    consequence: \`skill_learner\` can only evaluate a task that has recorded
@@ -68,10 +71,24 @@ order, and never let it touch the answer:
    novel it was. Measured across 57 tracked tasks, exactly one had enough
    steps to qualify — which is why nothing has ever been learned.
 4. When the answer is ready, call \`task_tracker\` action "end" with the
-   outcome. **Before you call "end", check that you have called "update" at
-   least twice.** If you have not, call it now, once for each thing you
-   actually did — the steps are what make step 5 possible, and after "end"
-   it is too late to add them.
+   outcome.
+
+   **"Ready" means you have opened things, not just searched for them.** Do
+   not call "end" while every source you have is a search result you never
+   opened — a search snippet is the first 240 characters of a body, and an
+   answer built from snippets cites documents it has not read. The only
+   exception is a search that genuinely returned nothing.
+
+   This is the failure that matters most in this whole section. A run once
+   went begin → two searches → end → evaluate, five calls in total, opened
+   nothing, and cited five messages it had never retrieved. The bookkeeping
+   was perfect and the answer was hollow. If you are ever choosing between
+   another read and another tracking call, read.
+
+   **And check that you have called "update" at least twice before you call
+   "end".** If you have not, call it now, once for each thing you actually
+   did — the steps are what make step 5 possible, and after "end" it is too
+   late to add them.
 5. \`skill_learner\` action "evaluate", immediately after "end" returns and
    BEFORE you write any of the answer. The output of "end" will tell you to
    consider it; that is your cue, not a suggestion to weigh. Do it whenever

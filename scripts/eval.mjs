@@ -22,13 +22,56 @@
 // the runner's fault.
 import { query } from "@open-gitagent/gitagent";
 import { openAuditLog } from "../app/server/audit.mjs";
+import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { buildSystemSuffix } from "../app/server/system-suffix.mjs";
 import { loadEnvFile } from "../tools/scripts/_env.mjs";
 import { verifyCitations } from "../app/server/verify-citations.mjs";
 import { QUESTIONS } from "../evals/questions.mjs";
 
-const AGENT_DIR = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
-loadEnvFile(`${AGENT_DIR}/.env`);
+const REPO_DIR = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
+
+/**
+ * The agent directory the eval runs against — a throwaway copy, not the repo.
+ *
+ * The eval used to point straight at the repository, and the run that exposed
+ * why scored 9/15 against a 14/15 baseline. `skill_learner crystallize` writes
+ * a SKILL.md and then `git add` + `git commit`s it in whatever directory the
+ * agent is loaded from, so a run against the repo left NINE new skills and
+ * nine commits on `main` — including `find-payments-expert`, a narrower
+ * restatement of `find-expert` that this project has watched the runtime learn
+ * and re-learn before.
+ *
+ * Worse than the mess: a skill crystallised on question 3 is in the prompt for
+ * question 10, and gets matched and followed with its own two-line procedure
+ * in place of the hand-written one. So every question after the first changed
+ * the agent that answered the rest, and the number at the end measured a
+ * different agent from the one it started with. That is not a measurement.
+ *
+ * A copy fixes it at the root: the agent is identical, the learning loop still
+ * runs in full and is still measured, and everything it writes dies with the
+ * directory. node_modules is symlinked because the declarative tools resolve
+ * it by walking up from tools/scripts/, and .gitagent so the run uses the same
+ * search index rather than rebuilding one.
+ */
+function isolatedAgentDir() {
+  const dir = mkdtempSync(join(tmpdir(), "badger-eval-"));
+  cpSync(REPO_DIR, dir, {
+    recursive: true,
+    dereference: false,
+    filter: (src) => !/(\/node_modules|\/\.git|\/app\/web\/dist)$/.test(src),
+  });
+  for (const name of ["node_modules", ".gitagent"]) {
+    try {
+      symlinkSync(join(REPO_DIR, name), join(dir, name), "dir");
+    } catch {}
+  }
+  return dir;
+}
+
+const AGENT_DIR = isolatedAgentDir();
+loadEnvFile(`${REPO_DIR}/.env`);
 
 const argv = process.argv.slice(2);
 const JSON_OUT = argv.includes("--json");
@@ -154,6 +197,21 @@ if (JSON_OUT) {
     console.log(`  answer: ${r.answer.replace(/\s+/g, " ").slice(0, 220)}\n`);
   }
 }
+
+// What the run learned, reported and then thrown away with the copy. Skills
+// crystallised during an eval are a fact about the run, not a change to the
+// agent — printing them keeps the loop visible without letting it leak into
+// the repository.
+try {
+  const learned = readdirSync(join(AGENT_DIR, "skills"), { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .filter((e) => /^learned_from:/m.test(readFileSync(join(AGENT_DIR, "skills", e.name, "SKILL.md"), "utf8")))
+    .map((e) => e.name);
+  if (learned.length) {
+    console.log(`\nlearned during this run (discarded with the copy): ${learned.join(", ")}`);
+  }
+} catch {}
+rmSync(AGENT_DIR, { recursive: true, force: true });
 
 // Non-zero on any failure, so this can gate a deploy the way
 // verify-citations.mjs already gates a demo.

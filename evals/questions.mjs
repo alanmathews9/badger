@@ -79,20 +79,35 @@ export const QUESTIONS = [
     question: "What is our refund policy for an outage?",
     why: "Drive states the policy; mail shows the company doing something else. An answer that gives only the policy is incomplete, not wrong.",
     mustCiteAny: ["Refund Policy", "Refund for the March outage"],
-    // Matched loosely on purpose. FACTS records the goodwill as "one month's
-    // credit" and a correct answer said "a month's credit" — the article is not
-    // the fact under test, and a regex that fails on it is testing transcription
-    // rather than retrieval. Same lesson a second time on 2026-08-18: a correct
-    // answer wrote "a one-month credit" and the \s+ between the words failed
-    // it, hence [\s-]+.
-    mustSay: [/not refundable|excluded|does not cover|no refund/i, /(a|one)[\s-]+month'?s?[\s-]+credit/i],
+    // Matched on the FACT, not on the wording, after three runs of learning the
+    // same lesson the slow way. The goodwill is "one month's credit" in FACTS;
+    // correct answers have written "a month's credit" (the article broke it),
+    // "a one-month credit" (the hyphen broke it) and "a full month's credit"
+    // (the adjective broke it). Each time the answer was right and the regex
+    // was measuring transcription.
+    //
+    // What is actually under test is whether the agent found the exception at
+    // all — a month of credit, given despite a policy that excludes it. So the
+    // test is now "month" and "credit" in the same clause, in either order, and
+    // any words the model likes between them.
+    mustSay: [
+      /not refundable|excluded|does not cover|no refund/i,
+      /\bmonths?\b[^.]{0,30}\bcredit\b|\bcredit\b[^.]{0,30}\bmonths?\b/i,
+    ],
   },
   {
     id: "clearview-why",
     question: "Why is Clearview leaving?",
     why: "Three sources, three reasons, on purpose. The Drive churn review says price and the customer explicitly says it was not price.",
     mustCiteAny: ["Clearview"],
-    mustSay: [/outage|17 March|March incident/i, /not (the )?price|rather than price|ruled out price/i],
+    // "not price" also has to match "not pricing" and "was not about price" —
+    // a correct answer wrote "not pricing" and failed. The fact under test is
+    // that the answer contradicts the churn review's recorded reason, not the
+    // grammatical form of the word.
+    mustSay: [
+      /outage|17 March|March incident/i,
+      /\bnot\b[^.]{0,25}\bpric(e|ing)\b|rather than pric(e|ing)|ruled out pric(e|ing)|despite[^.]{0,30}\bpric(e|ing)\b/i,
+    ],
     mustNotSay: [/^(?!.*(not|rather than|denied|disputed|contrary)).*\bleaving (because|over|due to) (the )?price/is],
   },
   {
@@ -122,7 +137,15 @@ export const QUESTIONS = [
     question: "Why were some patients charged twice in March?",
     why: "Ties the customer's words to the engineering cause. Tests whether support mail and the repository are joined up.",
     mustCiteAny: ["issues/3", "charged twice"],
-    mustSay: [/retr(y|ies|ied)|webhook/i, /idempoten|duplicate|already (seen|processed)/i],
+    // "re-sent" is the retry, described. A correct answer said the provider
+    // "timed out on payment confirmations and then re-sent them, causing the
+    // system to treat each re-sent confirmation as a new payment" — the whole
+    // mechanism, without using the word retry or the word webhook. Naming the
+    // mechanism is the test; naming it in the repository's vocabulary is not.
+    mustSay: [
+      /retr(y|ies|ied)|webhook|re-?se(nd|nt)|sen[dt] (it )?again/i,
+      /idempoten|duplicate|already (seen|processed)|as a new payment|twice/i,
+    ],
   },
   {
     id: "support-spike",

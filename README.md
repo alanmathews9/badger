@@ -706,12 +706,29 @@ non-deterministic, so one run is a sample rather than a score, and the set says
 so rather than implying a precision it does not have.
 
 Dated runs are recorded in **[`evals/RESULTS.md`](evals/RESULTS.md)** — the
-score, the failure, and why it failed. The most recent reads 14/15 for about
-ten cents, and the one failure is worth the click: the agent named the right
-person for the right reason and then attributed a real mail thread to a
-sender it never had. Right answer, invented evidence, caught by the citation
-verifier and graded as a failure — which is the only defensible call for a
-product whose whole proposition is that the citation can be trusted.
+score, the failure, and why it failed. The most recent reads **14/15** for about
+sixteen cents, with skill crystallisation running.
+
+That entry is worth the click for what it took. Switching on crystallisation —
+the framework's headline feature, which had never once fired here — dropped the
+set to 9/15, and getting back took six runs and four bugs. The largest was an
+ordering mistake in the agent's own instructions: it was asked to log each step
+as it happened, which put a bookkeeping call between every pair of real calls
+until the model treated the log as the job. Answers came back having searched
+three times and opened nothing. Doing the work first and logging it afterwards
+was worth two points on its own.
+
+Three questions were also failing *correct* answers — a regex wanted "a month's
+credit" and got "a full month's credit" — so those now grade the fact rather
+than the transcription, each checked against a deliberately wrong answer to make
+sure the test still fails what it should.
+
+The entry below it records 14/15 from the morning, whose single failure remains
+the most instructive in the set: the agent named the right person for the right
+reason and then attributed a real mail thread to a sender it never had. Right
+answer, invented evidence, caught by the citation verifier and graded as a
+failure — the only defensible call for a product whose whole proposition is
+that the citation can be trusted.
 
 ---
 

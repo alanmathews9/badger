@@ -355,7 +355,13 @@ async function handleAsk(req, res) {
     // The agent's own directory, so memory is read from where the agent
     // writes it rather than from the image's frozen copy — see system-suffix.
     systemPromptSuffix: buildSystemSuffix(AGENT.agentDir),
-    maxTurns: 12,
+    // 18, not 12. The learning loop costs turns — begin, two or three updates,
+    // end, evaluate, sometimes crystallize — and those came out of the same
+    // budget as retrieval. Measured: an eval run at 12 turns produced answers
+    // that searched twice, opened nothing, and went straight to the
+    // bookkeeping, scoring 9/15 against a 14/15 baseline. The bound exists to
+    // stop a runaway loop, not to ration reading.
+    maxTurns: 18,
     // The shell and the two write tools, removed from the model's schema
     // before it can ask for them. hooks/allowed-tools.txt blocks them too;
     // this filter runs first (dist/sdk.js:179) and, unlike the hook, cannot

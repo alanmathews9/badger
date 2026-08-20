@@ -67,9 +67,27 @@ export function SkillsScreen() {
                     className="flex w-full items-center gap-2.5 border-t border-stone-100 py-3.5 text-left transition-colors hover:bg-stone-50"
                   >
                     <span className="truncate font-mono text-[13.5px]">{s.slug}</span>
+                    {/* Where a skill came from, said on the row.
+                        
+                        "Built in" was the only badge, so a skill the agent
+                        taught itself and one that shipped in the image looked
+                        identical — and which is which is the single most
+                        interesting fact on this screen. `origin` has carried
+                        all three values since the store was written; only
+                        two of them were being drawn. */}
                     {s.origin === "handwritten" && (
                       <span className="shrink-0 rounded-full border border-stone-200 px-1.5 py-px text-[10px] text-stone-400">
                         Built in
+                      </span>
+                    )}
+                    {s.origin === "learned" && (
+                      <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-px text-[10px] text-emerald-700">
+                        Learned
+                      </span>
+                    )}
+                    {s.origin === "custom" && (
+                      <span className="shrink-0 rounded-full border border-stone-200 px-1.5 py-px text-[10px] text-stone-500">
+                        Added
                       </span>
                     )}
                     <ChevronRight
