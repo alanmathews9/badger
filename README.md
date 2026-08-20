@@ -689,8 +689,10 @@ reliable as it sounds.
 `evals/questions.mjs` is fifteen questions whose correct answer is known, and
 known from where. `npm run eval` runs them and exits non-zero on any failure, so
 it can gate a deploy the way the citation check already gates a demo. A run
-costs about five cents — the property that matters, because an eval set too
-expensive to re-run becomes a document rather than a test.
+costs about eighteen cents with skill crystallisation on, and was about five
+before it — cheap enough to run before and after a change, which is the
+property that matters, because an eval set too expensive to re-run becomes a
+document rather than a test.
 
 **Grading is deterministic, not model-judged.** The obvious design is to ask a
 model whether the answer is right; it is also the one that cannot be trusted
@@ -724,7 +726,9 @@ so rather than implying a precision it does not have.
 
 Dated runs are recorded in **[`evals/RESULTS.md`](evals/RESULTS.md)** — the
 score, the failure, and why it failed. The most recent reads **14/15** for about
-sixteen cents, with skill crystallisation running.
+eighteen cents, with skill crystallisation running — and its one failure is a
+grader gap rather than an agent error, which the entry says plainly rather than
+quietly rounding up to 15.
 
 That entry is worth the click for what it took. Switching on crystallisation —
 the framework's headline feature, which had never once fired here — dropped the
