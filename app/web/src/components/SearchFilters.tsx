@@ -102,7 +102,21 @@ export function SearchFilters({
       }),
   );
 
-  if (kinds.length < 2 && authors.length < 2) return null;
+  // Nothing to offer — a search that matched nothing, or one whose results are
+  // all the same kind by the same person. The controls stay on screen so the
+  // header does not change shape between a search with results and one
+  // without, and they are disabled rather than live: three menus whose only
+  // entry is their own default would be the dead control this product keeps
+  // finding, dressed as a feature.
+  if (kinds.length < 2 && authors.length < 2) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <Menu label="Anytime" disabled />
+        <Menu label="Any type" disabled />
+        <Menu label="Anyone" disabled />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -165,17 +179,38 @@ export function SearchFilters({
  */
 function Menu({
   label,
-  active,
+  active = false,
   options,
   value,
   onPick,
+  disabled = false,
 }: {
   label: string;
-  active: boolean;
-  options: { value: string; label: string }[];
-  value: string;
-  onPick: (value: string) => void;
+  active?: boolean;
+  options?: { value: string; label: string }[];
+  value?: string;
+  onPick?: (value: string) => void;
+  /** On screen for the shape of the row, with nothing behind it to pick. */
+  disabled?: boolean;
 }) {
+  const trigger = (
+    <>
+      {label}
+      <ChevronDown className="size-3.5 text-stone-400" strokeWidth={2} />
+    </>
+  );
+
+  if (disabled) {
+    return (
+      <span
+        aria-disabled="true"
+        className="inline-flex h-8 cursor-default items-center gap-1.5 rounded-lg border border-stone-200 px-3 text-[12.5px] text-stone-400 opacity-60 select-none"
+      >
+        {trigger}
+      </span>
+    );
+  }
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -187,18 +222,17 @@ function Menu({
             : "border-stone-200 text-stone-600 hover:bg-stone-50",
         )}
       >
-        {label}
-        <ChevronDown className="size-3.5 text-stone-400" strokeWidth={2} />
+        {trigger}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-[180px]">
-        {options.map((option, i) => (
+        {(options ?? []).map((option, i) => (
           <div key={option.value}>
             {/* The "any" option is a reset rather than a peer of the others,
                 so it sits above a rule. */}
             {i === 1 && <DropdownMenuSeparator />}
             <DropdownMenuCheckItem
               checked={option.value === value}
-              onSelect={() => onPick(option.value)}
+              onSelect={() => onPick?.(option.value)}
             >
               {option.label}
             </DropdownMenuCheckItem>

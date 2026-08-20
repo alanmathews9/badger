@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ClayBars, DigInput } from "@/components/DigInput";
 import { HomeBar } from "@/components/HomeBar";
 import { SearchCanvas } from "@/components/SearchCanvas";
 import { ResultRow } from "@/components/ResultRow";
 import { SourceRail } from "@/components/SourceRail";
+import { EmptyResult } from "@/components/EmptyResult";
 import { NO_FILTERS, SearchFilters, passes, type Filters } from "@/components/SearchFilters";
 import type { SearchResponse, SourceId } from "@/lib/api";
 
@@ -37,10 +38,11 @@ export function SearchScreen({
   // search would silently hide most of the new one.
   const [source, setSource] = useState<SourceId | null>(null);
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
-  useEffect(() => {
+  const reset = useCallback(() => {
     setSource(null);
     setFilters(NO_FILTERS);
-  }, [data]);
+  }, []);
+  useEffect(reset, [data, reset]);
 
   // Two lists, because the rail's numbers and the results list answer
   // different questions. `facets` is everything the time and author filters
@@ -67,9 +69,10 @@ export function SearchScreen({
       <header className="shrink-0 border-b border-stone-200 px-6 pt-3.5 pb-3">
         <div className="mx-auto flex w-full max-w-[920px] flex-col gap-3">
           <DigInput value={query} onChange={onQueryChange} onSubmit={onSubmit} size="compact" />
-          {data && data.results.length > 0 && (
-            <SearchFilters rows={data.results} filters={filters} onChange={setFilters} />
-          )}
+          {/* Rendered whenever a search has run, results or not — SearchFilters
+              decides for itself what it can offer and shows disabled controls
+              when the answer is nothing, so the header keeps its shape. */}
+          {data && <SearchFilters rows={data.results} filters={filters} onChange={setFilters} />}
         </div>
       </header>
       )}
@@ -173,14 +176,6 @@ export function SearchScreen({
                     </p>
                   )}
 
-                  {(data.unmatched?.length ?? 0) > 0 && (
-                    <p className="mb-3 text-[11.5px] text-stone-500">
-                      <span className="font-mono">{data.unmatched!.join(", ")}</span>{" "}
-                      matched nothing as typed, and nothing in the corpus is close enough to
-                      suggest instead.
-                    </p>
-                  )}
-
                   {data.path === "live" && data.index?.building && (
                     <p className="mb-3 text-[11.5px] text-stone-500">
                       Answered live from the three sources. The local index is building in the
@@ -198,18 +193,24 @@ export function SearchScreen({
                   )}
 
                   {shown.length === 0 ? (
-                    <p className="text-sm text-stone-600">
-                      {source
-                        ? `Nothing from ${source} matches “${data.query}”.`
-                        : null}
-                      {!source && (
-                        <>
-                          Nothing in GitHub, Gmail or Drive matches{" "}
-                          <span className="font-medium">{data.query}</span>. This is a real empty
-                          result, not an error — Badger searched and found nothing.
-                        </>
-                      )}
-                    </p>
+                    // One sentence either way. The difference between "the
+                    // corpus holds nothing" and "you have filtered it all out"
+                    // is carried by the button rather than by a second reading
+                    // of the same news: when there is something behind the
+                    // filters, there is a way back to it.
+                    <EmptyResult
+                      query={data.query}
+                      action={
+                        data.results.length > 0 ? (
+                          <button
+                            onClick={reset}
+                            className="inline-flex h-8 items-center rounded-full border border-stone-200 bg-white px-3.5 text-[13px] font-medium text-stone-700 hover:bg-stone-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900"
+                          >
+                            Show all {data.results.length} results
+                          </button>
+                        ) : null
+                      }
+                    />
                   ) : (
                     <ul className="flex flex-col">
                       {shown.map((row) => (

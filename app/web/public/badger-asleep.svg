@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 116 78" width="116" height="78" role="img" aria-label="Badger asleep">
+  <title>Badger asleep</title>
+  <style>
+    /* mark.svg exactly — the same badger that is in the sidebar and above an
+       answer — standing still with three z's over it. An earlier attempt drew
+       it lying down by dropping the four legs; without them the silhouette
+       stopped reading as a badger at all and became a dark loaf. The mark is
+       the recognisable thing, so the mark is what is used, and the z's carry
+       the whole meaning. */
+    svg:root { color: #1C1917 }
+    .drift {
+      animation: drift 3.6s ease-in-out infinite;
+      transform-box: fill-box;
+      transform-origin: center;
+    }
+    .drift-2 { animation-delay: .5s }
+    .drift-3 { animation-delay: 1s }
+    @keyframes drift {
+      0%   { opacity: 0; transform: translateY(4px) }
+      40%  { opacity: 1 }
+      100% { opacity: 0; transform: translateY(-8px) }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .drift { animation: none; opacity: .45 }
+    }
+  </style>
+  <defs>
+    <clipPath id="bhead"><path d="M32.2 -16.2 L28.5 -18.6 L24 -22 L18.5 -23.4 L17 -16.5 L19 -14.6 L26.5 -13.4 L32.6 -13.2 Z"/></clipPath>
+    <!-- the face stripe is cut out of the mark, so it reads on any background -->
+    <mask id="bstripe" maskUnits="userSpaceOnUse" x="-45" y="-45" width="95" height="60">
+      <rect x="-45" y="-45" width="95" height="60" fill="#fff"/>
+      <g clip-path="url(#bhead)" fill="#000"><rect x="18.4" y="-19.6" width="13.2" height="2.2" rx="1.1" transform="rotate(31 25 -18.5)"/></g>
+    </mask>
+  </defs>
+
+  <!-- the ground it has stopped on -->
+  <rect x="4" y="65" width="66" height="2" rx="1" fill="currentColor" opacity=".13"/>
+
+  <g transform="translate(6,35)">
+    <g transform="translate(29.45,30) scale(1)" mask="url(#bstripe)">
+      <g fill="currentColor">
+        <g transform="translate(-13,-11.5) rotate(14)"><path d="M-4.2 -1.5 L4.2 -1.5 L3.4 8.8 L5.4 11.8 L-2.2 11.8 L-3.6 8.8 Z" opacity=".7"/></g>
+        <g transform="translate(10,-11.5) rotate(-16)"><path d="M-4.2 -1.5 L4.2 -1.5 L3.4 8.8 L5.4 11.8 L-2.2 11.8 L-3.6 8.8 Z" opacity=".7"/></g>
+        <path d="M-18 -25.4 L-27.5 -27 L-19.5 -19.4 Z"/>
+        <path d="M32.2 -16.2 L28.5 -18.6 L24 -22 L18.5 -23.4 L12 -25.8 L-10 -27.8 L-18 -25.2 L-21 -18.5 L-16 -10.8 L8 -11.4 L14 -13.4 L19 -14.8 L26.5 -13.4 L32.6 -13.2 Z"/>
+        <path d="M20.6 -23 L19 -26.9 L16.2 -23.6 Z"/>
+        <g transform="translate(-8.5,-11.5) rotate(-17)"><path d="M-4.2 -1.5 L4.2 -1.5 L3.4 8.8 L5.4 11.8 L-2.2 11.8 L-3.6 8.8 Z"/></g>
+        <g transform="translate(13.5,-11.5) rotate(15)"><path d="M-4.2 -1.5 L4.2 -1.5 L3.4 8.8 L5.4 11.8 L-2.2 11.8 L-3.6 8.8 Z"/></g>
+      </g>
+    </g>
+  </g>
+
+  <!-- three z's over the snout, smallest first -->
+  <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+    <path class="drift" d="M76 40 h4.4 l-4.4 4.8 h4.4" stroke-width="1.6" opacity=".5"/>
+    <path class="drift drift-2" d="M85 29 h5.4 l-5.4 5.9 h5.4" stroke-width="1.8" opacity=".38"/>
+    <path class="drift drift-3" d="M96 15.5 h6.6 l-6.6 7.2 h6.6" stroke-width="2" opacity=".26"/>
+  </g>
+</svg>
