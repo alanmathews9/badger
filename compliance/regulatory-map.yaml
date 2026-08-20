@@ -1,0 +1,121 @@
+# Maps what Badger can do to the controls that constrain it.
+#
+# The spec's own example fills this file with FINRA and SEC rule numbers.
+# Badger is not a broker-dealer and naming those rules here would be dressing.
+# What this file maps instead is real: each capability, the control that bounds
+# it, and the file where that control is actually implemented. `opengap audit`
+# checks that this file exists; the point of it is that every `implemented_in`
+# path can be opened and read.
+#
+# Some `implemented_in` paths sit under app/ — the product, not the agent.
+# That is a documentation reference and never a dependency: the agent still
+# runs with app/ deleted, which `npm run check:agent` proves by copying only
+# the agent files to a temp directory and running a tool there. Naming where a
+# control actually lives is the whole value of this file; pretending controls
+# in the consuming product do not exist would make it less true, not cleaner.
+
+mappings:
+  - capability: source_search
+    description: >-
+      Search GitHub issues and pull requests, Gmail threads, and Drive files
+      and their comments.
+    rules:
+      - id: badger-read-only
+        name: Read-only enforcement
+        controls:
+          - composio_direct_tools_preset      # no generic executor is exposed
+          - composio_enable_list              # 8 of GitHub's 823 actions
+          - tool_script_surface               # scripts can call only those 8
+          - hook_allowlist_by_exact_name      # hooks/allowed-tools.txt
+        implemented_in:
+          - tools/scripts/_github.mjs
+          - tools/scripts/_google.mjs
+          - hooks/allow-tools.sh
+          - hooks/allowed-tools.txt
+      - id: badger-sod
+        name: Segregation of duties
+        controls:
+          - reader_role_only                  # badger: [reader]
+          - writer_executor_unassigned
+        implemented_in:
+          - agent.yaml
+          - DUTIES.md
+
+  - capability: answer_synthesis
+    description: >-
+      Compose an answer from retrieved documents and cite every claim.
+    rules:
+      - id: badger-citation-integrity
+        name: No claim without a retrieved source
+        controls:
+          - citation_extraction
+          - citation_verified_against_tool_output
+          - unverified_marked_inline           # renders as [UNVERIFIED]
+          - non_zero_exit_on_failure           # so a demo can be gated on it
+        implemented_in:
+          - app/server/verify-citations.mjs
+          - scripts/badger-sdk.mjs
+      - id: badger-no-fabrication
+        name: Absence is reported as absence
+        controls:
+          - searched_but_empty_distinguished_from_never_searched
+          - rate_limit_is_not_an_empty_result
+        implemented_in:
+          - RULES.md
+          - hooks/check-sources.sh
+
+  - capability: source_reachability
+    description: >-
+      Knowing which sources were actually contacted before answering.
+    rules:
+      - id: badger-no-silent-blindness
+        name: A source that was never reached is never reported as empty
+        controls:
+          - session_refused_when_credential_missing
+        implemented_in:
+          - hooks/check-sources.sh
+          - hooks/required-env.txt
+
+  - capability: recordkeeping
+    description: >-
+      Every tool call, and the fact of every answer, written to an
+      append-only log.
+    rules:
+      - id: badger-audit-trail
+        name: Recordkeeping
+        controls:
+          - structured_json_per_event
+          - tool_calls_logged_with_arguments
+          - tool_results_logged_truncated
+          - timestamps_and_session_ids
+        implemented_in:
+          - app/server/audit.mjs
+        limitations:
+          - >-
+            Append-only, not write-once. The log does not meet SEC 17a-4 and
+            agent.yaml declares immutable: false.
+          - >-
+            Prompt and response bodies are not recorded — only that a response
+            happened. agent.yaml's log_contents says so rather than claiming
+            prompts_and_responses.
+          - >-
+            Instance-local. It lives in .gitagent/, which is gitignored and
+            does not survive a Cloud Run scale-to-zero.
+
+  - capability: learning
+    description: >-
+      Recording a task, crystallising a skill, and adjusting its confidence.
+    rules:
+      - id: badger-learning-is-visible
+        name: What the agent learns is a file in git, reviewable by a human
+        controls:
+          - skills_are_files_not_hidden_state
+          - learned_skill_carries_learned_from_provenance
+          - confidence_adjusted_from_outcome
+        implemented_in:
+          - skills/
+          - memory/
+        limitations:
+          - >-
+            See README, "What hosted Badger forgets". The learning loop writes
+            real files, and reaching a durable branch is the open work.

@@ -22,6 +22,11 @@ hooks:
   pre_tool_use:
     - script: allow-tools.sh
       fail_open: false
+      # The spec's flag for "this hook exists to enforce a control, not to be
+      # convenient" (hooks.schema.json). It is the layer that makes read-only
+      # a property of the tool list; compliance/regulatory-map.yaml names it
+      # under badger-read-only.
+      compliance: true
       description: >-
         Allow the tool names in allowed-tools.txt — the read and search tools
         plus the learning loop, never the shell — and block anything unlisted.
@@ -29,6 +34,9 @@ hooks:
   on_session_start:
     - script: check-sources.sh
       fail_open: false
+      # Enforces the control named badger-no-silent-blindness: a source that
+      # was never reached must never be reported as a source that was empty.
+      compliance: true
       description: >-
         Refuse to start if a source declared in agent.yaml has no credential.
         The runtime skips unreachable servers silently, so without this Badger

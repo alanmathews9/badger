@@ -1,0 +1,69 @@
+# CI for the agent, not for the product.
+#
+# The standard's own pattern: run `opengap validate` on every push, so a change
+# to agent.yaml, a hook, a tool schema or the segregation of duties policy
+# cannot merge broken. `--compliance` is the part that matters most here — it
+# is what fails the build if anyone ever assigns badger a role that conflicts
+# with `reader`, which is how "read-only" stays a checked property instead of
+# a sentence in a README.
+#
+# `validate` currently exits 1 for reasons that are not ours: the reference
+# runtime's reinforcement loop writes confidence/usage_count/success_count/
+# failure_count/negative_examples into SKILL.md frontmatter, and the standard's
+# own skill.schema.json sets additionalProperties: false. See README,
+# "Where we diverge from the standard". Until that is resolved upstream this
+# job asserts the two things that are ours — agent.yaml and the compliance
+# configuration — and prints the full report for a human to read.
+
+name: agent
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  spec:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install the OpenGAP CLI
+        run: npm i -g @open-gitagent/opengap@0.5.0
+
+      - name: Full report
+        run: opengap validate --compliance || true
+
+      - name: agent.yaml must be valid
+        run: |
+          opengap validate --compliance 2>&1 | tee /tmp/v.txt
+          grep -q '✓ agent.yaml — valid' /tmp/v.txt
+          grep -q '✓ Compliance configuration — valid' /tmp/v.txt
+
+      - name: Compliance audit report
+        run: opengap audit
+
+  agent-standalone:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      # The GAP thesis, tested rather than asserted: the agent must still run
+      # with nothing from app/ present.
+      - run: npm run check:agent
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run test:index
+      - run: npm run test:results

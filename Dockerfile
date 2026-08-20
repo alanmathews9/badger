@@ -56,8 +56,12 @@ RUN npm ci --omit=dev && npm cache clean --force \
 # AGENTS.md is here because the runtime reads it into the system prompt
 # (dist/loader.js:172). Leaving it out made production run on a different
 # prompt from every local test — the one divergence nobody would think to
-# look for.
-COPY agent.yaml SOUL.md RULES.md AGENTS.md ./
+# look for. DUTIES.md is here for exactly the same reason (loader.js:171).
+COPY agent.yaml SOUL.md RULES.md AGENTS.md DUTIES.md ./
+# Read by loadComplianceContext(). Neither file uses the keys the runtime
+# looks for, so today this adds nothing to the prompt — copied anyway so that
+# the day one of them does, production and local do not silently disagree.
+COPY compliance/ ./compliance/
 COPY skills/ ./skills/
 COPY tools/ ./tools/
 COPY hooks/ ./hooks/

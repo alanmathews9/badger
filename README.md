@@ -249,7 +249,7 @@ on every path — the runtime writes `.gitagent/audit.jsonl` only from its CLI
 entry point, so `app/server/audit.mjs` keeps the same log in the same format
 on the SDK paths, and in production each entry also goes to stdout, where
 Cloud Logging's default 30-day retention is what makes the declared
-`retention_days: 30` true.
+`retention_period: 30d` true.
 
 The rest of the surface is declined, each for a reason rather than by
 omission:
@@ -268,6 +268,63 @@ omission:
   to it and git records when it did.
 - **`config/`, `extends:`** — one environment, no parent agent to inherit
   from.
+
+### Does it actually conform? The standard ships a validator, so this is measured
+
+Claiming to be built on a standard is cheap. The standard's reference CLI —
+`@open-gitagent/opengap`, which is what [gitagent.sh](https://www.gitagent.sh/)
+points at — will tell you:
+
+```
+npm run validate    # opengap validate --compliance
+npm run audit       # opengap audit
+```
+
+Both run on every push (`.github/workflows/agent.yml`), and the build fails if
+`agent.yaml` or the compliance configuration stops validating.
+
+Everything that is Badger's passes: `agent.yaml`, `SOUL.md`, `hooks/hooks.yaml`
+and the compliance configuration are all green. **The run still exits 1**, and
+the reasons are worth reading rather than hiding — they are two divergences
+between the reference runtime and the published spec, written up with minimal
+reproductions in **[`docs/UPSTREAM.md`](docs/UPSTREAM.md)**:
+
+1. **Using the learning loop makes an agent fail the validator.** A
+   spec-perfect skill passes; record one successful use of it, and
+   `learning/reinforcement.js` writes five keys into the frontmatter that
+   `skill.schema.json` forbids. There is no arrangement of a SKILL.md that both
+   satisfies the schema and survives the loop, so this is not fixable
+   downstream — which is why Badger's three *used* skills fail and its one
+   never-used skill does not.
+2. **A spec-valid tool is invisible to the runtime, silently.** The schema
+   wants `implementation.type` and `path`; the loader requires
+   `implementation.script` and skips the file without logging. Badger's tools
+   use `script`, because a tool that validates and does not exist is worse than
+   one that exists and warns.
+
+This is the part of "framework understanding" that only shows up if you
+actually run the thing.
+
+### Read-only as a duty policy, not a promise
+
+`DUTIES.md` and `compliance.segregation_of_duties` state the read-only
+guarantee in the standard's own vocabulary. Four roles are defined —
+`reader`, `writer`, `approver`, `executor` — and Badger is assigned exactly
+one of them. Writing to a source is declared as a handoff requiring three
+roles that nothing in this system holds.
+
+The point is not the paperwork. It is that `opengap validate --compliance`
+**fails the build** if anyone ever gives Badger a role that conflicts with
+`reader`. Read-only stops being a sentence in a README and becomes a property
+CI checks, alongside the four enforcement layers that already exist in code.
+
+`opengap audit` scores the result: segregation of duties passes all nine
+checks, recordkeeping passes five of nine, and the gaps are declared rather
+than papered over — no regulatory framework is claimed, the audit log says
+`immutable: false` because it is append-only rather than write-once, and
+`log_contents` names the two categories actually recorded instead of the five
+on offer. `compliance/risk-assessment.md` justifies the `standard` risk tier
+and lists what is deliberately not claimed.
 
 ---
 
@@ -692,11 +749,14 @@ matter what the brain asks for.
 ## Repository map
 
 ```
-agent.yaml              identity, model, runtime config
+agent.yaml              identity, model, runtime config, compliance
 SOUL.md  RULES.md       who Badger is, and what it must never do
+DUTIES.md               read-only stated as a role policy CI can check
 skills/                 four procedures by task, plus whatever it learns
 tools/*.yaml            ten tools; scripts in tools/scripts/
 hooks/allowed-tools.txt the allowlist, and the single source of truth for it
+compliance/             the risk assessment, control map and review schedule
+.github/workflows/      opengap validate on every push
 app/server/             the two passes, the gate, ranking, verification
 app/web/                Vite + React + Tailwind + shadcn
 scripts/                dev tooling, corpus seeding, the eval runner
@@ -709,7 +769,9 @@ is how the framework's authors actually write agents, read from 17 of their
 published repositories plus the formal spec.
 [`docs/NOTES.md`](docs/NOTES.md) records what the *installed runtime* does,
 which has differed from the published documentation every single time it has
-mattered. Both are working notes rather than prose — they are the evidence
+mattered. [`docs/UPSTREAM.md`](docs/UPSTREAM.md) is where that difference
+became reproducible: two defects in the reference implementation, each with a
+minimal repro built from a clean two-file agent. Both are working notes rather than prose — they are the evidence
 behind the decisions on this page, kept because the reasoning is worth more
 than the conclusions.
 

@@ -34,7 +34,12 @@ cd "$ROOT"
 # returned null, neither caller wrapped anything, and this script proved that
 # an agent with NO tool gating still runs. It now tests the real
 # configuration, enforcement included.
-AGENT="agent.yaml SOUL.md RULES.md skills tools hooks memory"
+#
+# DUTIES.md and compliance/ joined the list for the same reason hooks/ did:
+# the runtime reads both when it builds the system prompt (loader.js:171 and
+# loadComplianceContext), so a sandbox copy without them proves a standalone
+# agent that is not the one that ships.
+AGENT="agent.yaml SOUL.md RULES.md DUTIES.md skills tools hooks memory compliance"
 
 fail() {
   printf '  ✗ %s\n' "$1"

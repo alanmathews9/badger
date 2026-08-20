@@ -18,6 +18,8 @@ app/web/dist
 # The runtime concatenates this one into the system prompt, so excluding it
 # would silently change how the agent behaves in production.
 !AGENTS.md
+# Same reason: the runtime concatenates DUTIES.md into the system prompt.
+!DUTIES.md
 docs
 
 .DS_Store

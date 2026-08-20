@@ -1,0 +1,87 @@
+# When Badger's own claims get re-measured.
+#
+# Written in the spec's `schedule:` shape. Note that runtime 2.1.0 reads
+# `schedule.checks` (dist/compliance.js:88) — a key this shape does not have —
+# so nothing here is injected into the system prompt. That is the intended
+# outcome: this file is for the people maintaining the agent, not for the
+# model, and the spec's shape is the one worth being correct against.
+#
+# `last_completed` is a real date or null. It is never filled in optimistically:
+# this repository has been bitten three times by a status field that could only
+# ever show the happy value, and a compliance schedule is exactly where that
+# failure would be most expensive.
+
+schedule:
+  - type: eval_suite
+    cadence: weekly
+    description: >-
+      15 questions with deterministic grading (mustCite against tool output,
+      mustSay, mustNotSay). Non-zero exit on failure. One run is a sample, not
+      a score — compare against a baseline re-measured the same day.
+    command: npm run eval
+    last_completed: 2026-08-20
+    last_result: "14/15, $0.0956 — see evals/RESULTS.md"
+    owner: alan-mathews
+
+  - type: spec_conformance
+    cadence: weekly
+    description: >-
+      Validate the agent against the OpenGAP schemas and the segregation of
+      duties policy. Runs on every push via .github/workflows/agent.yml.
+    command: npm run validate
+    last_completed: 2026-08-20
+    last_result: >-
+      agent.yaml valid, compliance valid. 15 errors remain in skills/, all of
+      them frontmatter keys written by the reference runtime's own
+      reinforcement loop — see README, "Where we diverge from the standard".
+    owner: alan-mathews
+
+  - type: read_only_enforcement
+    cadence: monthly
+    description: >-
+      Re-verify the four layers independently: that the Composio enable list
+      still holds, that no tool outside hooks/allowed-tools.txt is reachable,
+      and that the connected credential still reaches exactly one repository.
+    command: npm run composio:status
+    last_completed: 2026-08-18
+    last_result: >-
+      8 of 823 GitHub actions enabled; connected account alan-arkind reaches
+      one repository.
+    owner: alan-mathews
+
+  - type: agent_standalone
+    cadence: weekly
+    description: >-
+      Prove the agent still runs with nothing from app/ — the GAP thesis. The
+      check greps for a downward reference, then copies only the agent files to
+      a temp directory and runs a tool there.
+    command: npm run check:agent
+    last_completed: 2026-08-20
+    last_result: pass
+    owner: alan-mathews
+
+  - type: index_integrity
+    cadence: on_rebuild
+    description: >-
+      Every count in a crawl read back from the live API rather than taken from
+      the crawler's exit code, and the Postgres round trip compared field by
+      field with deepEqual (not JSON.stringify — jsonb does not preserve key
+      order, and the first comparison reported 88 false mismatches because of
+      it).
+    command: npm run test:index && npm run test:db
+    last_completed: 2026-08-20
+    last_result: "190 docs, 173 calls, 37s; round trip lossless"
+    owner: alan-mathews
+
+  - type: credential_review
+    cadence: quarterly
+    description: >-
+      Re-examine the known gap: the Composio connected account is an OAuth2
+      grant with account-wide `repo` scope, because GitHub offers no read-only
+      OAuth scope for private repositories. Check whether a GitHub App with
+      contents/issues/pull_requests read has become reachable through Composio.
+    last_completed: 2026-08-17
+    last_result: >-
+      Not available. Composio's GitHub toolkit offers OAUTH2 only; no PAT or
+      GitHub App scheme. Enforcement stays in the tool layer.
+    owner: alan-mathews

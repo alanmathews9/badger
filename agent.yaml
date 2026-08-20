@@ -34,24 +34,119 @@ runtime:
   max_turns: 40
   timeout: 300
 
-# Spelled the way the runtime reads it, which is NOT the way the spec writes
-# it, and the difference is deliberate. dist/compliance.js reads risk_level,
-# data_classification and human_in_the_loop at this nesting; the OpenGAP
-# schema defines risk_tier, compliance.data_governance.data_classification,
-# supervision.human_in_the_loop and recordkeeping.retention_period. Validating
-# against the implementation is what actually gates the run, so that is what
-# these keys do. Both were read; only one of them executes.
+# Written in the vocabulary of the OpenGAP spec, not the reference runtime's.
+# Those disagree: dist/compliance.js (gitagent 2.1.0) reads `risk_level`,
+# `data_classification` and `human_in_the_loop` at the top of this block, while
+# spec/schemas/agent-yaml.schema.json defines `risk_tier`,
+# `data_governance.data_classification` and `supervision.human_in_the_loop`.
+# This file used to carry the runtime's spelling on the grounds that it is the
+# one that executes. That was checked and it is wrong: those three keys are
+# read only by validateCompliance(), whose output is printed as a warning on
+# the CLI path and never read at all on the SDK path this product uses
+# (sdk.js loads the manifest and ignores complianceWarnings). The one key with
+# behaviour behind it — recordkeeping.audit_logging, which switches on
+# AuditLogger — is spelled identically in both. So the spec's spelling costs
+# nothing and `opengap validate` passes on this file.
+#
+# No `frameworks:` list. FINRA, SR 11-7 and Reg S-P do not apply to a
+# workplace-search demo, and naming one to score better on `opengap audit`
+# would be the same confidently-wrong indicator this repo has been burned by
+# before. An empty list is the honest answer.
 compliance:
-  risk_level: medium
-  data_classification: confidential
-  human_in_the_loop: false
-  # The standard's vocabulary for the guarantee this whole agent is built on.
-  # Inert in 2.1.0 — nothing reads it — and included because it is how GAP
-  # says "this agent reads and never writes", which is the claim being made.
-  segregation_of_duties: true
+  risk_tier: standard
+
+  supervision:
+    # Badger answers without asking a human first, so this is `none` rather
+    # than `advisory`. What a human does have is the ability to stop a run in
+    # flight — the composer's stop control aborts the query — and a daily
+    # answer ceiling that ends the service rather than degrading it.
+    human_in_the_loop: none
+    # Both true and both named: Alan reviews the agent, and the cadence is the
+    # one compliance/validation-schedule.yaml actually runs on — the eval suite
+    # and `opengap validate` weekly, not an aspiration.
+    designated_supervisor: alan-mathews
+    review_cadence: weekly
+    override_capability: true
+    kill_switch: true
+
   recordkeeping:
+    # True, and made true rather than declared. The runtime only wires its
+    # AuditLogger into the CLI entry point, so every SDK run — this server,
+    # badger-sdk.mjs, eval.mjs — left no trace while this manifest claimed
+    # one; app/server/audit.mjs closes that, writing the same JSONL shape to
+    # the same .gitagent/audit.jsonl so CLI and SDK runs interleave.
+    #
+    # `log_contents` lists two of the five categories the spec offers, and
+    # that is the measurement rather than the ambition. audit.mjs records
+    # tool_use with its arguments, tool_result truncated to 1000 characters,
+    # and a bare `response` event carrying no text — so tool calls and
+    # timestamps are logged, prompts_and_responses and model_version are not.
+    # Claiming the other three would be the confidently-wrong indicator this
+    # repo has been caught by before; the fix is to log them or not to say so.
+    #
+    # `immutable: false` is the other honest half. The file is append-only,
+    # not write-once, so it does not meet SEC 17a-4 and does not claim to.
+    # `retention_period: 30d` is real only in production, where each entry
+    # also goes to stdout and Cloud Logging's default 30-day retention is what
+    # keeps it — the container's own copy dies with the instance.
     audit_logging: true
-    retention_days: 30
+    log_format: structured_json
+    retention_period: 30d
+    log_contents:
+      - tool_calls
+      - timestamps
+    immutable: false
+
+  data_governance:
+    # `allow`, not `redact`. Badger's whole job is to show a person the mail
+    # and documents they already have access to; redacting the names in them
+    # would break the product. The control is that it never sees more than the
+    # connected account sees.
+    pii_handling: allow
+    data_classification: confidential
+    consent_required: false
+    cross_border: true
+    bias_testing: false
+    lda_search: false
+
+  # The read-only guarantee, stated in the standard's own vocabulary instead of
+  # only in prose. Four roles exist; Badger holds exactly one. Writing to a
+  # source is declared as a handoff requiring three roles that no agent in this
+  # system is assigned, so there is no assignment of roles under which a write
+  # is reachable. `opengap validate --compliance` checks this: it fails the
+  # build if any agent is ever given two roles that conflict.
+  segregation_of_duties:
+    roles:
+      - id: reader
+        description: Searches and reads connected sources, and reports findings with citations
+        permissions: [report]
+      - id: writer
+        description: Creates or modifies content in a connected source
+        permissions: [create, submit]
+      - id: approver
+        description: Reviews a proposed write and approves or rejects it
+        permissions: [review, approve, reject]
+      - id: executor
+        description: Performs an approved write against the source
+        permissions: [execute]
+    conflicts:
+      - [reader, writer]
+      - [reader, executor]
+      - [writer, approver]
+      - [writer, executor]
+    assignments:
+      badger: [reader]
+    isolation:
+      # Trivially satisfied while one agent holds one role, and stated anyway
+      # because it is the constraint any future writer role would have to meet:
+      # a write credential would be a second credential, never this one.
+      state: full
+      credentials: separate
+    handoffs:
+      - action: source_write
+        required_roles: [writer, approver, executor]
+        approval_required: true
+    enforcement: strict
 
 tags:
   - workplace-search
