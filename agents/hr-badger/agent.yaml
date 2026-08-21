@@ -16,7 +16,7 @@ metadata:
   created_at: '2026-08-21T00:00:00Z'
   output_format: text
   memory: true
-  color: clay
+  color: ocean
 tags:
   - workplace-search
   - people
