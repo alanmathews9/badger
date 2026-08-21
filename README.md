@@ -30,7 +30,7 @@ travels with the submission, not with this repository.
 - **Schedules** — give a sub-agent an interval and a question and it runs
   unattended. Every run is kept and readable.
 - **A measured eval** — fifteen questions with known answers, graded
-  deterministically. Latest: **14/15 for $0.18**
+  deterministically. Latest: **15/15 for $0.19**
   ([`evals/RESULTS.md`](evals/RESULTS.md)).
 
 ## Try it
