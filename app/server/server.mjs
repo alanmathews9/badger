@@ -739,7 +739,7 @@ async function serveStatic(pathname, res) {
 
   if (!(await isFile(file))) {
     return json(res, 503, {
-      error: "the frontend has not been built yet — run `npm run build` in web/, or use the Vite dev server",
+      error: "the frontend has not been built yet — run `npm run build` in app/web, or use the Vite dev server",
     });
   }
   res.writeHead(200, {

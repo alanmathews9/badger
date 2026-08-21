@@ -76,7 +76,7 @@ Read-only PAT scopes for GitHub are a fourth layer and cost nothing — use them
 **The hook itself fails open in four ways**, all of which the script must dodge:
 a non-zero exit, an uncaught error, a 10s timeout, or *any non-JSON on stdout*
 is treated as `allow` (`runHooks`: "Hook errors don't block execution by
-default"). This is why `hooks/allow-read-only.sh` is dependency-free POSIX `sh`
+default"). This is why `hooks/allow-tools.sh` is dependency-free POSIX `sh`
 and always exits 0 with a printed JSON object. **Never make it depend on `jq`** —
 if `jq` were missing on the VPS, every tool call would silently be permitted.
 
@@ -170,8 +170,9 @@ first move with a new provider.
 README offering only those two. Run as stdio with a plain PAT.
 
 **`--read-only` is real and worth more than any prompt.** Audited both ways
-with `scripts/mcp-tools.mjs`, which lists a server's tools without a model or
-any LLM spend:
+with `scripts/mcp-tools.mjs`, which listed a server's tools without a model or
+any LLM spend. (That script was removed in `9c2cd11` along with the rest of the
+MCP path — the measurements below stand, the tool is in git history.)
 
 - without the flag: **42 tools**, including `merge_pull_request`, `delete_file`,
   `create_or_update_file`, `issue_write`, `fork_repository`,
@@ -267,9 +268,9 @@ correctness bug as §4, one layer up.
 
 ## 4h. Verified at the MCP layer, not just at REST
 
-`scripts/mcp-tools.mjs` now takes `MCP_SCHEMA=<tool>` to print a tool's
-parameters and `MCP_CALL=<tool> MCP_ARGS=<json>` to invoke one — no model, no
-agent, no spend. Listing proves a name exists; only calling proves the path
+`scripts/mcp-tools.mjs` took `MCP_SCHEMA=<tool>` to print a tool's parameters
+and `MCP_CALL=<tool> MCP_ARGS=<json>` to invoke one — no model, no agent, no
+spend. (Removed in `9c2cd11`; recoverable from git history.) Listing proves a name exists; only calling proves the path
 works. Results against `github-mcp-server` 1.9.0 with the fine-grained PAT:
 
 - **`search_issues` works.** The §4g `is:issue` requirement is handled by the
@@ -409,7 +410,7 @@ which is good, but must not mistake them for search results.
   **`gemini-3-flash-preview`** and **`gemini-flash-latest`**, both 1M context.
   Budget a few minutes to probe models against the real key whenever the model
   changes; reading the registry is not a substitute. `scripts/probe-models.sh`
-  does this in one command.
+  did this in one command, and was removed in `9c2cd11`.
 - **Read 404 and 429 as different facts.** A 404 means the model is retired for
   new projects — permanent, and no key recovers it (`gemini-2.5-pro`,
   `2.5-flash`, `3-pro-preview`, `2.0-flash` are all gone this way). A 429 with
@@ -738,7 +739,7 @@ runtime rejected it outright. This is **stronger** than the shell-hook path,
 where the tool exists and is blocked at call time, and it cannot fail open.
 
 Consequence for the product: run on the SDK with `allowedTools`, and keep
-`hooks/allow-read-only.sh` for the CLI path. Two mechanisms, different failure
+`hooks/allow-tools.sh` for the CLI path. Two mechanisms, different failure
 modes.
 
 ## §10c. Cost tracking works, and is worth surfacing
