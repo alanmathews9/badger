@@ -31,6 +31,19 @@ These three are where the point of the thing is visible:
 If you have one minute instead, read the second and third of those. They are
 the two things this project is actually about.
 
+**Reading the framework rather than the docs.** Every claim here about what
+GAP does was read out of the installed runtime's `dist/`, because it has
+differed from the published documentation every time it mattered. That work is
+written down: **[`docs/FRAMEWORK-DEFECTS.md`](docs/FRAMEWORK-DEFECTS.md)** is
+thirteen defects found by building on gitagent 2.1.0, each with a `file:line`
+proof, a worked example and the upstream fix — the skill matcher that can
+never clear its own threshold, the `"Success"` string comparison that ends the
+learning loop silently, multi-agent composition that is specified and
+schema'd and implemented nowhere, a scheduler that is complete and started by
+nothing. **[`docs/UPSTREAM.md`](docs/UPSTREAM.md)** carries the longer
+reproductions. Where Badger departs from the framework, those files are the
+reason, and each departure is argued in place rather than left as a silence.
+
 ### Running it
 
 ```
@@ -302,9 +315,38 @@ Every schedule is anchored to the next quarter hour, and **the times are India
 Standard Time everywhere, stated on screen.** A schedule belongs to the agent
 rather than to the browser that created it — it fires while nobody is signed in
 — so one named zone costs a reader elsewhere one conversion and costs nobody a
-wrong answer. The anchor is what lets the dialog promise "First run at 4:45 PM"
+wrong answer. The anchor is what lets the pane promise "First run at 4:45 PM"
 and be right; a test pins that promise for every interval offered, and it
 caught two generated crons that would have fired two hours and one month late.
+
+A cron can also be written by hand, for the shapes the dropdown cannot express
+— "9am every Monday". It is validated where the file is written, and the check
+worth having is not the syntax one: **the tick runs every fifteen minutes, so
+`7 * * * *` is a perfectly good cron that fires never.** Refused with the
+reason, because an Executions tab that stays empty forever looks exactly like
+one nobody has scheduled.
+
+**Executions are one list with a Trigger column, not two lists.** Scheduled
+runs and Run now runs sit together, the way n8n's Mode, GitHub Actions' event
+and Airflow's Run Type all do, and for the same reason: when a scheduled run
+looks wrong, the first thing anyone does is run it by hand and compare, and
+separate lists make exactly that comparison hard. A Playground conversation is
+deliberately *not* in there — it is a different question with a conversation
+attached, and it is continuable, which an execution is not.
+
+Runs are stored in their own table rather than as conversations, and the row is
+written **before** the model is asked anything. On Cloud Run the instance is
+recycled after a few minutes of quiet, so a run that dies mid-answer has to be
+visible as one that never finished rather than as one that never happened.
+
+**One more framework defect, found by running it.** `executeScheduledJob`
+stamps `lastRunAt` on every run it performs — including a manual one — and the
+due check reads that field as "when this schedule last fired". So a Run now at
+18:02, two minutes after an 18:00 slot the tick had not yet reached, moved the
+mark past that slot and the scheduled run never happened, with nothing anywhere
+reporting it: you see one run where there should have been two, and the one you
+see is the one you asked for. Badger restores both fields after a manual run.
+There is no way to ask the runtime not to write them.
 
 ### The rest of the framework surface — used or declined, never silent
 
@@ -906,11 +948,36 @@ gcloud run deploy badger --source . --region us-central1 \
 NODE_ENV=production,BADGER_USER_ID=...,BADGER_GITHUB_REPO=owner/repo,\
 BADGER_AGENT_REPO_URL=https://github.com/owner/badger.git \
   --set-secrets COMPOSIO_API_KEY=...,BADGER_SESSION_SECRET=...,BADGER_PASSPHRASE=...,\
-DATABASE_URL=...,BADGER_AGENT_REPO_TOKEN=...
+DATABASE_URL=...,BADGER_AGENT_REPO_TOKEN=...,BADGER_TICK_SECRET=...
 ```
 
 `--set-env-vars` replaces the whole set rather than adding to it, so every
 variable has to be named on every deploy or one of them silently disappears.
+The same is true of `--set-secrets`, which is worse: dropping `DATABASE_URL`
+and `BADGER_AGENT_REPO_TOKEN` kills Postgres and the learning loop together,
+and the service still starts and still answers questions. Derive the command
+from `gcloud run services describe badger --format=json` rather than from any
+version written down, this one included.
+
+Then one Cloud Scheduler job, created once and never touched again:
+
+```bash
+gcloud scheduler jobs create http badger-tick --location us-central1 \
+  --schedule "*/15 * * * *" --time-zone Etc/UTC \
+  --uri https://<service-url>/api/schedules/tick \
+  --http-method POST --headers "x-badger-tick=<BADGER_TICK_SECRET>"
+```
+
+**`/api/schedules/tick` is the one route outside the passphrase gate**, because
+Cloud Scheduler cannot hold a session cookie — and it is the route that spends
+the answer budget, so it is the one that most needs a credential. It takes a
+shared secret in a header rather than a query string, since a URL is logged by
+every proxy in between; compares it constant-time, the same way the passphrase
+is compared; and **fails closed**, refusing everything when no secret is
+configured. `--time-zone Etc/UTC` is right even though schedules are IST: the
+tick is only a heartbeat, and each schedule's own cron is read in IST by the
+server. Three jobs are free, and this uses one of them for any number of
+schedules.
 
 `--max-instances 1` does double duty: it caps cost absolutely, and it makes the
 in-memory rate limits *correct* — they are per instance, so a second instance
@@ -1022,8 +1089,10 @@ agents/                 sub-agents, each with its own tools, skills and schedule
 hooks/allowed-tools.txt the allowlist, and the single source of truth for it
 compliance/             the risk assessment, control map and review schedule
 .github/workflows/      opengap validate on every push
-app/server/             the two passes, the gate, ranking, verification
+app/server/             the two passes, the gate, ranking, verification, the tick
 app/web/                Vite + React + Tailwind + shadcn
+migrations/             the Postgres schema, applied in name order
+tests/                  deterministic, no keys and no network
 scripts/                dev tooling, corpus seeding, the eval runner
 evals/                  fifteen questions with known answers and known sources
 docs/                   the research record — see below
@@ -1059,8 +1128,11 @@ Stated here rather than left to be discovered:
   policy" on the search path; the agent covers that gap by rephrasing.
 - **The credentials are not read-only.** Four software layers enforce it; the
   tokens beneath them could write.
-- **Chat history is not persisted.** There is no database; "recent digs" is
-  `localStorage`.
+- **History is per browser, not per person.** Conversations, searches and
+  scheduled runs are in Postgres, but the key is a random id minted per
+  sign-in with no account behind it. Clear your cookies and it is someone
+  else's history. There is deliberately no user table — modelling a user
+  would be a claim the product cannot honour behind one shared passphrase.
 - **Citation verification proves retrieval, not accuracy.** The eval set is
   what covers accuracy, and it covers fifteen questions rather than every
   question.
