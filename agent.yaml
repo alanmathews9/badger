@@ -160,8 +160,6 @@ compliance:
 agents:
   support-badger:
     description: "Answer what a customer was told, what the policy says, and whether those two are the same thing."
-  persist-probe:
-    description: "probe"
 
 tags:
   - workplace-search
