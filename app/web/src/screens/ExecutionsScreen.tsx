@@ -108,6 +108,7 @@ function Listing({
           <thead>
             <tr className="border-b border-stone-200 bg-stone-50/60 text-[10.5px] tracking-[0.06em] text-stone-400 uppercase">
               <th className="w-[190px] py-2.5 pl-4 text-left font-medium">Triggered (IST)</th>
+              <th className="w-[100px] py-2.5 text-left font-medium">Trigger</th>
               <th className="w-[110px] py-2.5 text-left font-medium">Status</th>
               <th className="py-2.5 text-left font-medium">Output</th>
             </tr>
@@ -121,6 +122,9 @@ function Listing({
                   <Link to={`/agents/${run.agent}/executions/${run.id}`} className="block py-3.5 pl-4 text-[13px] text-stone-800">
                     {istStamp(run.triggeredAt)}
                   </Link>
+                </td>
+                <td className="py-3.5 text-[12.5px] text-stone-500">
+                  {run.trigger === "manual" ? "Run now" : "Schedule"}
                 </td>
                 <td className="py-3.5">
                   <StatusPill status={run.status} />
@@ -171,6 +175,9 @@ function Detail({ agent, id, agentColor }: { agent: string; id: string; agentCol
             <div className="mt-5 flex items-center gap-3">
               <p className="text-[13px] text-stone-500">{istStamp(run.triggeredAt)} IST</p>
               <StatusPill status={run.status} />
+              <span className="text-[12.5px] text-stone-400">
+                {run.trigger === "manual" ? "Run now" : "Schedule"}
+              </span>
             </div>
 
             {/* The same component the Playground renders an answer with, given

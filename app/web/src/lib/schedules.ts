@@ -40,6 +40,13 @@ export type Execution = {
   agent: string;
   scheduleId: string;
   status: "running" | "success" | "error";
+  /**
+   * What set it going. Scheduled runs and Run now runs share one list with
+   * this column rather than living in two — the same shape as n8n's Mode,
+   * GitHub Actions' event and Airflow's Run Type, and for the same reason:
+   * when a scheduled run looks wrong you run it by hand and compare.
+   */
+  trigger: "schedule" | "manual";
   triggeredAt: number;
   finishedAt: number | null;
   input: string;

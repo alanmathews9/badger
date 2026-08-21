@@ -162,8 +162,9 @@ export function SchedulePane({
         className="fixed inset-y-0 right-0 z-20 flex w-[440px] max-w-full flex-col border-l border-stone-200 bg-white shadow-xl"
       >
         <header className="flex h-14 shrink-0 items-center gap-2 border-b border-stone-100 px-5">
+          {/* The agent's name is already the page title behind this pane, and
+              in the breadcrumb above it. A third copy said nothing. */}
           <h2 className="text-[13.5px] font-medium text-stone-900">Schedule</h2>
-          <span className="font-mono text-[12px] text-stone-400">{agent}</span>
           <button
             onClick={onClose}
             aria-label="Close"
@@ -237,7 +238,7 @@ export function SchedulePane({
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               rows={7}
-              placeholder="What should this agent go and find out?"
+              placeholder={`What should ${agent} do?`}
               className="w-full resize-none rounded-lg border border-stone-200 px-3 py-2.5 text-[13px]/[1.7] placeholder:text-stone-300 focus:border-stone-400 focus:outline-none"
             />
           </label>

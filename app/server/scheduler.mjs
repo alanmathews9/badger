@@ -41,7 +41,7 @@ export async function runDue(paths, now = new Date()) {
 
   const ran = [];
   for (const schedule of due) {
-    ran.push(await execute(paths, schedule));
+    ran.push(await execute(paths, schedule, "schedule"));
   }
   return { checked: slugs.length, due: due.length, ran };
 }
@@ -57,7 +57,7 @@ export async function runDue(paths, now = new Date()) {
 export async function runOnce(paths, slug) {
   const schedule = await readSchedule(paths.agentsDir, slug);
   if (!schedule) throw new Error("that agent has no schedule");
-  return await execute(paths, schedule);
+  return await execute(paths, schedule, "manual");
 }
 
 /**
@@ -68,10 +68,10 @@ export async function runOnce(paths, slug) {
  * throws: a schedule that fails must not stop the schedules after it in the
  * same tick.
  */
-async function execute(paths, schedule) {
+async function execute(paths, schedule, trigger) {
   const agent = schedule.agent;
   const triggeredAt = new Date();
-  const runId = await startRun(agent, schedule.id, schedule.prompt, triggeredAt);
+  const runId = await startRun(agent, schedule.id, schedule.prompt, triggeredAt, trigger);
 
   // A scheduled answer costs exactly what a typed one costs, so it is limited
   // by exactly the same budget. Claimed here rather than inside runAgent
@@ -81,7 +81,7 @@ async function execute(paths, schedule) {
   const slot = claimAskSlot();
   if (slot.error) {
     await finishRun(runId, { status: "error", error: slot.error });
-    return { agent, id: runId, status: "error" };
+    return { agent, id: runId, status: "error", trigger };
   }
 
   // The step trail, collected from the same frames the browser renders. The
@@ -146,5 +146,5 @@ async function execute(paths, schedule) {
     result: failure ? null : { ...result, steps },
     error: failure,
   });
-  return { agent, id: runId, status: failure ? "error" : "success" };
+  return { agent, id: runId, status: failure ? "error" : "success", trigger };
 }

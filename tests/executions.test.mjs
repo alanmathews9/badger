@@ -71,6 +71,23 @@ test("a failure keeps its reason", { skip }, async () => {
   assert.equal(read.result, null);
 });
 
+test("a run records what set it going, and both kinds share one list", { skip }, async () => {
+  // One list with a column, not two lists — the shape n8n, GitHub Actions and
+  // Airflow all use, because comparing a hand-run against a scheduled one is
+  // the first thing anyone does when a scheduled run looks wrong.
+  const tick = await runs.startRun("test-trig", "default", "Digest", new Date("2026-08-21T09:00:00Z"));
+  const byHand = await runs.startRun("test-trig", "default", "Digest", new Date("2026-08-21T10:00:00Z"), "manual");
+
+  assert.equal((await runs.readRun("test-trig", tick)).trigger, "schedule");
+  assert.equal((await runs.readRun("test-trig", byHand)).trigger, "manual");
+  assert.deepEqual((await runs.listRuns("test-trig")).map((r) => r.trigger), ["manual", "schedule"]);
+
+  // Anything that is not "manual" is the tick. The value reaches a column
+  // people filter on, so it is mapped rather than passed through.
+  const junk = await runs.startRun("test-trig", "default", "Digest", new Date(), "'; drop table schedule_run; --");
+  assert.equal((await runs.readRun("test-trig", junk)).trigger, "schedule");
+});
+
 test("the listing is newest first and carries no answer body", { skip }, async () => {
   const a = await runs.startRun("test-list", "default", "First", new Date("2026-08-21T09:00:00Z"));
   const b = await runs.startRun("test-list", "default", "Second", new Date("2026-08-21T10:00:00Z"));
