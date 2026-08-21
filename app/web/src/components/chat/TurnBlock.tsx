@@ -17,7 +17,7 @@ export type ChatTurn = { question: string; answer: AnswerState };
  * conversation, not a title for the document, and as an `<h1>` it made the
  * thing the reader already knows the largest element on the page.
  */
-export function TurnBlock({ turn }: { turn: ChatTurn }) {
+export function TurnBlock({ turn, agentColor }: { turn: ChatTurn; agentColor?: string }) {
   const { answer } = turn;
   const result = answer.result;
   const cited = result?.cited ?? [];
@@ -38,7 +38,7 @@ export function TurnBlock({ turn }: { turn: ChatTurn }) {
           to a mark; leading the chain with it says the stronger thing, and
           gives the answer its full reading width back. */}
       <div className="mt-6">
-        <StepTrail answer={answer} />
+        <StepTrail answer={answer} agentColor={agentColor} />
 
         {/* Neither an interruption nor a failure is rendered here — both are
             the last row of the trail, so they keep the badger and the chain.

@@ -3,10 +3,12 @@ import { MessagesSquare, Search } from "lucide-react";
 import { DigInput } from "./DigInput";
 import { SkillMenu } from "./chat/SkillMenu";
 import {
+  fetchAgents,
   fetchSkills,
   parseSkillCommand,
   pickableSkills,
   slashFilter,
+  type AgentInfo,
   type SkillInfo,
 } from "@/lib/ask";
 import { cn } from "@/lib/utils";
@@ -55,7 +57,7 @@ export function HomeBar({
   onChange: (next: string) => void;
   onSearch: () => void;
   /** Start a run and go to the conversation. See `askFromHome` in App. */
-  onAsk: (question: string, skill: string | null) => void;
+  onAsk: (question: string, skill: string | null, agent: string | null) => void;
   /** Author a new skill — which happens in Chat, where the pane lives. */
   onAddSkill: () => void;
   /** Open the manage-skills page. */
@@ -64,8 +66,11 @@ export function HomeBar({
 }) {
   const [mode, setMode] = useState<HomeMode>("search");
   const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [command, setCommand] = useState<string | null>(null);
+  /** The picked sub-agent. Menu only, never typed. */
+  const [agent, setAgent] = useState<string | null>(null);
   const [hi, setHi] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -74,18 +79,32 @@ export function HomeBar({
   // names, so a second caller on Chat costs nothing worth threading state for.
   useEffect(() => {
     fetchSkills().then(setSkills).catch(() => {});
+    fetchAgents().then(setAgents).catch(() => {});
   }, []);
 
   const chat = mode === "chat";
   const filter = chat ? slashFilter(value, command) : null;
   const menuVisible = chat && (menuOpen || filter != null);
   const pickable = pickableSkills(skills, filter ?? "");
-  const rows = pickable.length + 2; // + "Add your own skill", "Manage skills"
+  const pickableAgents = chat
+    ? agents.filter((a) => a.slug.includes((filter ?? "").toLowerCase()))
+    : [];
+  const footerAt = pickable.length + pickableAgents.length;
+  const rows = footerAt + 2; // + "Add your own skill", "Manage skills"
 
   useEffect(() => setHi(0), [filter, menuVisible]);
 
   const pick = (slug: string) => {
     setCommand(slug);
+    onChange("");
+    setMenuOpen(false);
+    inputRef.current?.focus();
+  };
+
+  // An agent answers instead of Badger, so it replaces any picked skill.
+  const pickAgent = (slug: string) => {
+    setAgent(slug);
+    setCommand(null);
     onChange("");
     setMenuOpen(false);
     inputRef.current?.focus();
@@ -103,7 +122,8 @@ export function HomeBar({
     if (!parsed) return;
     onChange("");
     setCommand(null);
-    onAsk(parsed.question, parsed.skill);
+    setAgent(null);
+    onAsk(parsed.question, agent ? null : parsed.skill, agent);
   };
 
   return (
@@ -131,8 +151,10 @@ export function HomeBar({
         {menuVisible && (
           <SkillMenu
             skills={pickable}
+            agents={pickableAgents}
             highlight={hi}
             onPick={pick}
+            onPickAgent={pickAgent}
             onAdd={() => {
               setMenuOpen(false);
               onChange("");
@@ -155,6 +177,7 @@ export function HomeBar({
           tone="plain"
           inputRef={inputRef}
           command={chat ? command : null}
+          agent={chat ? agent : null}
           icon={chat ? <MessagesSquare className="size-full" strokeWidth={1.9} /> : undefined}
           actionLabel={chat ? "Ask" : "Search"}
           placeholder={chat ? "Ask anything" : "Search for anything"}
@@ -165,17 +188,19 @@ export function HomeBar({
             } else if (menuVisible && e.key === "Enter") {
               e.preventDefault();
               if (hi < pickable.length) pick(pickable[hi].slug);
+              else if (hi < footerAt) pickAgent(pickableAgents[hi - pickable.length].slug);
               else {
                 setMenuOpen(false);
                 onChange("");
-                if (hi === pickable.length) onAddSkill();
+                if (hi === footerAt) onAddSkill();
                 else onManageSkills();
               }
             } else if (e.key === "Escape") {
               setMenuOpen(false);
               if (filter != null) onChange("");
-            } else if (e.key === "Backspace" && value === "" && command) {
-              setCommand(null);
+            } else if (e.key === "Backspace" && value === "" && (command || agent)) {
+              if (agent) setAgent(null);
+              else setCommand(null);
             }
           }}
         />

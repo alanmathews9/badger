@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import type { ChatSummary } from "@/lib/history";
-import { fetchSkills, type SkillInfo } from "@/lib/ask";
+import { fetchAgents, fetchSkills, type AgentInfo, type SkillInfo } from "@/lib/ask";
 import { Composer } from "@/components/chat/Composer";
 import { SkillPane } from "@/components/chat/SkillPane";
 import { TurnBlock, type ChatTurn } from "@/components/chat/TurnBlock";
+import { AgentMark } from "@/components/agents/icons";
 
 export type { ChatTurn };
 
@@ -47,6 +48,12 @@ export function ChatScreen({
   onSelectChat,
   onManageSkills,
   openSkillPane = false,
+  agent = null,
+  heading = "What do you want to know?",
+  paneTitle = "Chats",
+  openers = OPENERS,
+  agentColor,
+  fill = false,
 }: {
   turns: ChatTurn[];
   chats: ChatSummary[];
@@ -59,7 +66,7 @@ export function ChatScreen({
   loading: boolean;
   /** The list of past conversations has not arrived yet. */
   chatsLoading: boolean;
-  onAsk: (next: string, skill: string | null) => void;
+  onAsk: (next: string, skill: string | null, agent: string | null) => void;
   /** Abort the run in flight. */
   onStop: () => void;
   onNewChat: () => void;
@@ -69,16 +76,40 @@ export function ChatScreen({
   /** Arrive with the add-skill pane already open — the handover from Home's
       picker, where the pane does not exist. */
   openSkillPane?: boolean;
+  /**
+   * Every question here runs as this sub-agent, decided by the screen rather
+   * than per message. Set on an agent's Playground; null in /chat.
+   */
+  agent?: string | null;
+  /** The line above an empty conversation. */
+  heading?: string;
+  /** What the history pane calls itself. */
+  paneTitle?: string;
+  /** Ways in for an empty box. None on a Playground — see OPENERS. */
+  openers?: string[];
+  /** The agent's colour, drawn in place of Badger's mark wherever it would be. */
+  agentColor?: string;
+  /**
+   * Fill the parent instead of the viewport. A Playground sits under an
+   * agent's page header, so `h-dvh` there would push the composer off screen
+   * by exactly the height of that header.
+   */
+  fill?: boolean;
 }) {
   const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [paneOpen, setPaneOpen] = useState(openSkillPane);
   const [pending, setPending] = useState<string | null>(null);
   /** A suggestion waiting to be dropped into the box — never sent from here. */
   const [prefill, setPrefill] = useState<string | null>(null);
 
   useEffect(() => {
+    // Neither list is offered on a Playground: the agent is already chosen,
+    // and the skills it can reach are its own rather than Badger's.
+    if (agent) return;
     fetchSkills().then(setSkills).catch(() => {});
-  }, []);
+    fetchAgents().then(setAgents).catch(() => {});
+  }, [agent]);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const last = turns.at(-1);
@@ -106,11 +137,11 @@ export function ChatScreen({
     : [];
 
   return (
-    <div className="flex h-dvh bg-white text-stone-900">
+    <div className={`flex ${fill ? "h-full" : "h-dvh"} bg-white text-stone-900`}>
       {/* ── Past chats ─────────────────────────────────────────────── */}
       <aside className="flex w-60 shrink-0 flex-col border-r border-stone-200 bg-stone-50/50">
         <div className="px-4 pt-3.5 text-[11px] font-medium tracking-[0.08em] text-stone-400 uppercase">
-          Chats
+          {paneTitle}
         </div>
         <div className="p-3">
           <button
@@ -198,14 +229,18 @@ export function ChatScreen({
                     sits beside. It was a small dark app-tile stacked above the
                     heading; a tile is a favicon's job, and stacking put two
                     centred things where one line reads better. */}
-                <img src="/mark.svg" alt="" aria-hidden="true" className="h-8 w-auto" />
-                <h1 className="text-[30px]/[1.2] font-semibold tracking-[-0.025em]">
-                  What do you want to know?
-                </h1>
+                {agent ? (
+                  <AgentMark color={agentColor} size={34} />
+                ) : (
+                  <img src="/mark.svg" alt="" aria-hidden="true" className="h-8 w-auto" />
+                )}
+                <h1 className="text-[30px]/[1.2] font-semibold tracking-[-0.025em]">{heading}</h1>
               </div>
 
               <Composer
                 skills={skills}
+                agents={agents}
+                plain={!!agent}
                 running={false}
                 preset={pending}
                 prefill={prefill}
@@ -221,7 +256,7 @@ export function ChatScreen({
                   in for someone who has frozen at an empty box, not three
                   buttons competing with the composer above them. */}
               <div className="mt-8 flex flex-col items-center gap-1">
-                {OPENERS.map((q) => (
+                {openers.map((q) => (
                   <button
                     key={q}
                     onClick={() => setPrefill(q)}
@@ -240,7 +275,9 @@ export function ChatScreen({
                 {loading ? (
                   <ChatSkeleton />
                 ) : (
-                  turns.map((turn, i) => <TurnBlock key={i} turn={turn} />)
+                  turns.map((turn, i) => (
+                    <TurnBlock key={i} turn={turn} agentColor={agent ? agentColor : undefined} />
+                  ))
                 )}
                 <div ref={bottomRef} />
               </div>
@@ -262,6 +299,8 @@ export function ChatScreen({
               )}
               <Composer
                 skills={skills}
+                agents={agents}
+                plain={!!agent}
                 running={running}
                 // Submitting under the loading skeleton kept the id being
                 // loaded while discarding its turns, so the one new turn was
@@ -282,7 +321,7 @@ export function ChatScreen({
         )}
       </div>
 
-      {paneOpen && (
+      {paneOpen && !agent && (
         <>
           <div className="fixed inset-0 z-10 bg-stone-900/25" onClick={() => setPaneOpen(false)} />
           <SkillPane

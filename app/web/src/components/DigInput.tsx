@@ -21,6 +21,7 @@ export function DigInput({
   placeholder,
   actionLabel = "Search",
   command = null,
+  agent = null,
   tone = "bold",
   icon,
   inputRef: externalRef,
@@ -38,6 +39,8 @@ export function DigInput({
   actionLabel?: string;
   /** A picked skill, drawn as a /slug token ahead of the text. */
   command?: string | null;
+  /** The picked sub-agent, shown as an @token. */
+  agent?: string | null;
   /** `bold` is the box standing on its own. `plain` is for when it already
       sits inside a framed panel, where a second heavy border would be one
       edge too many. Large size only. */
@@ -100,6 +103,11 @@ export function DigInput({
       {command && (
         <span className="shrink-0 font-mono text-[13.5px] font-medium text-amber-700">
           /{command}
+        </span>
+      )}
+      {agent && (
+        <span className="shrink-0 font-mono text-[13.5px] font-medium text-sky-700">
+          @{agent}
         </span>
       )}
 

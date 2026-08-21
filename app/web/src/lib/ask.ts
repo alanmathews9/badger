@@ -115,6 +115,8 @@ export function ask(
   handlers: AskHandlers,
   history: Turn[] = [],
   skill: string | null = null,
+  /** Route the question to a sub-agent instead of Badger. */
+  agent: string | null = null,
 ): () => void {
   const controller = new AbortController();
   let finished = false;
@@ -150,7 +152,12 @@ export function ask(
       response = await fetch("/api/ask", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ question, history, ...(skill ? { skill } : {}) }),
+        body: JSON.stringify({
+          question,
+          history,
+          ...(skill ? { skill } : {}),
+          ...(agent ? { agent } : {}),
+        }),
         signal: controller.signal,
       });
     } catch {
@@ -206,7 +213,13 @@ export function ask(
  * duplicated heading.
  */
 export function splitAnswer(text: string): { body: string; coverage: string | null } {
-  const source = String(text ?? "");
+  // The model labels its answer "**Answer:**", copied from the calibration
+  // example in examples/, where the label is part of a TEMPLATE rather than
+  // part of an answer. Dropped here rather than in the prompt: this is a
+  // presentation fault, and rewriting the example would change what the model
+  // is calibrated on without anyone having re-run the eval.
+  const source = String(text ?? "").replace(/^\s*(?:\*\*Answer:?\*\*|Answer:)\s*/i, "");
+
   const at = (heading: string) => {
     const match = source.match(new RegExp(`^\\s*\\*\\*${heading}\\b.*?\\*\\*:?`, "im"));
     return match?.index ?? -1;
@@ -290,6 +303,10 @@ export function describeTool(
     // reader the two are the same event.
     case "skill":
       return `Using ${skillDisplayName(String(args.skill ?? ""))}`;
+    // The sub-agent the question was routed to. Announced by the server as
+    // the run's first step, the same way a picked skill is.
+    case "agent":
+      return `Asking ${skillDisplayName(String(args.agent ?? ""))}`;
     default:
       return name;
   }
@@ -382,6 +399,8 @@ export type SkillInfo = {
   name: string;
   description: string;
   origin: "handwritten" | "learned" | "custom";
+  /** ISO 8601 of the last commit touching its SKILL.md, or "" outside git. */
+  updatedAt: string;
 };
 
 export async function fetchSkills(): Promise<SkillInfo[]> {
@@ -526,4 +545,101 @@ export function downloadSkill(slug: string, content: string) {
   // same statement as the click races whatever the browser does to start the
   // save, and the failure mode is a download that silently produces nothing.
   setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+// ── Agents ────────────────────────────────────────────────────────────────
+//
+// A sub-agent is a folder under `agents/<slug>/` in Badger's own repo. These
+// five calls mirror the skill ones above; the shapes are the server's, from
+// `agents-store.mjs`.
+
+export type AgentInfo = {
+  slug: string;
+  name: string;
+  role: string;
+  goal: string;
+  description: string;
+  /** "custom" for one added here, anything else reads as shipped. */
+  origin: string;
+  /** ISO 8601, from the manifest's metadata. */
+  createdAt: string;
+  /** ISO 8601 of the last commit touching the agent, falling back to created. */
+  updatedAt: string;
+  /** The colour this agent's mark is drawn in. See components/agents/icons.tsx. */
+  color: string;
+  tools: string[];
+  skills: string[];
+  memory: boolean;
+  outputFormat: "text" | "json";
+};
+
+/** One agent with the two long fields the list omits. */
+export type AgentFile = AgentInfo & { instructions: string; rules: string };
+
+/** What the editor sends. Everything the form owns, nothing it does not. */
+export type AgentSpec = {
+  slug: string;
+  role: string;
+  goal: string;
+  color: string;
+  instructions: string;
+  tools: string[];
+  skills: string[];
+  memory: boolean;
+  outputFormat: "text" | "json";
+};
+
+/** One tool as the catalog lists it. `file` is its YAML in the root tools/. */
+export type ToolInfo = { name: string; description: string; file: string };
+
+
+export async function fetchAgents(): Promise<AgentInfo[]> {
+  const res = await fetch("/api/agents");
+  if (!res.ok) return [];
+  return (await res.json()).agents ?? [];
+}
+
+export async function fetchAgent(slug: string): Promise<AgentFile | null> {
+  const res = await fetch(`/api/agents/${encodeURIComponent(slug)}`);
+  return res.ok ? await res.json() : null;
+}
+
+export async function createAgent(spec: AgentSpec): Promise<{ slug?: string; error?: string }> {
+  const res = await fetch("/api/agents", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(spec),
+  });
+  const data = await res.json().catch(() => ({}));
+  return res.ok ? { slug: data.slug } : { error: data.error ?? "could not save the agent" };
+}
+
+export async function saveAgent(slug: string, spec: AgentSpec): Promise<{ error?: string }> {
+  const res = await fetch(`/api/agents/${encodeURIComponent(slug)}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(spec),
+  });
+  const data = await res.json().catch(() => ({}));
+  return res.ok ? {} : { error: data.error ?? "could not save the agent" };
+}
+
+export async function removeAgent(slug: string): Promise<{ error?: string }> {
+  const res = await fetch(`/api/agents/${encodeURIComponent(slug)}`, { method: "DELETE" });
+  const data = await res.json().catch(() => ({}));
+  return res.ok ? {} : { error: data.error ?? "could not delete the agent" };
+}
+
+/**
+ * The ten tools an agent can be given.
+ *
+ * Its own endpoint rather than `/api/tools`, which reports connected sources
+ * — a different question with a different answer.
+ */
+export async function fetchToolCatalog(): Promise<ToolInfo[]> {
+  const res = await fetch("/api/tools-catalog");
+  if (!res.ok) return [];
+  const data = await res.json().catch(() => null);
+  if (Array.isArray(data)) return data;
+  return data?.tools ?? [];
 }

@@ -23,7 +23,7 @@ export function SearchScreen({
   onQueryChange: (next: string) => void;
   onSubmit: (query?: string) => void;
   /** Send the box to the agent instead of the index. Home only — see HomeBar. */
-  onAsk: (question: string, skill: string | null) => void;
+  onAsk: (question: string, skill: string | null, agent: string | null) => void;
   onAddSkill: () => void;
   onManageSkills: () => void;
   busy: boolean;

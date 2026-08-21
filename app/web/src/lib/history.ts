@@ -17,6 +17,11 @@ export type ChatSummary = {
   id: string;
   /** The first question — how a person recognises a conversation. */
   title: string;
+  /**
+   * The sub-agent whose Playground this conversation belongs to, or null for
+   * a thread in /chat. Fixed when the conversation starts.
+   */
+  agent?: string | null;
   updatedAt: number;
 };
 
@@ -42,7 +47,8 @@ export type SearchFacts = {
 };
 
 export interface HistoryStore {
-  listChats(): Promise<ChatSummary[]>;
+  /** `agent` partitions the list: null is /chat, a slug is that Playground. */
+  listChats(agent?: string | null): Promise<ChatSummary[]>;
   getChat(id: string): Promise<StoredChat | null>;
   saveChat(chat: StoredChat): Promise<void>;
   listSearches(): Promise<SearchEntry[]>;
@@ -77,12 +83,10 @@ function write(key: string, value: unknown) {
  * implementation replaces it without touching a component.
  */
 export const localHistory: HistoryStore = {
-  async listChats() {
-    return read<StoredChat>(CHATS_KEY).map(({ id, title, updatedAt }) => ({
-      id,
-      title,
-      updatedAt,
-    }));
+  async listChats(agent = null) {
+    return read<StoredChat>(CHATS_KEY)
+      .filter((c) => (c.agent ?? null) === agent)
+      .map(({ id, title, updatedAt }) => ({ id, title, agent, updatedAt }));
   },
 
   async getChat(id) {
@@ -116,8 +120,9 @@ export const localHistory: HistoryStore = {
  * blip loses a save, not the answer on screen.
  */
 const serverHistory: HistoryStore = {
-  async listChats() {
-    const body = await get<{ chats: ChatSummary[] }>("/api/chats");
+  async listChats(agent = null) {
+    const query = agent ? `?agent=${encodeURIComponent(agent)}` : "";
+    const body = await get<{ chats: ChatSummary[] }>(`/api/chats${query}`);
     return body?.chats ?? [];
   },
 
@@ -127,7 +132,11 @@ const serverHistory: HistoryStore = {
   },
 
   async saveChat(chat) {
-    await send(`/api/chats/${chat.id}`, "PUT", { title: chat.title, turns: chat.turns });
+    await send(`/api/chats/${chat.id}`, "PUT", {
+      title: chat.title,
+      turns: chat.turns,
+      agent: chat.agent ?? null,
+    });
   },
 
   async listSearches() {
@@ -187,7 +196,7 @@ function store(): Promise<HistoryStore> {
 
 /** The store the app uses. Resolves to the server's when there is one. */
 export const history: HistoryStore = {
-  listChats: async () => (await store()).listChats(),
+  listChats: async (agent = null) => (await store()).listChats(agent),
   getChat: async (id) => (await store()).getChat(id),
   saveChat: async (chat) => (await store()).saveChat(chat),
   listSearches: async () => (await store()).listSearches(),

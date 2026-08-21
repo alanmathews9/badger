@@ -1,4 +1,4 @@
-import { FileText, MessagesSquare, Search, Wrench } from "lucide-react";
+import { Bot, FileText, MessagesSquare, Search, Wrench } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { BRAND_LOGOS } from "./BrandLogos";
 import {
@@ -116,6 +116,17 @@ export function AppSidebar({
               </SidebarMenuItem>
 
               <SidebarMenuItem>
+                {/* Directly under Ask, because that is where an agent is used.
+                    Tools and Skills below are what one is assembled from. */}
+                <SidebarMenuButton asChild isActive={pathname.startsWith("/agents")} tooltip="Agents">
+                  <NavLink to="/agents">
+                    <Bot />
+                    <span>Agents</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={pathname.startsWith("/tools")} tooltip="Tools">
                   <NavLink to="/tools">
                     <Wrench />
@@ -175,6 +186,7 @@ export function AppSidebar({
                   </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
