@@ -11,8 +11,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discoverSchedules } from "@open-gitagent/gitagent";
+import { isDue } from "../app/server/schedule-cron.mjs";
 import {
   SCHEDULE_ID,
+  restoreRunMeta,
   dueSchedules,
   listSchedules,
   readSchedule,
@@ -34,6 +36,9 @@ function scratch() {
 
 /** 2026-08-21 11:05 UTC — 16:35 IST, so the anchor is 16:45 IST. */
 const NOW = new Date("2026-08-21T11:05:00Z");
+
+/** Would the tick fire this schedule at that moment? */
+const isDueAt = (schedule, iso) => isDue(schedule, new Date(iso));
 
 test("an agent with no schedule reads as none, not as an error", async () => {
   const dir = scratch();
@@ -146,6 +151,51 @@ test("lastRunAt survives a save", async () => {
   const saved = await writeSchedule(dir, "hr-badger", { prompt: "Two", every: 15, unit: "minutes" }, { now: NOW });
   assert.equal(saved.lastRunAt, "2026-08-21T11:15:00.000Z");
   assert.equal(saved.lastResult, "success");
+});
+
+test("a manual run's stamp can be put back, so it does not eat a scheduled slot", async () => {
+  const dir = scratch();
+  await writeSchedule(dir, "hr-badger", { prompt: "One", every: 15, unit: "minutes" }, { now: NOW });
+  const { updateScheduleMeta } = await import("@open-gitagent/gitagent");
+
+  // The tick fires at 11:15 and the mark moves. Normal.
+  await updateScheduleMeta(join(dir, "hr-badger"), SCHEDULE_ID, {
+    lastRunAt: "2026-08-21T11:15:00.000Z",
+    lastResult: "success",
+  });
+  const before = await readSchedule(dir, "hr-badger");
+
+  // Somebody presses Run now at 11:32 — two minutes past the 11:30 slot the
+  // tick has not reached yet. executeScheduledJob stamps that time.
+  await updateScheduleMeta(join(dir, "hr-badger"), SCHEDULE_ID, {
+    lastRunAt: "2026-08-21T11:32:00.000Z",
+    lastResult: "success",
+  });
+  // Unrestored, the 11:30 slot is gone: the walk starts after 11:32.
+  assert.equal(isDueAt(await readSchedule(dir, "hr-badger"), "2026-08-21T11:40:00Z"), false);
+
+  await restoreRunMeta(dir, "hr-badger", before);
+  const after = await readSchedule(dir, "hr-badger");
+  assert.equal(after.lastRunAt, "2026-08-21T11:15:00.000Z");
+  assert.equal(after.lastResult, "success");
+  // …and the scheduled run still happens.
+  assert.equal(isDueAt(after, "2026-08-21T11:40:00Z"), true);
+});
+
+test("restoring over a schedule that had never run removes the keys", async () => {
+  const dir = scratch();
+  await writeSchedule(dir, "hr-badger", { prompt: "One", every: 15, unit: "minutes" }, { now: NOW });
+  const { updateScheduleMeta } = await import("@open-gitagent/gitagent");
+  await updateScheduleMeta(join(dir, "hr-badger"), SCHEDULE_ID, {
+    lastRunAt: "2026-08-21T11:32:00.000Z",
+    lastResult: "success",
+  });
+  // A deletion, not an assignment — which is why this is a file rewrite and
+  // not updateScheduleMeta.
+  await restoreRunMeta(dir, "hr-badger", { lastRunAt: undefined, lastResult: undefined });
+  const after = await readSchedule(dir, "hr-badger");
+  assert.equal(after.lastRunAt, undefined);
+  assert.equal(after.lastResult, undefined);
 });
 
 test("there is exactly one schedule per agent, however many times it is saved", async () => {

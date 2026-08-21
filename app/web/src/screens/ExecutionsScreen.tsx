@@ -46,19 +46,31 @@ function Listing({
   const [runs, setRuns] = useState<Execution[] | null>(null);
   const [persisted, setPersisted] = useState(true);
 
+  // Polled, and only while something is actually in flight. A run takes
+  // fifteen seconds or so and Run now sends you straight here, so the row has
+  // to fill itself in — but a list of finished runs changes only when a
+  // schedule fires, and polling that forever would be a request every few
+  // seconds for the life of the tab.
+  const running = runs?.some((r) => r.status === "running") ?? false;
   useEffect(() => {
     let live = true;
-    fetchExecutions(agent)
-      .then((r) => {
-        if (!live) return;
-        setRuns(r.runs);
-        setPersisted(r.persisted);
-      })
-      .catch(() => live && setRuns([]));
+    const load = () =>
+      fetchExecutions(agent)
+        .then((r) => {
+          if (!live) return;
+          setRuns(r.runs);
+          setPersisted(r.persisted);
+        })
+        .catch(() => live && setRuns([]));
+
+    load();
+    if (!running) return () => void (live = false);
+    const timer = setInterval(load, 3000);
     return () => {
       live = false;
+      clearInterval(timer);
     };
-  }, [agent]);
+  }, [agent, running]);
 
   if (runs === null) {
     return (
@@ -131,7 +143,11 @@ function Listing({
                 </td>
                 <td className="py-3.5 pr-4">
                   <Link to={`/agents/${run.agent}/executions/${run.id}`} className="block truncate text-[13px] text-stone-500">
-                    {run.status === "error" ? run.error : run.answer || "—"}
+                    {run.status === "running"
+                      ? "Running…"
+                      : run.status === "error"
+                        ? run.error
+                        : run.answer || "—"}
                   </Link>
                 </td>
               </tr>
@@ -146,15 +162,22 @@ function Listing({
 function Detail({ agent, id, agentColor }: { agent: string; id: string; agentColor?: string }) {
   const [run, setRun] = useState<Execution | null | undefined>(undefined);
 
+  const running = run?.status === "running";
   useEffect(() => {
     let live = true;
-    fetchExecution(agent, id)
-      .then((r) => live && setRun(r.run))
-      .catch(() => live && setRun(null));
+    const load = () =>
+      fetchExecution(agent, id)
+        .then((r) => live && setRun(r.run))
+        .catch(() => live && setRun(null));
+
+    load();
+    if (!running) return () => void (live = false);
+    const timer = setInterval(load, 3000);
     return () => {
       live = false;
+      clearInterval(timer);
     };
-  }, [agent, id]);
+  }, [agent, id, running]);
 
   return (
     <main className="min-h-0 flex-1 overflow-y-auto">
@@ -180,35 +203,41 @@ function Detail({ agent, id, agentColor }: { agent: string; id: string; agentCol
               </span>
             </div>
 
-            {/* The same component the Playground renders an answer with, given
-                the stored run reshaped as a turn. So an unverified citation, a
-                refusal or an empty step trail is exactly as visible in an
-                execution as it is in a conversation — which is the whole
-                reason for not building a second renderer. */}
-            <div className="mt-2">
-              <TurnBlock
-                agentColor={agentColor}
-                turn={{
-                  question: run.input,
-                  answer: {
-                    running: false,
-                    steps: run.result?.steps ?? [],
-                    text: run.result?.answer ?? "",
-                    result: run.result ?? null,
-                    error: run.error,
-                  },
-                }}
-              />
-            </div>
+            {run.status === "running" ? (
+              // Nothing but the question and the fact that it is going. The
+              // step trail is a LIVE thing driven by a stream, and there is no
+              // stream here — a scheduled run has no browser attached, so the
+              // steps are only stored when it finishes. Half a trail that
+              // cannot advance would say less than one honest line.
+              <div className="mt-6">
+                <p className="text-[14.5px]/[1.6] text-stone-800">{run.input}</p>
+                <p className="mt-4 text-[13px] text-stone-400">Running…</p>
+              </div>
+            ) : (
+              /* The same component the Playground renders an answer with,
+                 given the stored run reshaped as a turn. So an unverified
+                 citation or a refusal is exactly as visible in an execution as
+                 it is in a conversation — which is the whole reason for not
+                 building a second renderer.
 
-            {/* No error banner here. TurnBlock already renders a failure as
-                the trail's last row, keeping the agent's mark and the chain —
-                a second copy underneath printed the same sentence twice. */}
-            {run.status === "running" && (
-              <p className="mt-4 rounded-lg bg-stone-50 px-3 py-2.5 text-[12.5px]/[1.7] text-stone-500">
-                This run started and has not reported back. It may still be going, or the instance
-                that was running it may have been recycled.
-              </p>
+                 No error banner beneath it: TurnBlock already renders a
+                 failure as the trail's last row, and a second copy printed the
+                 same sentence twice. */
+              <div className="mt-2">
+                <TurnBlock
+                  agentColor={agentColor}
+                  turn={{
+                    question: run.input,
+                    answer: {
+                      running: false,
+                      steps: run.result?.steps ?? [],
+                      text: run.result?.answer ?? "",
+                      result: run.result ?? null,
+                      error: run.error,
+                    },
+                  }}
+                />
+              </div>
             )}
           </>
         )}

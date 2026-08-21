@@ -22,7 +22,7 @@
 import { executeScheduledJob } from "@open-gitagent/gitagent";
 import { join } from "node:path";
 import { listAgents } from "./agents-store.mjs";
-import { dueSchedules, readSchedule } from "./schedules-store.mjs";
+import { dueSchedules, readSchedule, restoreRunMeta } from "./schedules-store.mjs";
 import { finishRun, startRun } from "./executions.mjs";
 import { claimAskSlot } from "./limits.mjs";
 import { RunError, runAgent } from "./run-agent.mjs";
@@ -71,6 +71,12 @@ export async function runOnce(paths, slug) {
 async function execute(paths, schedule, trigger) {
   const agent = schedule.agent;
   const triggeredAt = new Date();
+  // What the schedule said before this run. A MANUAL run puts these back
+  // afterwards: `executeScheduledJob` stamps them on everything it runs, and
+  // `isDue` reads lastRunAt as "when this schedule last fired", so a Run now
+  // that lands just after an unserved slot would swallow it. See
+  // restoreRunMeta.
+  const before = { lastRunAt: schedule.lastRunAt, lastResult: schedule.lastResult };
   const runId = await startRun(agent, schedule.id, schedule.prompt, triggeredAt, trigger);
 
   // A scheduled answer costs exactly what a typed one costs, so it is limited
@@ -134,6 +140,11 @@ async function execute(paths, schedule, trigger) {
     console.error(`[scheduler] ${agent}`, redact(err?.stack || err?.message || err));
   } finally {
     slot.release();
+    if (trigger === "manual") {
+      // Best effort: the answer is already recorded, and a schedule whose
+      // cadence did not get restored runs late rather than not at all.
+      await restoreRunMeta(paths.agentsDir, agent, before).catch(() => {});
+    }
   }
 
   // runPrompt never running at all — the framework's own dedupe declining a

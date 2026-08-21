@@ -16,6 +16,8 @@
 // Schedules live only on sub-agents. Badger itself has no agent page to hang
 // the UI off, and a scheduled question that runs as Badger is what /chat is.
 import { discoverSchedules, saveSchedule, deleteSchedule } from "@open-gitagent/gitagent";
+import { readFileSync, writeFileSync } from "node:fs";
+import yaml from "js-yaml";
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { agentDir } from "./agents-store.mjs";
@@ -126,6 +128,44 @@ export async function writeSchedule(agentsDir, slug, spec, { now = new Date() } 
   });
 
   return await readSchedule(agentsDir, slug);
+}
+
+/**
+ * Put `lastRunAt` and `lastResult` back to what they were.
+ *
+ * **A manual run must not move the schedule's own cadence.** The framework's
+ * `executeScheduledJob` stamps both on every run it performs, with no way to
+ * ask it not to — and `isDue` reads `lastRunAt` as "the last time this
+ * schedule fired". So a Run now at 18:02, two minutes after an 18:00 slot the
+ * tick has not reached yet, would move the mark past that slot and the
+ * scheduled run would never happen. Nothing anywhere would report it: the
+ * reader sees one run where there should have been two, and the one they see
+ * is the one they asked for.
+ *
+ * A rewrite of the file rather than `updateScheduleMeta`, because restoring
+ * often means REMOVING the keys — the first ever run of a schedule has no
+ * previous value — and `Object.assign` cannot express a deletion.
+ *
+ * @param {{lastRunAt?:string, lastResult?:string}} previous what to put back
+ */
+export async function restoreRunMeta(agentsDir, slug, previous) {
+  const dir = existingAgentDir(agentsDir, slug);
+  const file = join(dir, "schedules", `${SCHEDULE_ID}.yaml`);
+  let data;
+  try {
+    data = yaml.load(readFileSync(file, "utf-8"));
+  } catch {
+    // Deleted mid-run, which is a thing a person can do. Nothing to restore.
+    return false;
+  }
+  if (!data || typeof data !== "object") return false;
+
+  for (const key of ["lastRunAt", "lastResult"]) {
+    if (previous?.[key]) data[key] = previous[key];
+    else delete data[key];
+  }
+  writeFileSync(file, yaml.dump(data, { lineWidth: 120 }), "utf-8");
+  return true;
 }
 
 /** Remove it. Absent is not an error — the button and the file can disagree. */

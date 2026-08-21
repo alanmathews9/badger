@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { Loader2, MoreHorizontal, Play, Trash2, X } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { MoreHorizontal, Play, Trash2, X } from "lucide-react";
 import { Select } from "@/components/ui/Select";
 import { useDismiss } from "@/lib/useDismiss";
 import { cn } from "@/lib/utils";
@@ -65,7 +65,8 @@ export function SchedulePane({
   const [every, setEvery] = useState<number>(schedule?.interval?.every ?? 1);
   const [cron, setCron] = useState(schedule?.cron ?? "0 9 * * 1");
   const [prompt, setPrompt] = useState(schedule?.prompt ?? "");
-  const [busy, setBusy] = useState<null | "save" | "run" | "delete">(null);
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState<null | "save" | "delete">(null);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   // Set after a save, so the pane can say where the output will appear rather
@@ -106,7 +107,7 @@ export function SchedulePane({
     prompt.trim() !== schedule.prompt ||
     (mode === "cron" ? cron.trim() !== schedule.cron : every !== schedule.interval?.every || unit !== schedule.interval?.unit);
 
-  const act = async (kind: "save" | "run" | "delete", run: () => Promise<void>) => {
+  const act = async (kind: "save" | "delete", run: () => Promise<void>) => {
     setBusy(kind);
     setError(null);
     try {
@@ -148,12 +149,25 @@ export function SchedulePane({
       onClose();
     });
 
-  const runNow = () =>
-    act("run", async () => {
-      const res = await runScheduleNow(agent);
-      onChange(res.schedule);
-      setSaved(true);
-    });
+  /**
+   * Start a run and go and watch it, rather than standing here for fifteen
+   * seconds and then closing.
+   *
+   * Deliberately NOT awaited, and deliberately still one long request: Cloud
+   * Run only guarantees CPU while a request is being handled, so detaching the
+   * work server-side and answering immediately would leave the run throttled
+   * with nobody waiting on it. The request stays open for the whole run; it is
+   * only this component that stops waiting.
+   *
+   * A failure still lands somewhere the reader will see it — the row is
+   * written before the model is asked anything, so a spent budget or a broken
+   * run is an error row in the list they are being sent to.
+   */
+  const runNow = () => {
+    void runScheduleNow(agent).catch(() => {});
+    onClose();
+    navigate(`/agents/${agent}/executions`);
+  };
 
   return (
     <>
@@ -313,8 +327,8 @@ export function SchedulePane({
                 disabled={busy !== null}
                 className="inline-flex items-center gap-1.5 text-[12.5px] text-stone-500 hover:text-stone-900 disabled:opacity-40"
               >
-                {busy === "run" ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
-                {busy === "run" ? "Running…" : "Run now"}
+                <Play className="size-3.5" />
+                Run now
               </button>
             )}
             {/* "Schedule", not "Save changes": the button's job is the same

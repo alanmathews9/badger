@@ -876,4 +876,32 @@ server.listen(PORT, HOST, async () => {
   } catch (err) {
     console.error(`github unreachable — search will fail until this is fixed: ${err.message}`);
   }
+  startLocalTick();
 });
+
+/**
+ * A tick for a laptop, and only for a laptop.
+ *
+ * In production the trigger is one Cloud Scheduler job, because Cloud Run
+ * scales to zero and a timer inside a process that is not running cannot fire.
+ * On localhost there is no Cloud Scheduler, so with nothing else in place a
+ * schedule can be created, saved and shown with its next run — and then never
+ * run, which looks exactly like a bug and is not one.
+ *
+ * Off unless BADGER_LOCAL_TICK is set, and it must stay off in production:
+ * there it would be a SECOND trigger beside Cloud Scheduler, and two things
+ * deciding whether a schedule is due is the shape that ends in double runs.
+ *
+ * Every minute rather than every fifteen: `isDue` walks the slots between the
+ * last run and now, so a finer check finds the same slot sooner and fires it
+ * once. Nothing is due on the other fifty-nine.
+ */
+function startLocalTick() {
+  if (!process.env.BADGER_LOCAL_TICK) return;
+  console.log("[scheduler] local tick on — checking every minute (development only)");
+  const timer = setInterval(() => {
+    runDue(RUN_PATHS).catch((err) => console.error("[scheduler] local tick", err.message));
+  }, 60_000);
+  // Never hold the process open on its own account.
+  timer.unref?.();
+}
