@@ -1,6 +1,0 @@
-id: default
-prompt: What changed in the leave policy this week?
-cron: 0,30 * * * *
-mode: repeat
-enabled: true
-createdAt: '2026-08-21T11:45:33.128Z'
