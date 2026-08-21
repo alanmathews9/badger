@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Loader2, Play, Trash2, X } from "lucide-react";
+import { Loader2, MoreHorizontal, Play, Trash2, X } from "lucide-react";
 import { Select } from "@/components/ui/Select";
+import { useDismiss } from "@/lib/useDismiss";
 import { cn } from "@/lib/utils";
 import {
   INTERVALS,
@@ -165,13 +166,21 @@ export function SchedulePane({
           {/* The agent's name is already the page title behind this pane, and
               in the breadcrumb above it. A third copy said nothing. */}
           <h2 className="text-[13.5px] font-medium text-stone-900">Schedule</h2>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="ml-auto inline-flex size-7 items-center justify-center rounded-md text-stone-400 hover:bg-stone-100 hover:text-stone-900"
-          >
-            <X className="size-4" strokeWidth={2} />
-          </button>
+          {/* Delete lives in the ⋯ rather than in the footer. The footer holds
+              the things you do TO a schedule that is running — pause it, run
+              it, save it — and a destructive action sitting among them is one
+              slip away from the one that cannot be undone. Nothing to delete
+              until there is a schedule, so the menu is not drawn at all. */}
+          <div className="ml-auto flex items-center gap-0.5">
+            {schedule && <PaneMenu onDelete={() => setConfirming(true)} />}
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              className="inline-flex size-7 items-center justify-center rounded-md text-stone-400 hover:bg-stone-100 hover:text-stone-900"
+            >
+              <X className="size-4" strokeWidth={2} />
+            </button>
+          </div>
         </header>
 
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
@@ -283,18 +292,22 @@ export function SchedulePane({
         </div>
 
         <footer className="flex shrink-0 items-center gap-2 border-t border-stone-100 px-5 py-3">
+          {/* Pause and Run now both need a schedule to act on, so on a first
+              schedule the footer is the one button that makes one. */}
           {schedule && (
-            <>
-              {/* Pause rather than delete. A schedule is a question somebody
-                  wrote; switching it off keeps it and its history, and the
-                  destructive action is a separate one behind a confirmation. */}
-              <button
-                onClick={toggle}
-                disabled={busy !== null}
-                className="text-[12.5px] text-stone-500 hover:text-stone-900 disabled:opacity-40"
-              >
-                {schedule.enabled ? "Pause" : "Resume"}
-              </button>
+            // Pause rather than delete. A schedule is a question somebody
+            // wrote; switching it off keeps it and everything it has produced,
+            // and the destructive action is elsewhere, behind a confirmation.
+            <button
+              onClick={toggle}
+              disabled={busy !== null}
+              className="text-[12.5px] text-stone-500 hover:text-stone-900 disabled:opacity-40"
+            >
+              {schedule.enabled ? "Pause" : "Resume"}
+            </button>
+          )}
+          <div className="ml-auto flex items-center gap-3">
+            {schedule && (
               <button
                 onClick={runNow}
                 disabled={busy !== null}
@@ -303,23 +316,18 @@ export function SchedulePane({
                 {busy === "run" ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
                 {busy === "run" ? "Running…" : "Run now"}
               </button>
-              <button
-                onClick={() => setConfirming(true)}
-                disabled={busy !== null}
-                aria-label="Delete schedule"
-                className="inline-flex size-7 items-center justify-center rounded-md text-stone-400 hover:bg-stone-100 hover:text-red-700 disabled:opacity-40"
-              >
-                <Trash2 className="size-3.5" strokeWidth={2} />
-              </button>
-            </>
-          )}
-          <button
-            onClick={save}
-            disabled={busy !== null || !prompt.trim() || (Boolean(schedule) && !changed)}
-            className="ml-auto inline-flex h-8 items-center justify-center rounded-lg bg-stone-900 px-3.5 text-[12.5px] font-medium text-stone-50 disabled:opacity-30"
-          >
-            {busy === "save" ? "Saving…" : schedule ? "Save changes" : "Create"}
-          </button>
+            )}
+            {/* "Schedule", not "Save changes": the button's job is the same
+                whether or not there is already one, and naming the action
+                rather than the file operation says what will happen next. */}
+            <button
+              onClick={save}
+              disabled={busy !== null || !prompt.trim() || (Boolean(schedule) && !changed)}
+              className="inline-flex h-8 items-center justify-center rounded-lg bg-stone-900 px-3.5 text-[12.5px] font-medium text-stone-50 disabled:opacity-30"
+            >
+              {busy === "save" ? "Scheduling…" : "Schedule"}
+            </button>
+          </div>
         </footer>
 
         {confirming && (
@@ -351,6 +359,40 @@ export function SchedulePane({
         )}
       </aside>
     </>
+  );
+}
+
+/** Everything that is not an everyday action. One item today, and it is the
+    destructive one. */
+function PaneMenu({ onDelete }: { onDelete: () => void }) {
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+  const box = useDismiss(open, close);
+
+  return (
+    <div ref={box} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Schedule options"
+        className="inline-flex size-7 items-center justify-center rounded-md text-stone-400 hover:bg-stone-100 hover:text-stone-900"
+      >
+        <MoreHorizontal className="size-4" strokeWidth={2} />
+      </button>
+      {open && (
+        <div className="absolute right-0 z-30 mt-1 w-[170px] overflow-hidden rounded-lg border border-stone-200 bg-white py-1 shadow-lg">
+          <button
+            onClick={() => {
+              close();
+              onDelete();
+            }}
+            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12.5px] text-red-700 hover:bg-stone-50"
+          >
+            <Trash2 className="size-3.5" strokeWidth={2} />
+            Delete schedule
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

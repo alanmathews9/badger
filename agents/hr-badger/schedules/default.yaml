@@ -1,0 +1,6 @@
+id: default
+prompt: Anything new in the leave policy?
+cron: 0 9 * * 1
+mode: repeat
+enabled: true
+createdAt: '2026-08-21T12:23:27.100Z'
