@@ -33,7 +33,8 @@ Three things are taken from Onyx anyway:
 
 Every target is on screen at the same time: the sidebar carries Ask, Agents,
 Tools and Skills, and the home search bar sits beside it. So a spotlight needs
-no route change, no scrolling, and no illustrations.
+no scrolling and no illustrations, and every target stays put while the page
+behind it changes.
 
 A carousel would need five drawings of the UI. Those go stale the moment the
 sidebar changes, and this repository has already been bitten four times by an
@@ -67,11 +68,33 @@ component cares about, and every intermediate component would have to forward
 it. The attribute values and the step ids come from the same const, so the
 stringly-typed lookup is generated from a typed source.
 
-**A step whose target is not in the DOM is skipped, not drawn.** A tooltip
-floating in a corner pointing at nothing is worse than no tooltip. The search
-bar in particular only exists on the home state of `/search` — once a search
-has run, the home box is replaced by the compact header box — so this is a
-real case, not a defensive one.
+**The itinerary is fixed once, when the tour starts, rather than by skipping a
+step whose target turns out to be missing.** Lazy skipping was written first
+and produced two faults visible in the browser: starting anywhere without a
+home search box, the counter read "2 of 5" for the first thing shown, and Back
+was a dead button — it moved to the search step, which immediately advanced
+again, so pressing it did nothing at all.
+
+The case is real rather than defensive: `[data-tour="search"]` only exists on
+the home state of `/search`, and once a search has run the home box is replaced
+by the compact one in the header. Then the walk is genuinely four steps and
+says so. Fixing the plan up front is safe because the overlay captures clicks,
+so the page underneath cannot change except where the tour changes it.
+
+## Each step opens its own page
+
+A step describing a destination shows that destination: reading about Agents
+over an empty search screen is a description, reading it over the actual grid
+of Mini Badgers is the thing itself. Each step carries a `route`, and entering
+it navigates there with `replace: true` — this is the tour moving, not the
+reader, so it has no business in the back button.
+
+**The itinerary is counted in an effect, never from a
+`requestAnimationFrame`.** rAF is starved in a tab that is not foreground, so
+an intermediate version froze on the welcome card for anyone who pressed
+Continue and switched tabs. An effect runs after the commit whatever the tab is
+doing, and by then the route has rendered, which is the only reason a frame was
+wanted. Reproduced with `document.hidden === true` before and after.
 
 ## The overlay
 
@@ -88,17 +111,28 @@ does the dimming, so the cut-out is free and follows the same border radius.
 
 | # | Target | Gist |
 |---|---|---|
-| — | none | Welcome dialog, centred. Button: Continue |
+| — | none | Welcome dialog, large, the mark on nothing. Button: Continue |
 | 1 | search box | direct links, like Google Search |
 | 2 | Ask | questions answered from your data |
 | 3 | Agents | Mini Badgers, talk to each alone, schedule them |
 | 4 | Tools | the sources it can reach, all read-only |
 | 5 | Skills | the procedures it follows, each one a file |
 
-Every step carries Back, a `n of 5` counter, and a quiet Skip. The last step's
-button reads **Start digging!** — it closes the tour and focuses the home
-search box. It deliberately does **not** prefill a question: a query the reader
-did not type, sitting in their box, is a fake.
+Every step carries a `n of 5` counter, a quiet Skip, and a pair of **arrows**
+rather than the words Back and Next — a step is a position in a sequence, which
+is what an arrow says and what "Back" only implies. The left arrow is rendered
+disabled rather than hidden on the first step, so the pair does not reflow as
+the walk moves, and the arrow KEYS do the same thing.
+
+The welcome dialog has **no Skip**. Escape and a click on the ground both leave,
+and a dismiss control on the first thing a new reader sees competes with the one
+action worth taking.
+
+The last step's button reads **Start digging!** — it returns to /search and
+focuses the box. It deliberately does **not** prefill a question: a query the
+reader did not type, sitting in their box, is a fake. The return is necessary
+now that steps navigate: the walk ends on /skills, where there is no search box
+to focus.
 
 ## Storage
 

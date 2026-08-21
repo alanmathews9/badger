@@ -17,6 +17,14 @@ export type TourStep = {
   body: string;
   /** Which side of the target the tooltip sits on. */
   side: "bottom" | "right";
+  /**
+   * The page this step opens behind the spotlight.
+   *
+   * A step describing a destination shows that destination: reading about
+   * Agents over an empty search screen is a description, and reading it over
+   * the actual grid of Mini Badgers is the thing itself.
+   */
+  route: string;
 };
 
 /** The welcome dialog. No target — it is centred and highlights nothing. */
@@ -32,18 +40,21 @@ export const WELCOME = {
 export const STEPS: TourStep[] = [
   {
     target: "search",
+    route: "/search",
     title: "The search bar",
     side: "bottom",
     body: "Search for anything and we'll give you direct links, just like Google Search.",
   },
   {
     target: "ask",
+    route: "/chat",
     title: "Ask",
     side: "right",
     body: "Ask any question here and Badger answers from the data you have given it, with its sources.",
   },
   {
     target: "agents",
+    route: "/agents",
     title: "Agents",
     side: "right",
     body:
@@ -53,12 +64,14 @@ export const STEPS: TourStep[] = [
   },
   {
     target: "tools",
+    route: "/tools",
     title: "Tools",
     side: "right",
     body: "The sources Badger can reach: GitHub, Gmail and Drive. All read-only, so it can look but never change anything.",
   },
   {
     target: "skills",
+    route: "/skills",
     title: "Skills",
     side: "right",
     body: "The procedures Badger follows. Each one is a file you can open, edit, or write yourself.",
