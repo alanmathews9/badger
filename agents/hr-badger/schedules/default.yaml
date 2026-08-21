@@ -4,5 +4,7 @@ prompt: >-
   Nothing else
 cron: '*/15 * * * *'
 mode: repeat
-enabled: true
+enabled: false
 createdAt: '2026-08-21T13:13:20.445Z'
+lastRunAt: '2026-08-21T13:15:17.483Z'
+lastResult: success
