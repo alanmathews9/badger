@@ -157,6 +157,10 @@ compliance:
         approval_required: true
     enforcement: strict
 
+agents:
+  support-badger:
+    description: "Answer what a customer was told, what the policy says, and whether those two are the same thing."
+
 tags:
   - workplace-search
   - federated-search
