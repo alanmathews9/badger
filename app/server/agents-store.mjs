@@ -525,6 +525,17 @@ function readIfPresent(file) {
  * YAML round trip would keep them in sync and delete every comment in a file
  * that is mostly comments, so this is a targeted textual edit instead.
  * Description null means remove.
+ *
+ * EVERY `agents:` block is collected and rewritten as one, and this is the
+ * load-bearing part rather than tidiness. The first version took the first
+ * block it found and appended a whole new one when there was none, which is
+ * correct in one file and wrong across two: a sub-agent created on a clone
+ * whose branch did not yet carry main's own block wrote a second block 150
+ * lines further down, git merged both without a conflict because the edits
+ * are nowhere near each other, and YAML refuses a duplicated key. The agent
+ * then failed to load at all and every question in production came back in
+ * half a second with no steps and no answer. Repairing on write means the
+ * next save heals a manifest that arrived broken.
  */
 function syncRootManifest(rootDir, slug, description) {
   const file = join(rootDir, "agent.yaml");
@@ -536,40 +547,84 @@ function syncRootManifest(rootDir, slug, description) {
   }
 
   const lines = text.split(/\r?\n/);
-  const start = lines.findIndex((line) => /^agents:\s*$/.test(line));
-  if (start < 0) {
-    if (description === null) return;
-    writeFileSync(file, insertBlock(text, entry(slug, description)), "utf8");
-    return;
+  const blocks = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^agents:\s*$/.test(lines[i])) continue;
+    let end = i + 1;
+    while (end < lines.length && (lines[end].trim() === "" || /^\s/.test(lines[end]))) end++;
+    // Give back the blank lines that separate the block from whatever follows.
+    // Without this they fall inside the replaced range and are dropped, so every
+    // create-then-delete cycle eats one line of the manifest's spacing.
+    while (end > i + 1 && lines[end - 1].trim() === "") end--;
+    blocks.push({ start: i, end });
+    i = end - 1;
   }
 
-  let end = start + 1;
-  while (end < lines.length && (lines[end].trim() === "" || /^\s/.test(lines[end]))) end++;
-  // Give back the blank lines that separate the block from whatever follows.
-  // Without this they fall inside the replaced range and are dropped, so every
-  // create-then-delete cycle eats one line of the manifest's spacing.
-  while (end > start + 1 && lines[end - 1].trim() === "") end--;
-  const body = lines.slice(start + 1, end).filter((line) => line.trim() !== "");
+  if (!blocks.length) {
+    if (description === null) return;
+    return writeManifest(file, text, insertBlock(text, entry(slug, description)));
+  }
+
+  // Every block's entries, in the order they appear, with the named one taken
+  // out wherever it sits. A duplicate slug across two blocks keeps the first.
+  const body = blocks.flatMap(({ start, end }) =>
+    lines.slice(start + 1, end).filter((line) => line.trim() !== ""),
+  );
 
   const kept = [];
+  const seen = new Set();
   for (let i = 0; i < body.length; i++) {
     const named = body[i].match(/^ {2}(\S[^:]*):\s*$/);
-    if (named && named[1] === slug) {
+    if (named && (named[1] === slug || seen.has(named[1]))) {
       while (i + 1 < body.length && /^ {3}/.test(body[i + 1])) i++;
       continue;
     }
+    if (named) seen.add(named[1]);
     kept.push(body[i]);
   }
   if (description !== null) kept.push(...entry(slug, description));
 
+  // One block, where the first one was; the rest of them go.
   const replacement = kept.length ? ["agents:", ...kept] : [];
-  // Removing the last entry removes the block, and with it the blank line
-  // `insertBlock` put in front of what follows — otherwise the separator
-  // before the block and the one after it both survive and the file grows a
-  // line on every create-then-delete cycle.
-  const after =
-    !replacement.length && lines[start - 1]?.trim() === "" && lines[end]?.trim() === "" ? end + 1 : end;
-  writeFileSync(file, [...lines.slice(0, start), ...replacement, ...lines.slice(after)].join("\n"), "utf8");
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const block = blocks.find((b) => b.start === i);
+    if (!block) {
+      out.push(lines[i]);
+      continue;
+    }
+    if (block === blocks[0]) out.push(...replacement);
+    // Removing the last entry removes the block, and with it the blank line
+    // `insertBlock` put in front of what follows — otherwise the separator
+    // before the block and the one after it both survive and the file grows a
+    // line on every create-then-delete cycle.
+    const drop =
+      block === blocks[0] && replacement.length
+        ? block.end
+        : lines[block.start - 1]?.trim() === "" && lines[block.end]?.trim() === ""
+          ? block.end + 1
+          : block.end;
+    i = drop - 1;
+  }
+  writeManifest(file, text, out.join("\n"));
+}
+
+/**
+ * Write the manifest only if it still parses.
+ *
+ * The agent is a YAML file the runtime loads before anything else, so an
+ * unparseable one is not a bad save — it is an agent that cannot answer at
+ * all. Refusing here turns that into a failed request, which the caller
+ * reports, instead of a manifest that is broken until someone reads a log.
+ */
+function writeManifest(file, before, after) {
+  try {
+    yaml.load(after);
+  } catch (err) {
+    throw new Error(`refusing to write an agent.yaml that no longer parses: ${err.message}`);
+  }
+  void before;
+  writeFileSync(file, after, "utf8");
 }
 
 const entry = (slug, description) => [`  ${slug}:`, `    description: ${JSON.stringify(description)}`];

@@ -36,6 +36,31 @@ const JSON_OUTPUT_SUFFIX =
 export class RunError extends Error {}
 
 /**
+ * The learning loop's task id, out of the `begin` result that announced it.
+ *
+ * The runtime prints it once and then expects the model to type all 36
+ * characters back on every later call (dist/tools/task-tracker.js). Flash
+ * does not reliably manage that: a production run mistyped one character,
+ * got "Task not found" three times in a row, and spent its last turn
+ * apologising for it instead of answering the question.
+ */
+export function taskIdFrom(text) {
+  return String(text ?? "").match(/Task started:\s*(\S+)/)?.[1] ?? null;
+}
+
+/**
+ * A call that files the run's own paperwork rather than doing the work.
+ *
+ * `begin` is excluded because it opens the task before any retrieval; every
+ * other call to either tool happens after the work, which is the ordering
+ * SYSTEM_SUFFIX asks for and the reason nothing written after one of these
+ * can be the answer.
+ */
+export function isLoggingCall(name, args = {}) {
+  return name === "skill_learner" || (name === "task_tracker" && args?.action !== "begin");
+}
+
+/**
  * Ask the agent one question and return everything the answer card needs.
  *
  * Claims no budget slot and applies no rate limit: both belong to the caller,
@@ -104,6 +129,12 @@ export async function runAgent({
   const callIndex = new Map();
   const opened = [];
   let answer = "";
+  // The learning loop's id, so the model never has to retype it. See taskIdFrom.
+  let taskId = null;
+  // Whether the run has started filing its own paperwork. See isLoggingCall.
+  let logging = false;
+  // The runtime's own account of a failure, kept for the message we throw.
+  let systemError = null;
 
   const ctx = await resolveContext();
   if (ctx.mode === "none") {
@@ -203,6 +234,13 @@ export async function runAgent({
           args.skill_used = chosen;
         }
 
+        // And which task, for the same reason and with more force: the id is
+        // ours to know rather than the model's to remember, and a mistyped
+        // one fails the call, which the model then reports to the reader in
+        // place of the answer. Overwritten rather than filled in — a wrong id
+        // is exactly the case this exists for.
+        if (taskId && isLoggingCall(hookCtx.toolName, args)) args.task_id = taskId;
+
         return { action: "modify", args };
       },
     },
@@ -224,6 +262,17 @@ export async function runAgent({
       switch (msg.type) {
         case "tool_use": {
           toolCalls.push(msg.toolName);
+          // Text the model wrote and then kept working after is narration, not
+          // an answer — the same rule the composer already applies to the text
+          // on screen. Without it a run that never answers shows its last
+          // "Next, I will search GitHub…" as the answer, which is worse than
+          // showing nothing: it reads as complete and it is not.
+          //
+          // A LOGGING call does not clear it. SYSTEM_SUFFIX asks the model to
+          // file its paperwork after the work, so an answer followed by
+          // task_tracker end is the ordinary shape of a good run.
+          if (isLoggingCall(msg.toolName, msg.args)) logging = true;
+          else answer = "";
           recordOpened(opened, msg);
           const index = toolCalls.length - 1;
           // By the runtime's own id — see tool_result for why position fails.
@@ -237,6 +286,7 @@ export async function runAgent({
           const content =
             typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
           toolOutputs.push(content);
+          if (msg.toolName === "task_tracker") taskId = taskIdFrom(content) ?? taskId;
           // …and, for a search, the documents it found.
           //
           // Attached by the runtime's `toolCallId`, which rides both frames
@@ -257,13 +307,28 @@ export async function runAgent({
           if (msg.deltaType === "text" && msg.content) emit("delta", { text: msg.content });
           break;
         case "assistant":
-          if (msg.content) answer = msg.content;
+          // The answer is what the model wrote before it began filing its
+          // paperwork. Anything after that is a report ON the paperwork, and
+          // a run that ended "My apologies, it seems I made a mistake in the
+          // task_id again" is what this guard exists to stop replacing a
+          // finished answer with.
+          if (msg.content && (!answer || !logging)) answer = msg.content;
           break;
         case "system":
           // Redacted: the runtime authenticates git with the token in the URL
           // (session.js:8), so a failed clone or push produces an error
           // message carrying the credential, and this goes to the browser.
-          if (msg.subtype === "error") emit("warning", { message: redact(msg.content) });
+          if (msg.subtype === "error") {
+            // Logged as well as forwarded. The browser drops warning frames on
+            // purpose, and for a run that failed outright that left the only
+            // account of the failure nowhere: a manifest that would not parse
+            // showed up as a blank answer with an empty step trail, in the
+            // product and in Cloud Logging both.
+            const message = redact(msg.content);
+            systemError ??= message;
+            console.error("[ask] runtime error:", message);
+            emit("warning", { message });
+          }
           break;
       }
     }
@@ -279,6 +344,18 @@ export async function runAgent({
     // failed cleanup must not turn a good answer into an error.
     target.release();
     AGENT.sync();
+  }
+
+  // An empty answer is a failed run, not a short one. Returning it produces a
+  // card with an empty body and a step trail reading "Answered without
+  // searching", which is indistinguishable from a question the agent chose not
+  // to search for — so it is raised here, where both callers already report it.
+  if (!answer.trim()) {
+    throw new RunError(
+      systemError
+        ? `The run failed before it could answer: ${systemError.slice(0, 200)}`
+        : "The run finished without writing an answer.",
+    );
   }
 
   const verification = verifyCitations(answer, toolOutputs);
