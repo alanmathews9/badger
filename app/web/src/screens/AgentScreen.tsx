@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronRight, Clock, Hammer, ListChecks, MoreHorizontal, Play, Trash2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AgentForm, useAgentDraft } from "@/components/agents/AgentPane";
 import { SchedulePane } from "@/components/agents/SchedulePane";
 import { ExecutionsScreen } from "@/screens/ExecutionsScreen";
@@ -183,16 +184,11 @@ export function AgentScreen({
               "does this thing run on its own" is the question the header
               should answer without being opened. */}
           {!isNew && <HeaderMenu onDelete={() => setConfirming(true)} />}
-          {!isNew && (
-            <button
-              onClick={() => setScheduling(true)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-stone-200 px-2.5 text-[12.5px] text-stone-600 hover:border-stone-300 hover:bg-stone-50 hover:text-stone-900"
-            >
-              <Clock className="size-3.5" strokeWidth={2} />
-              Schedule
-              {schedule?.enabled && <span className="size-1.5 rounded-full bg-emerald-500" />}
-            </button>
-          )}
+          <ScheduleButton
+            disabled={isNew}
+            live={Boolean(schedule?.enabled)}
+            onClick={() => setScheduling(true)}
+          />
           {tab === "build" && (
             <button
               onClick={save}
@@ -284,6 +280,60 @@ export function AgentScreen({
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Schedule, shown on a new agent too — disabled, and saying why.
+ *
+ * Hiding it would have been less code and worse: a control that appears only
+ * after a save teaches nobody that it exists, and its arrival is one more
+ * thing changing on screen at the moment the page has just moved. Present and
+ * unavailable says what this page can eventually do.
+ *
+ * The tooltip hangs off a wrapping span rather than the button. A disabled
+ * button emits no pointer events at all, so a tooltip attached to it never
+ * opens — which would leave a control that is dead and silent, the exact thing
+ * this is meant to avoid.
+ */
+function ScheduleButton({
+  disabled,
+  live,
+  onClick,
+}: {
+  disabled: boolean;
+  live: boolean;
+  onClick: () => void;
+}) {
+  const button = (
+    <button
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      className={
+        "inline-flex h-8 items-center gap-1.5 rounded-lg border border-stone-200 px-2.5 text-[12.5px] text-stone-600 " +
+        (disabled
+          ? "pointer-events-none opacity-40"
+          : "hover:border-stone-300 hover:bg-stone-50 hover:text-stone-900")
+      }
+    >
+      <Clock className="size-3.5" strokeWidth={2} />
+      Schedule
+      {/* Only ever on a saved agent, so it cannot appear beside the disabled
+          state and imply something is already running. */}
+      {live && <span className="size-1.5 rounded-full bg-emerald-500" />}
+    </button>
+  );
+
+  if (!disabled) return button;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex cursor-not-allowed">{button}</span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" sideOffset={6}>
+        Create your agent first before scheduling.
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

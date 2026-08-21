@@ -3,6 +3,7 @@ import { Check, ChevronDown, ExternalLink, Plus, Search, X } from "lucide-react"
 import {
   createAgent,
   fetchAgent,
+  fetchAgents,
   fetchSkills,
   fetchToolCatalog,
   removeAgent,
@@ -11,7 +12,7 @@ import {
   type SkillInfo,
   type ToolInfo,
 } from "@/lib/ask";
-import { AGENT_COLOR_NAMES, AgentMark, agentColorClass } from "./icons";
+import { AGENT_COLOR_NAMES, DEFAULT_AGENT_COLOR, AgentMark, agentColorClass } from "./icons";
 import { cn } from "@/lib/utils";
 import { useDismiss } from "@/lib/useDismiss";
 
@@ -24,7 +25,7 @@ export type Definition = Omit<AgentSpec, "slug">;
 const BLANK: Definition = {
   role: "",
   goal: "",
-  color: "clay",
+  color: DEFAULT_AGENT_COLOR,
   instructions: "",
   tools: [],
   skills: [],
@@ -34,6 +35,27 @@ const BLANK: Definition = {
   // would promise enforcement the server cannot give.
   outputFormat: "text",
 };
+
+/**
+ * The colour fewest existing agents are wearing, earliest in the palette wins.
+ *
+ * Least-used rather than a counter: a counter drifts out of step the moment an
+ * agent is deleted, and after eight creations it starts handing out colours
+ * already on screen while unused ones sit there. This answers the question
+ * that actually matters — which colour is free — and degrades sensibly past
+ * eight agents by spreading the ninth onto whatever is rarest.
+ */
+function leastUsedColor(taken: (string | null | undefined)[]): string {
+  const counts = new Map<string, number>(AGENT_COLOR_NAMES.map((name) => [name, 0]));
+  for (const color of taken) {
+    if (color && counts.has(color)) counts.set(color, (counts.get(color) ?? 0) + 1);
+  }
+  let best = DEFAULT_AGENT_COLOR;
+  for (const name of AGENT_COLOR_NAMES) {
+    if ((counts.get(name) ?? 0) < (counts.get(best) ?? 0)) best = name;
+  }
+  return best;
+}
 
 /**
  * The agent being edited: what is on screen, and whether it differs from disk.
@@ -68,7 +90,30 @@ export function useAgentDraft({
       setSpec(BLANK);
       setBaseline(BLANK);
       setLoading(false);
-      return;
+      // A fresh agent opens on a colour the others are not using. The mark is
+      // how an agent is recognised at a glance — on its card, beside every
+      // answer it writes, at the head of its step trail — so two agents in the
+      // same colour costs exactly what the colour was for. Every new agent
+      // defaulting to clay guaranteed that for anyone who never opened the
+      // swatches.
+      //
+      // Both spec and baseline, so the rotation does not register as an edit
+      // the reader did not make.
+      let live = true;
+      fetchAgents()
+        .then((agents) => {
+          if (!live) return;
+          const color = leastUsedColor(agents.map((a) => a.color));
+          setSpec((s) => ({ ...s, color }));
+          setBaseline((b) => ({ ...b, color }));
+        })
+        .catch(() => {
+          // The palette's first colour is a fine answer, and a new agent must
+          // not fail to open because the list could not be read.
+        });
+      return () => {
+        live = false;
+      };
     }
     let live = true;
     setLoading(true);
