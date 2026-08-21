@@ -1,4 +1,4 @@
-# Eleven defects found by building on gitagent — the teaching record
+# Thirteen defects found by building on gitagent — the teaching record
 
 Written 2026-08-21. This is the consolidated, citable list of what broke while
 building Badger on the framework and the OpenGap spec, with the proof for each
@@ -328,6 +328,89 @@ with staged human changes.
 soft-resets commits it does not recognise, aborting if it sees an unfamiliar one.
 
 ---
+
+## Scheduling and workflows
+
+Both found on 2026-08-21 while building Badger's scheduler. They are the same
+shape as finding 5 in `docs/UPSTREAM.md` — specified, schema'd, exported, and
+in one case never called by anything.
+
+### 12. `workflows/` is a schema and a prompt paragraph, not an engine
+
+**What the spec promises.** `workflow.schema.json` gives a workflow `steps`,
+`depends_on`, `${{ steps.x.outputs.y }}` expressions, conditions and
+`error_handling.escalation_target`, and
+`examples/full/workflows/regulatory-review.yaml` reads like an orchestration
+engine — multi-step, dependency-ordered, with escalation.
+
+**What the runtime does.** `dist/workflows.js` is 134 lines. It lists the
+files and injects a block into the system prompt:
+
+```js
+// dist/workflows.js:133
+return `# Workflows\n\n<available_workflows>\n${entries}\n</available_workflows>\n\n
+Use the \`read\` tool to load a workflow's full definition when you need to follow it.`
+```
+
+There is no step runner, no dependency resolution and no expression
+evaluation anywhere in `dist/`. `loadFlowDefinition` and `saveFlowDefinition`
+are exported from the package root and have **zero callers** — the only
+mentions in the whole of `dist/` are their own definitions and the export
+line. The prompt block also advertises a trigger that nothing implements:
+
+```js
+// dist/workflows.js:125
+`SkillFlows can be triggered with @flow_name in chat (e.g. ${...})`
+```
+
+Grepping `dist/` for anything that parses an `@name` out of a prompt returns
+nothing. So the model is told a mechanism exists, and if it uses it the text
+goes to the model as an ordinary sentence.
+
+**Why it matters more than it sounds.** A workflow is therefore exactly what a
+skill already is — a markdown procedure the model may choose to read — while
+looking, in the spec and the examples, like a guarantee about execution order.
+That is the confidently-wrong-indicator trap: a reader who writes
+`depends_on` believes something enforces it.
+
+**Fix.** Either implement the engine or shrink the schema to what the runtime
+honours (`name`, `description`, prose) and drop the `@flow_name` sentence.
+Until then, `validate` should warn on any workflow key the runtime ignores.
+
+**Badger's decision.** Not built on. Badger's scheduler drives the agent
+directly and its procedures stay in `skills/`, which is the same mechanism
+without the promise.
+
+### 13. The scheduler is complete, exported, and started by nothing
+
+`dist/schedules.js` and `dist/schedule-runner.js` are real and work — a
+schedule is `schedules/<id>.yaml`, `executeScheduledJob` dedupes, logs to
+JSONL and stamps `lastRunAt` back into the file. Both are exported from the
+package root.
+
+**Nothing in the runtime ever calls `startScheduler`.** Grepping all of
+`dist/` returns three lines: the export, the definition, and `reloadSchedules`
+calling it. Neither the CLI nor the bundled web UI starts it. So an agent
+directory can contain a perfectly valid schedule that never fires, with
+nothing anywhere reporting that.
+
+**Two smaller things inside it.** The model is cron-only with no extension
+point, and there is no cron for "every 3 days" — a step of 3 on the day field
+restarts at each month boundary. And **any key not on the fixed list is
+silently dropped, on read and on write**: `discoverSchedules` and
+`saveSchedule` both build a fresh object from the same nine keys, so a field
+added to the YAML disappears the next time anything saves.
+
+**Fix.** Start the scheduler when the runtime is long-lived, or document
+plainly that scheduling is a library for embedders. Preserve unknown keys, or
+say that the file is owned by the runtime.
+
+**Badger's decision.** Used as intended — as a library. Badger is the embedder:
+`app/server/scheduler.mjs` calls `executeScheduledJob` with its own
+`runPrompt`, triggered by one Cloud Scheduler job rather than an in-process
+cron, because Cloud Run scales to zero and an in-process cron would never
+fire. The dropped-key behaviour is why `writeSchedule` carries `lastRunAt` and
+`lastResult` through every save by hand, with a test pinning it.
 
 ## Build-time proposals (not defects — gaps in the guidance)
 

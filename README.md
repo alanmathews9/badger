@@ -267,6 +267,45 @@ implemented by the consumer because the runtime ships no router. Sub-agents
 learn and commit on the same branch as Badger; see finding 4 above for why the
 other composition mechanisms could not be used.
 
+### Schedules: a sub-agent asking itself a question, with nobody watching
+
+Give a sub-agent an interval and a question and it runs on its own. Every run
+is kept, and clicking one opens the same answer, step trail and citations the
+Playground would have shown — so an unverified citation or a refusal is
+exactly as visible in an unattended run as in a conversation.
+
+**This is the framework's own scheduler, used as a library.** `dist/schedules.js`
+and `dist/schedule-runner.js` are real and complete: a schedule is
+`agents/<slug>/schedules/<id>.yaml`, and `executeScheduledJob` dedupes, logs,
+and stamps the last run back into the file. Unlike the git case, there was a
+mechanism, so Badger did not write a lookalike — it supplies the `runPrompt`
+callback and lets the runtime do the rest.
+
+**Nothing in the runtime starts it, though.** `startScheduler` has no caller
+anywhere in `dist/` — it is a library for embedders, and Badger is the
+embedder. That matters here for a hosting reason: Cloud Run runs with no
+`min-instances` and scales to zero, so an in-process cron would sit in a
+process that is not running when it is meant to fire. One Cloud Scheduler job
+posts to `/api/schedules/tick` every fifteen minutes instead — created once and
+never changed, whatever schedules exist, so a schedule lives in a file and
+nowhere else. Per-schedule cloud jobs would have needed a credential that
+writes to our own infrastructure, granted to a service account whose entire
+story is that it only reads.
+
+**The interval dropdown is bent to cron on purpose.** The runtime's schedule is
+cron-only and drops any key it does not recognise, so rather than fork the file
+format the UI offers only intervals cron can express faithfully. "Every 3 days"
+is missing because cron cannot say it: a step of 3 on the day field restarts at
+each month boundary and would fire on the 1st, 4th, 7th and then the 1st again.
+
+Every schedule is anchored to the next quarter hour, and **the times are India
+Standard Time everywhere, stated on screen.** A schedule belongs to the agent
+rather than to the browser that created it — it fires while nobody is signed in
+— so one named zone costs a reader elsewhere one conversion and costs nobody a
+wrong answer. The anchor is what lets the dialog promise "First run at 4:45 PM"
+and be right; a test pins that promise for every interval offered, and it
+caught two generated crons that would have fired two hours and one month late.
+
 ### The rest of the framework surface — used or declined, never silent
 
 Badger uses more of GAP than the tree above shows. `memory/` is live, and it is the
@@ -979,7 +1018,7 @@ SOUL.md  RULES.md       who Badger is, and what it must never do
 DUTIES.md               read-only stated as a role policy CI can check
 skills/                 four procedures by task, plus whatever it learns
 tools/*.yaml            ten tools; scripts in tools/scripts/
-agents/                 sub-agents, each with its own tools and skills
+agents/                 sub-agents, each with its own tools, skills and schedule
 hooks/allowed-tools.txt the allowlist, and the single source of truth for it
 compliance/             the risk assessment, control map and review schedule
 .github/workflows/      opengap validate on every push
@@ -996,10 +1035,12 @@ published repositories plus the formal spec.
 [`docs/NOTES.md`](docs/NOTES.md) records what the *installed runtime* does,
 which has differed from the published documentation every single time it has
 mattered. [`docs/UPSTREAM.md`](docs/UPSTREAM.md) is where that difference
-became reproducible: two defects in the reference implementation, each with a
-minimal repro built from a clean two-file agent. Both are working notes rather than prose — they are the evidence
-behind the decisions on this page, kept because the reasoning is worth more
-than the conclusions.
+became reproducible: defects in the reference implementation, each with a
+minimal repro built from a clean two-file agent, and
+[`docs/FRAMEWORK-DEFECTS.md`](docs/FRAMEWORK-DEFECTS.md) is the consolidated
+list of thirteen, every line number re-read out of the installed `dist/`. All three are working notes rather than prose — they
+are the evidence behind the decisions on this page, kept because the reasoning
+is worth more than the conclusions.
 
 ---
 
@@ -1007,6 +1048,12 @@ than the conclusions.
 
 Stated here rather than left to be discovered:
 
+- **Schedules run no faster than every fifteen minutes**, and the interval
+  list is closed to what cron can express faithfully. The trigger is one Cloud
+  Scheduler job on a quarter-hour heartbeat, so a schedule fires on the first
+  tick at or after its slot rather than to the second.
+- **A missed window fires once, not once per slot missed.** A redeploy or a
+  cold start does not queue up four stale digests; you get the current answer.
 - **No semantic search.** The index buys typo tolerance and real BM25, but
   embeddings are deferred (see above) — "holiday" does not find "leave
   policy" on the search path; the agent covers that gap by rephrasing.

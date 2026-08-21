@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronRight, Hammer, MoreHorizontal, Play, Trash2 } from "lucide-react";
+import { ChevronRight, Clock, Hammer, ListChecks, MoreHorizontal, Play, Trash2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { AgentForm, useAgentDraft } from "@/components/agents/AgentPane";
+import { ScheduleModal } from "@/components/agents/ScheduleModal";
+import { ExecutionsScreen } from "@/screens/ExecutionsScreen";
 import { ChatScreen, type ChatTurn } from "@/screens/ChatScreen";
+import { fetchSchedule, type Schedule } from "@/lib/schedules";
 import type { ChatSummary } from "@/lib/history";
 
 /** What a name may be, applied while typing so "Support Badger" lands as a slug. */
@@ -45,13 +48,16 @@ export function AgentScreen({
   slug,
   cloneFrom,
   tab = "build",
+  runId,
   playground,
 }: {
   /** The agent being shown. Absent is the new-agent page. */
   slug?: string;
   /** Start from another agent's definition. New agents only. */
   cloneFrom?: string;
-  tab?: "build" | "play";
+  tab?: "build" | "play" | "executions";
+  /** Set on /agents/:slug/executions/:id — one run, in full. */
+  runId?: string;
   playground?: PlaygroundProps;
 }) {
   const navigate = useNavigate();
@@ -74,6 +80,22 @@ export function AgentScreen({
 
   const draft = useAgentDraft({ slug, cloneFrom, name });
   const [confirming, setConfirming] = useState(false);
+
+  // The schedule is read once at the page level rather than inside the modal
+  // and again inside Executions: both need it, and two fetches would give two
+  // answers the moment one of them saved.
+  const [schedule, setSchedule] = useState<Schedule | null>(null);
+  const [scheduling, setScheduling] = useState(false);
+  useEffect(() => {
+    if (!slug) return;
+    let live = true;
+    fetchSchedule(slug)
+      .then((r) => live && setSchedule(r.schedule))
+      .catch(() => live && setSchedule(null));
+    return () => {
+      live = false;
+    };
+  }, [slug]);
 
   const save = async () => {
     const saved = await draft.save();
@@ -139,10 +161,32 @@ export function AgentScreen({
             <Tab to={`/agents/${slug}/play`} active={tab === "play"} icon={<Play className="size-3.5" strokeWidth={2} />}>
               Playground
             </Tab>
+            <Tab
+              to={`/agents/${slug}/executions`}
+              active={tab === "executions"}
+              icon={<ListChecks className="size-3.5" strokeWidth={2} />}
+            >
+              Executions
+            </Tab>
           </nav>
         )}
 
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {/* Beside the tabs rather than inside one of them: a schedule is a
+              property of the agent, and it is set from Build, watched from
+              Executions and unrelated to the Playground. A dot when one is
+              live, because "does this thing run on its own" is the question
+              the header should answer without being opened. */}
+          {!isNew && (
+            <button
+              onClick={() => setScheduling(true)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] text-stone-500 hover:bg-stone-100 hover:text-stone-900"
+            >
+              <Clock className="size-3.5" strokeWidth={2} />
+              Schedule
+              {schedule?.enabled && <span className="size-1.5 rounded-full bg-emerald-500" />}
+            </button>
+          )}
           {!isNew && <HeaderMenu onDelete={() => setConfirming(true)} />}
           {tab === "build" && (
             <button
@@ -162,7 +206,15 @@ export function AgentScreen({
         </p>
       )}
 
-      {tab === "play" && playground ? (
+      {tab === "executions" && slug ? (
+        <ExecutionsScreen
+          agent={slug}
+          schedule={schedule}
+          runId={runId}
+          agentColor={draft.spec.color}
+          onSchedule={() => setScheduling(true)}
+        />
+      ) : tab === "play" && playground ? (
         <div className="min-h-0 flex-1">
           <ChatScreen
             fill
@@ -187,6 +239,15 @@ export function AgentScreen({
         </div>
       ) : (
         <AgentForm draft={draft} />
+      )}
+
+      {scheduling && slug && (
+        <ScheduleModal
+          agent={slug}
+          schedule={schedule}
+          onChange={setSchedule}
+          onClose={() => setScheduling(false)}
+        />
       )}
 
       {confirming && (

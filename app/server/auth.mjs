@@ -42,6 +42,28 @@ export function passphraseMatches(candidate) {
   return sameSecret(candidate ?? "", PASSPHRASE);
 }
 
+// The scheduler's own credential. Cloud Scheduler cannot hold a session
+// cookie, so POST /api/schedules/tick sits outside the gate and carries this
+// in a header instead. A separate secret from the passphrase on purpose: this
+// one is machine-to-machine and is never typed by a person, so it can be long
+// and rotated without anybody being told.
+const TICK_SECRET = process.env.BADGER_TICK_SECRET ?? "";
+
+/**
+ * Whether the tick endpoint will answer at all.
+ *
+ * Fails CLOSED. With no secret configured the endpoint refuses every request
+ * rather than accepting any, because the alternative — an open endpoint that
+ * spends the answer budget — is exactly what the secret is protecting.
+ */
+export const tickEnabled = TICK_SECRET.length > 0;
+
+/** Does this request carry the tick secret? Same constant-time compare. */
+export function tickTokenMatches(candidate) {
+  if (!tickEnabled) return false;
+  return sameSecret(candidate ?? "", TICK_SECRET);
+}
+
 /**
  * `<uid>.<expiry>.<hmac>` — stateless, tamper-evident, and it expires.
  *

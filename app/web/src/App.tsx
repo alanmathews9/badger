@@ -506,6 +506,17 @@ export default function App() {
             path="/agents/:slug/play/:id"
             element={<AgentRoute tab="play" {...playgroundProps} />}
           />
+          {/* The same `:id` param as /play/:id, and AgentRoute decides which
+              it is from the tab. Two params would let a stale one reach the
+              wrong panel. */}
+          <Route
+            path="/agents/:slug/executions"
+            element={<AgentRoute tab="executions" {...playgroundProps} />}
+          />
+          <Route
+            path="/agents/:slug/executions/:id"
+            element={<AgentRoute tab="executions" {...playgroundProps} />}
+          />
           <Route path="/tools" element={<ToolsScreen sources={sources} />} />
           {/* An unknown path is a typo or a stale link, not an error worth a
               page of its own. */}
@@ -692,7 +703,7 @@ function AgentRoute({
   onStop,
   onLoadChats,
 }: {
-  tab: "build" | "play";
+  tab: "build" | "play" | "executions";
   turns: ChatTurn[];
   chats: ChatSummary[];
   loading: boolean;
@@ -722,6 +733,7 @@ function AgentRoute({
     <AgentScreen
       slug={slug}
       tab={tab}
+      runId={tab === "executions" ? id : undefined}
       playground={{
         turns,
         chats,

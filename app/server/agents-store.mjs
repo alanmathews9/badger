@@ -40,9 +40,11 @@ const MODEL = "google-vertex:gemini-2.5-flash";
  *
  * The regex is the whole path-traversal defence: no dot, no slash, no
  * backslash, so "../../etc" fails before `join` is reached. Here rather than
- * at the route, so a second caller cannot forget.
+ * at the route, so a second caller cannot forget — and exported so that
+ * schedules-store, which joins the same slug onto the same tree, shares this
+ * one guard instead of carrying a second copy of the regex.
  */
-function agentDir(agentsDir, slug) {
+export function agentDir(agentsDir, slug) {
   const name = String(slug ?? "");
   if (!SLUG.test(name) || name.length > 40) throw new Error("not a valid agent name");
   return join(agentsDir, name);

@@ -457,13 +457,16 @@ export function openAgentRepo(root) {
      * and leaves the product working for this instance rather than failing the
      * request.
      *
-     * @param {"agent"|"skill"} what
+     * @param {"agent"|"skill"|"schedule"} what
      * @param {"create"|"update"|"delete"} action
      * @param {string} slug
      */
     async saveEdit(what, action, slug) {
       const name = String(slug ?? "").replace(/[^a-z0-9-]/gi, "") || "unknown";
-      const kind = what === "agent" ? "agent" : "skill";
+      // A fixed vocabulary, not the caller's string: the message is written
+      // into a public repository by a web request, so what a route passes is
+      // mapped onto one of these rather than interpolated.
+      const kind = ["agent", "schedule"].includes(what) ? what : "skill";
       const verb = ["create", "update", "delete"].includes(action) ? action : "change";
       const message = `ui: ${verb} ${kind} ${name}`;
       if (!(await commitTree(template, message, `the ${kind} just ${verb}d`))) return false;

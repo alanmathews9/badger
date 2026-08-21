@@ -202,6 +202,16 @@ test("saveEdit composes its own message and never lets caller text into argv", a
     writeFileSync(join(template, "note.md"), "y\n");
     await repo.saveEdit("agent", "$(whoami)", "eng-badger");
     assert.equal(log(template, "%s"), "ui: change agent eng-badger");
+
+    writeFileSync(join(template, "note.md"), "z\n");
+    await repo.saveEdit("schedule", "create", "hr-badger");
+    assert.equal(log(template, "%s"), "ui: create schedule hr-badger");
+
+    // A kind nobody here passes falls back to "skill" rather than reaching
+    // the message, so the vocabulary really is closed.
+    writeFileSync(join(template, "note.md"), "w\n");
+    await repo.saveEdit("`id`", "update", "hr-badger");
+    assert.equal(log(template, "%s"), "ui: update skill hr-badger");
   } finally {
     restore();
   }
