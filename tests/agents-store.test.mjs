@@ -12,6 +12,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import yaml from "js-yaml";
 import {
   listAgents,
   readAgent,
@@ -473,4 +474,42 @@ test("the tool catalog is the root tools directory, by name", () => {
   assert.equal(catalog.find((t) => t.name === "gmail_search").file, "gmail-search.yaml");
   assert.match(catalog.find((t) => t.name === "gmail_search").description, /Search the mailbox/);
   assert.deepEqual(listToolCatalog(join(root, "nowhere")), []);
+});
+
+test("a manifest that arrived with two agents: blocks is repaired by the next save", () => {
+  // The failure this fixes: a sub-agent created on a clone whose branch did
+  // not yet carry main's own block wrote a second block further down the file,
+  // git merged both without a conflict because the edits are 150 lines apart,
+  // and YAML refuses a duplicated key. The agent then failed to load at all —
+  // every question came back in half a second with no steps and no answer.
+  const root = scratchRoot();
+  const agents = join(root, "agents");
+  const file = join(root, "agent.yaml");
+  const before = readFileSync(file, "utf8");
+  writeFileSync(
+    file,
+    `agents:\n  eng-badger:\n    description: "From GitHub."\n\n${before}agents:\n  hr-badger:\n    description: "Policy."\n`,
+  );
+  assert.throws(() => yaml.load(readFileSync(file, "utf8")), /duplicated mapping key/);
+
+  createAgent(agents, spec({ slug: "support-badger", goal: "Support." }), { rootDir: root });
+
+  const text = readFileSync(file, "utf8");
+  assert.equal(text.split("\n").filter((line) => line === "agents:").length, 1);
+  assert.deepEqual(Object.keys(yaml.load(text).agents), ["eng-badger", "hr-badger", "support-badger"]);
+});
+
+test("a manifest edit that would not parse is refused rather than written", () => {
+  const root = scratchRoot();
+  const agents = join(root, "agents");
+  const file = join(root, "agent.yaml");
+  // A goal is JSON.stringify'd into the entry, so no ordinary field can break
+  // the file. What can is a manifest that is already broken somewhere else —
+  // this asserts the guard fires on the RESULT rather than on the input.
+  writeFileSync(file, `${readFileSync(file, "utf8")}\nname: twice\nname: twice\n`);
+  assert.throws(
+    () => createAgent(agents, spec(), { rootDir: root }),
+    /no longer parses/,
+  );
+  assert.match(readFileSync(file, "utf8"), /name: twice\nname: twice/);
 });
