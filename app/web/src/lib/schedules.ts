@@ -63,7 +63,16 @@ export function fetchSchedule(agent: string) {
   return send<{ schedule: Schedule | null; timezone: string }>(`/api/agents/${agent}/schedule`);
 }
 
-export function saveSchedule(agent: string, spec: { prompt: string; every: number; unit: Unit; enabled?: boolean }) {
+/**
+ * Create or replace it. The caller supplies EITHER an interval or a raw cron:
+ * the interval is what the dropdown produces, the cron is the escape hatch for
+ * a shape the dropdown cannot express. Both are validated on the server, so a
+ * cron that could never fire is refused there rather than saved.
+ */
+export function saveSchedule(
+  agent: string,
+  spec: { prompt: string; enabled?: boolean } & ({ every: number; unit: Unit } | { cron: string }),
+) {
   return send<{ schedule: Schedule; timezone: string }>(`/api/agents/${agent}/schedule`, {
     method: "PUT",
     headers: { "content-type": "application/json" },

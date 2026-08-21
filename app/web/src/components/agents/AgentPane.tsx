@@ -13,6 +13,7 @@ import {
 } from "@/lib/ask";
 import { AGENT_COLOR_NAMES, AgentMark, agentColorClass } from "./icons";
 import { cn } from "@/lib/utils";
+import { useDismiss } from "@/lib/useDismiss";
 
 /** The one model every agent runs on. Shown, not chosen. */
 const MODEL = "google-vertex:gemini-2.5-flash";
@@ -267,28 +268,6 @@ export function AgentForm({ draft }: { draft: AgentDraft }) {
   );
 }
 
-/** Close on a click elsewhere and on Escape. Shared by both pickers below. */
-function useDismiss(open: boolean, close: () => void) {
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!box.current?.contains(e.target as Node)) close();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.stopPropagation();
-      close();
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey, true);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey, true);
-    };
-  }, [open, close]);
-  return box;
-}
 
 /** The agent's mark, and a row of colours to change it. */
 function ColorPicker({ value, onPick }: { value: string; onPick: (name: string) => void }) {

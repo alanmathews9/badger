@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronRight, Clock, Hammer, ListChecks, MoreHorizontal, Play, Trash2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { AgentForm, useAgentDraft } from "@/components/agents/AgentPane";
-import { ScheduleModal } from "@/components/agents/ScheduleModal";
+import { SchedulePane } from "@/components/agents/SchedulePane";
 import { ExecutionsScreen } from "@/screens/ExecutionsScreen";
 import { ChatScreen, type ChatTurn } from "@/screens/ChatScreen";
 import { fetchSchedule, type Schedule } from "@/lib/schedules";
@@ -172,22 +172,27 @@ export function AgentScreen({
         )}
 
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          {/* Beside the tabs rather than inside one of them: a schedule is a
-              property of the agent, and it is set from Build, watched from
-              Executions and unrelated to the Playground. A dot when one is
-              live, because "does this thing run on its own" is the question
-              the header should answer without being opened. */}
+          {/* Order matters here: the ⋯ holds the destructive action, so it
+              sits furthest from Save changes rather than between Schedule and
+              it. Schedule is bordered because it is a real action on the agent
+              and a borderless one beside a filled button read as a label.
+
+              Beside the tabs rather than inside one of them: a schedule is a
+              property of the agent — set from Build, watched from Executions,
+              unrelated to the Playground. A dot when one is live, because
+              "does this thing run on its own" is the question the header
+              should answer without being opened. */}
+          {!isNew && <HeaderMenu onDelete={() => setConfirming(true)} />}
           {!isNew && (
             <button
               onClick={() => setScheduling(true)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] text-stone-500 hover:bg-stone-100 hover:text-stone-900"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-stone-200 px-2.5 text-[12.5px] text-stone-600 hover:border-stone-300 hover:bg-stone-50 hover:text-stone-900"
             >
               <Clock className="size-3.5" strokeWidth={2} />
               Schedule
               {schedule?.enabled && <span className="size-1.5 rounded-full bg-emerald-500" />}
             </button>
           )}
-          {!isNew && <HeaderMenu onDelete={() => setConfirming(true)} />}
           {tab === "build" && (
             <button
               onClick={save}
@@ -242,7 +247,7 @@ export function AgentScreen({
       )}
 
       {scheduling && slug && (
-        <ScheduleModal
+        <SchedulePane
           agent={slug}
           schedule={schedule}
           onChange={setSchedule}

@@ -157,6 +157,38 @@ test("there is exactly one schedule per agent, however many times it is saved", 
   assert.equal(all[0].prompt, "Two");
 });
 
+test("a hand-written cron is stored as written, with no anchoring", async () => {
+  const dir = scratch();
+  const saved = await writeSchedule(dir, "hr-badger", { prompt: "Monday standup", cron: "0 9 * * 1" }, { now: NOW });
+  assert.equal(saved.cron, "0 9 * * 1");
+  // Not one of ours, so it is shown as itself rather than as an interval it
+  // is not — and the editor knows to open on the cron side.
+  assert.equal(saved.interval, null);
+  assert.equal(saved.label, "0 9 * * 1");
+  assert.ok(saved.nextRunAt);
+});
+
+test("a cron that would never fire is refused where the file is written", async () => {
+  const dir = scratch();
+  await assert.rejects(
+    () => writeSchedule(dir, "hr-badger", { prompt: "x", cron: "7 * * * *" }),
+    /every 15 minutes/,
+  );
+  await assert.rejects(
+    () => writeSchedule(dir, "hr-badger", { prompt: "x", cron: "not a cron" }),
+    /five fields/,
+  );
+  assert.equal(await readSchedule(dir, "hr-badger"), null);
+});
+
+test("switching from a cron back to an interval re-anchors", async () => {
+  const dir = scratch();
+  await writeSchedule(dir, "hr-badger", { prompt: "One", cron: "0 9 * * 1" }, { now: NOW });
+  const back = await writeSchedule(dir, "hr-badger", { prompt: "One", every: 1, unit: "days" }, { now: NOW });
+  assert.equal(back.cron, "45 16 * * *");
+  assert.deepEqual(back.interval, { every: 1, unit: "days" });
+});
+
 test("delete removes the directory, so nothing empty is committed", async () => {
   const dir = scratch();
   await writeSchedule(dir, "hr-badger", { prompt: "One", every: 15, unit: "minutes" }, { now: NOW });

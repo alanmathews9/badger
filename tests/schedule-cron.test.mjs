@@ -8,11 +8,12 @@
 // Every expected time is written as a UTC instant with the IST wall clock it
 // corresponds to in the comment beside it, because the whole point of the
 // module is that those two are different and only one of them is displayed.
-import { deepStrictEqual, ok, strictEqual, throws } from "node:assert/strict";
+import { deepStrictEqual, match, ok, strictEqual, throws } from "node:assert/strict";
 import { test } from "node:test";
 import {
   INTERVALS,
   cronFor,
+  cronProblem,
   describeInterval,
   intervalFor,
   isDue,
@@ -178,6 +179,28 @@ test("a monthly schedule anchored to the 31st skips February rather than lying",
     nextRunAt(cron, new Date(anchor.getTime() + 1000))?.toISOString(),
     "2026-03-31T11:15:00.000Z",
   );
+});
+
+test("a hand-written cron is checked for shape and for range", () => {
+  strictEqual(cronProblem("0 9 * * 1"), null);
+  strictEqual(cronProblem("*/15 * * * *"), null);
+  match(cronProblem("nonsense"), /five fields/);
+  match(cronProblem("*/15 * * *"), /five fields/);
+  match(cronProblem("60 * * * *"), /minute does not accept/);
+  match(cronProblem("0 24 * * *"), /hour does not accept/);
+  match(cronProblem("0 9 32 * *"), /day of month does not accept/);
+  match(cronProblem(""), /required/);
+});
+
+test("a cron that can never land on the 15-minute grid is refused", () => {
+  // THE check worth having, and the one a cron reference will not warn about.
+  // The tick runs every 15 minutes, so `7 * * * *` is syntactically perfect
+  // and fires never — which on screen is indistinguishable from nobody having
+  // scheduled anything at all.
+  match(cronProblem("7 * * * *"), /every 15 minutes/);
+  match(cronProblem("1-14 * * * *"), /every 15 minutes/);
+  // …while a minute field that includes one of the four marks is fine.
+  strictEqual(cronProblem("0,7 * * * *"), null);
 });
 
 test("the interval reads the way it is said out loud", () => {

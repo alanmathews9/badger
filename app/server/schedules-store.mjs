@@ -19,7 +19,7 @@ import { discoverSchedules, saveSchedule, deleteSchedule } from "@open-gitagent/
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { agentDir } from "./agents-store.mjs";
-import { cronFor, describeInterval, intervalFor, isDue, nextRunAt, nextSlot } from "./schedule-cron.mjs";
+import { cronFor, cronProblem, describeInterval, intervalFor, isDue, nextRunAt, nextSlot } from "./schedule-cron.mjs";
 
 /**
  * The one schedule's id. Kebab-case because `saveSchedule` insists (it throws
@@ -95,7 +95,12 @@ export async function dueSchedules(agentsDir, slugs, now = new Date()) {
  * prompt or the enabled flag does: editing the wording of a question should
  * not silently move when it runs.
  *
- * @param {{prompt:string, every:number, unit:string, enabled?:boolean}} spec
+ * A caller supplies EITHER an interval or a raw `cron`. The interval is the
+ * ordinary path and the one the dropdown produces; the cron is the escape
+ * hatch for a shape the dropdown cannot express ("9am every Monday"), and it
+ * is stored exactly as written — there is nothing to anchor.
+ *
+ * @param {{prompt:string, every?:number, unit?:string, cron?:string, enabled?:boolean}} spec
  */
 export async function writeSchedule(agentsDir, slug, spec, { now = new Date() } = {}) {
   const dir = existingAgentDir(agentsDir, slug);
@@ -103,16 +108,8 @@ export async function writeSchedule(agentsDir, slug, spec, { now = new Date() } 
   if (!prompt) throw new Error("a schedule needs a question to ask");
   if (prompt.length > MAX_PROMPT) throw new Error("that question is too long to schedule");
 
-  const every = Number(spec?.every);
-  const unit = String(spec?.unit ?? "");
   const existing = (await discoverSchedules(dir))[0] ?? null;
-  const was = existing ? intervalFor(existing.cron) : null;
-  const changed = !was || was.every !== every || was.unit !== unit;
-
-  // cronFor throws on an interval the dropdown does not offer, which is the
-  // whole validation: a request naming "every 5 minutes" is refused here
-  // rather than saved as a cron the matcher would honour.
-  const cron = changed ? cronFor(nextSlot(now), { every, unit }) : existing.cron;
+  const cron = spec?.cron ? literalCron(spec.cron) : intervalCron(spec, existing, now);
 
   await saveSchedule(dir, {
     id: SCHEDULE_ID,
@@ -150,6 +147,38 @@ export async function removeSchedule(agentsDir, slug) {
     // Non-fatal.
   }
   return true;
+}
+
+/**
+ * A cron the caller wrote, checked before it is written.
+ *
+ * `cronProblem` also refuses one that can never land on the 15-minute grid the
+ * tick walks — syntactically perfect and never firing is the worst outcome
+ * available here, because it looks identical to nobody having scheduled
+ * anything.
+ */
+function literalCron(cron) {
+  const problem = cronProblem(cron);
+  if (problem) throw new Error(problem);
+  return String(cron).trim();
+}
+
+/**
+ * The cron for one of the offered intervals, anchored.
+ *
+ * Re-anchored only when the interval actually changed. Editing the wording of
+ * a question should not silently move when it runs.
+ *
+ * `cronFor` throws on an interval the dropdown does not offer, and that is the
+ * whole validation — a request naming "every 5 minutes" is refused where the
+ * file is written rather than only in the browser.
+ */
+function intervalCron(spec, existing, now) {
+  const every = Number(spec?.every);
+  const unit = String(spec?.unit ?? "");
+  const was = existing ? intervalFor(existing.cron) : null;
+  if (was && was.every === every && was.unit === unit) return existing.cron;
+  return cronFor(nextSlot(now), { every, unit });
 }
 
 /** The stored schedule plus what is derived from it, which is what the UI reads. */

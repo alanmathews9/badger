@@ -210,6 +210,64 @@ function fieldMatches(field, value) {
   return false;
 }
 
+/** What each cron field is allowed to hold, in order. */
+const RANGES = [
+  { name: "minute", lo: 0, hi: 59 },
+  { name: "hour", lo: 0, hi: 23 },
+  { name: "day of month", lo: 1, hi: 31 },
+  { name: "month", lo: 1, hi: 12 },
+  { name: "day of week", lo: 0, hi: 6 },
+];
+
+/** Is one term of one field a shape we understand, and in range? */
+function termValid(term, { lo, hi }) {
+  if (term === "*") return true;
+  const step = /^(\*|\d+-\d+)\/(\d+)$/.exec(term);
+  if (step) {
+    if (Number(step[2]) < 1) return false;
+    if (step[1] === "*") return true;
+    const [a, b] = step[1].split("-").map(Number);
+    return a >= lo && b <= hi && a <= b;
+  }
+  const range = /^(\d+)-(\d+)$/.exec(term);
+  if (range) {
+    const [a, b] = [Number(range[1]), Number(range[2])];
+    return a >= lo && b <= hi && a <= b;
+  }
+  if (!/^\d+$/.test(term)) return false;
+  return Number(term) >= lo && Number(term) <= hi;
+}
+
+/**
+ * Why this cron cannot be used, or null if it can.
+ *
+ * The second check is the one that matters and the one a cron reference will
+ * not tell you about: **the tick only runs every 15 minutes**, so a cron whose
+ * minute field can never be 0, 15, 30 or 45 is syntactically perfect and will
+ * never fire. `7 * * * *` is the obvious one. Refusing it here is the
+ * difference between a clear message now and an Executions tab that stays
+ * empty forever while looking exactly like one nobody has scheduled.
+ */
+export function cronProblem(cron) {
+  const text = String(cron ?? "").trim();
+  if (!text) return "a cron expression is required";
+  const parts = text.split(/\s+/);
+  if (parts.length !== 5) return "a cron expression has five fields: minute hour day month weekday";
+
+  for (const [i, field] of parts.entries()) {
+    for (const term of field.split(",")) {
+      if (!termValid(term, RANGES[i])) {
+        return `${RANGES[i].name} does not accept "${term}"`;
+      }
+    }
+  }
+
+  if (!nextRunAt(text)) {
+    return "that never comes round. Runs are checked every 15 minutes, so the minute field has to allow 0, 15, 30 or 45";
+  }
+  return null;
+}
+
 /** Does this cron fire at this moment, read in IST? */
 export function matchesAt(cron, date) {
   const parts = String(cron ?? "").trim().split(/\s+/);
