@@ -196,7 +196,7 @@ stops applying to half the query, and Drive has no bare keywords at all, only
 ## Built on GAP: the agent *is* the repository
 
 ```
-agent.yaml  SOUL.md  RULES.md  skills/  tools/  hooks/  memory/
+agent.yaml  SOUL.md  RULES.md  skills/  tools/  hooks/  memory/  agents/
                                               ← the agent. This IS the repo.
 app/server/  app/web/                         ← the product. A consumer.
 ```
@@ -229,6 +229,43 @@ Adding Gmail did not add a skill. It added tools, and changed what
 `trace-decision` has to do — its thesis used to be "files hold the official
 answer, threads hold the real one", and with three sources that became a
 procedure for crossing them.
+
+### Sub-agents: a narrower Badger, and the tool list is real
+
+`agents/` holds two sub-agents in the spec's directory form (§13), each a full
+agent folder with its own `agent.yaml`, `SOUL.md`, `RULES.md`, `DUTIES.md`,
+`tools/`, `skills/`, `hooks/` and `memory/`. `hr-badger` reads Drive and mail;
+`eng-badger` reads GitHub. You can create more through the **Agents**
+destination in the product, which writes the same files a person would.
+
+**A skill and a sub-agent are different things**, and the difference is what
+each one owns. A skill is a procedure Badger picks up mid-conversation with the
+same identity, the same tools and the same permissions. A sub-agent is a
+separate run with its own identity, its own turn budget, its own memory, and —
+the load-bearing part — **its own tool list**. `hr-badger` holds five Drive and
+Gmail tools, so it cannot read GitHub. Not "instructed not to": the tools are
+absent from the model's schema, which is the same enforcement as the read-only
+allowlist rather than a weaker one.
+
+    $ node -e "…loadDeclarativeTools('agents/hr-badger')"
+    ["drive_comments","drive_file","drive_search","gmail_search","gmail_thread"]
+
+Their tool YAMLs point `implementation.script` back at the shared
+implementations in the repository's own `tools/scripts/`, so one tool has one
+implementation across every agent that holds it. That also keeps the search
+index reachable: `_index.mjs` resolves the index relative to its own file, so
+copying the scripts per agent would have silently sent every sub-agent search
+to the live APIs instead.
+
+**Routing is the server's, not the model's.** The runtime's own delegation
+prompt tells the model to run `gitagent --dir …` through the `cli` tool — a
+shell Badger removed from the model's schema, because anyone can email the
+demo mailbox and a shell hands a stranger every secret in the container. So
+`app/server/server.mjs` calls `query({ dir: "agents/<slug>" })` itself when a
+question names an agent. That is the spec's `delegation.mode: router`,
+implemented by the consumer because the runtime ships no router. Sub-agents
+learn and commit on the same branch as Badger; see finding 4 above for why the
+other composition mechanisms could not be used.
 
 ### The rest of the framework surface — used or declined, never silent
 
@@ -285,7 +322,7 @@ Both run on every push (`.github/workflows/agent.yml`), and the build fails if
 
 Everything that is Badger's passes: `agent.yaml`, `SOUL.md`, `hooks/hooks.yaml`
 and the compliance configuration are all green. **The run still exits 1**, and
-the reasons are worth reading rather than hiding — they are two divergences
+the reasons are worth reading rather than hiding — they are divergences
 between the reference runtime and the published spec, written up with minimal
 reproductions in **[`docs/UPSTREAM.md`](docs/UPSTREAM.md)**:
 
@@ -308,6 +345,15 @@ reproductions in **[`docs/UPSTREAM.md`](docs/UPSTREAM.md)**:
    button has a stop button that lies, and it is the obvious thing to rest a
    `kill_switch` compliance claim on. Badger rests that claim on its daily
    answer ceiling instead.
+4. **Multi-agent composition is specified but not implemented.** `delegation`
+   and `a2a` appear in the manifest schema and in no runtime code at all;
+   `dependencies` clones sibling agents into `.gitagent/deps/` that nothing
+   ever reads, using a `git clone --branch` on what the schema documents as a
+   semver range, with the failure swallowed by `|| true`. The one composition
+   that runs is a nested `agents/<name>/` directory — and the runtime's own
+   delegation prompt tells the model to reach it by shelling out through
+   `cli`, so following the documented path and being safe against prompt
+   injection are mutually exclusive. Badger routes in its own server instead.
 
 **One warning class is ours, and it stays.** Badger's ten tools are named
 `github_search`, not `github-search`, and the spec asks for kebab-case
@@ -933,6 +979,7 @@ SOUL.md  RULES.md       who Badger is, and what it must never do
 DUTIES.md               read-only stated as a role policy CI can check
 skills/                 four procedures by task, plus whatever it learns
 tools/*.yaml            ten tools; scripts in tools/scripts/
+agents/                 sub-agents, each with its own tools and skills
 hooks/allowed-tools.txt the allowlist, and the single source of truth for it
 compliance/             the risk assessment, control map and review schedule
 .github/workflows/      opengap validate on every push

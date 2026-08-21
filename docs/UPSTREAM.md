@@ -331,8 +331,143 @@ call the agent's own `abort()`. The mechanism already exists one layer down.
 
 ---
 
-## 5. Smaller notes, recorded but not worth an issue
+## 5. Multi-agent composition is specified but not implemented
 
+**Severity: it decides an architecture.** Three of the spec's own composition
+mechanisms — `agents:` with `delegation`, `dependencies:`, and `a2a:` — either
+do nothing in runtime 2.1.0 or fail silently. A reader designing a multi-agent
+system from `SPECIFICATION.md` will pick a shape the runtime cannot run.
+
+### Reproduction
+
+`delegation` and `a2a` are in the schema and in nothing else:
+
+```
+$ node -e "const s=require('@open-gitagent/opengap/spec/schemas/agent-yaml.schema.json'); \
+  console.log(Object.keys(s.properties).join(' '))"
+spec_version name version description author license model extends dependencies
+skills tools agents delegation runtime a2a compliance registries tags
+mcp_servers metadata
+
+$ grep -rn 'delegation' dist/*.js
+dist/adapter.js:14:    // Agent delegation — THIS IS YOUR #1 BEHAVIOR RULE
+
+$ grep -rn 'a2a' dist/*.js
+$
+```
+
+The one `delegation` hit is a comment inside the voice adapter's prompt string,
+unrelated to sub-agents. `dist/agents.js` scans the `agents/` directory and
+reads only `name` and `description`; `delegation.mode` and
+`delegation.triggers` are never read by anything. So the auto-delegation
+declared in the standard's own §13 example, and in the reference agents
+published alongside it, fires nothing.
+
+`dependencies:` is worse, because it looks like it works:
+
+```
+$ grep -n 'depsDir' dist/loader.js
+96:    const depsDir = join(gitagentDir, "deps");
+97:    await mkdir(depsDir, { recursive: true });
+100:    const parentDir = join(depsDir, parentName);
+134:    const depsDir = join(gitagentDir, "deps");
+135:    await mkdir(depsDir, { recursive: true });
+137:        const depDir = join(depsDir, dep.name);
+```
+
+Every hit is inside the two functions that *write* `.gitagent/deps/`. Nothing
+reads it back: no skill, tool, hook or prompt is ever loaded from a cloned
+dependency. And the clone cannot succeed anyway —
+
+```js
+// dist/loader.js:139
+execSync(`git clone --depth 1 --branch "${dep.version}" "${dep.source}" "${depDir}" 2>/dev/null || true`)
+```
+
+`dep.version` is documented in the schema as *"Semver range (e.g., ^1.0.0,
+~2.3.0)"*, and `git clone --branch ^1.0.0` cannot resolve. The `|| true` and
+the `2>/dev/null` mean the failure is invisible. `dep.mount` is not read at
+all.
+
+`extends:` is the one that partly works: it clones the parent and deep-merges
+`agent.yaml`, then appends the parent's `RULES.md`. It does **not** inherit
+`SOUL.md`, `skills/`, `tools/` or `hooks/` — so an agent that extends another
+inherits its manifest and its rules, and none of its capabilities.
+
+### Why this one matters more than it looks
+
+"The agent is a git repo" invites one agent per repository, and the spec
+appears to offer two ways to compose those repositories — `dependencies` for
+siblings, `extends` for inheritance. Neither carries capability. The only
+composition that actually runs is the nested `agents/<name>/` directory, which
+is the shape that looks least like the one-agent-per-repo thesis.
+
+There is also a second-order effect on the security story. The runtime's own
+delegation instruction (`dist/agents.js:80`) tells the model to delegate by
+shelling out: `` `gitagent --dir {agent_path} -p "task"` `` through the `cli`
+tool. For any agent that reads untrusted content, `cli` is the tool that must
+not exist — so following the framework's documented delegation path and being
+safe against prompt injection are mutually exclusive.
+
+### What Badger does
+
+Sub-agents are nested `agents/<slug>/` directories, and the router is Badger's
+own server rather than the model: `app/server/server.mjs` passes
+`query({ dir: "<run>/agents/<slug>" })`. Verified in `dist/sdk.js` —
+`loadAgent()` reads `agent.yaml`, `SOUL.md`, `RULES.md`, `skills/`,
+`tools/*.yaml`, `hooks/` and `memory/` from whatever directory it is given, and
+does no git work of its own. So a sub-agent is genuinely independent, with its
+own tool schema, and `cli` stays out of the model's reach.
+
+That is the spec's `delegation.mode: router` — implemented by the consumer,
+because the runtime has no router.
+
+Sub-agent tool YAMLs point their `implementation.script` back at the shared
+implementations at the repo root rather than copying them, so one tool has one
+implementation across every agent that holds it.
+
+### What would fix it upstream
+
+For `dependencies`: resolve the ref before cloning, drop the `|| true`, and
+load skills and tools from `.gitagent/deps/` — or remove the key until it does
+something. For `delegation`: read `mode` and `triggers` in `agents.js`. And the
+delegation prompt should not require a shell; an in-process route is available
+one layer down and is the only version that is safe for an agent reading
+untrusted text.
+
+---
+
+## 6. Smaller notes, recorded but not worth an issue
+
+- **The Lyzr exporter's goal regex eats the goal.** `opengap`'s
+  `dist/adapters/lyzr.js:91` reads an agent's goal out of SOUL.md with
+  `/##\s*(?:Values|Purpose|Goal|Mission)\s*.*?\n+([\s\S]*?)(?=\n##|…)/i`.
+  Greedy `\s*` consumes the blank line after the heading, so the lazy `.*?`
+  then consumes the first line of content before `\n+` can match, and the
+  capture starts one line late. On the obvious shape — heading, blank line,
+  one-line goal — `agent_goal` exports as the literal string `"## Instructions"`.
+  The role regex on the line above has no `.*?` and is correct, so the two
+  behave differently on identical input. No shape fixes it: removing the blank
+  line, or a bulleted list, both still lose the first item. Badger's generated
+  SOUL.md therefore carries one lead-in sentence under `## Goal` for the regex
+  to eat, and `tests/agents-store.test.mjs` pins the exported value against
+  both regexes copied verbatim from the adapter.
+- **Declaring sub-agents makes the root agent fail its own duties check.**
+  `opengap`'s SoD validator resolves every key in
+  `compliance.segregation_of_duties.assignments` against `manifest.agents`
+  (`dist/commands/validate.js:256`), which holds *sub*-agents only — so the
+  root agent, which must appear in assignments to hold a role at all, is
+  reported missing. The check is guarded on `manifest.agents` existing, so it
+  lies dormant until the day you declare a sub-agent and then warns about a
+  line that has not changed. Reproduced on the reference agent published
+  alongside the standard: `shreyas-lyzr/security-auditor-agent` assigns
+  `security-auditor: [auditor]` and lists only `secret-scanner` under
+  `agents:`, and `opengap validate --compliance` answers
+  `[SOD] Agent "security-auditor" in assignments not found in agents section`.
+  Badger takes the warning rather than the fix, because the only way to
+  silence it is to add `badger` to `agents:`, which would then fail the
+  "referenced sub-agent must exist" check at `validate.js:67` — trading a
+  warning for an error, and a true manifest for a false one.
 - **`annotations.read_only` is read by nothing.** The spec defines it
   (§8) and `tool-loader.js` never mentions the block. Badger sets it anyway,
   as a declaration rather than an enforcement, and says so in the tool files.

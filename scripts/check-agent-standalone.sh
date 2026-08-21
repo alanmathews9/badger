@@ -39,7 +39,12 @@ cd "$ROOT"
 # the runtime reads both when it builds the system prompt (loader.js:171 and
 # loadComplianceContext), so a sandbox copy without them proves a standalone
 # agent that is not the one that ships.
-AGENT="agent.yaml SOUL.md RULES.md DUTIES.md skills tools hooks memory compliance"
+# agents/ is here because the sub-agents are part of the agent, not part of the
+# product: the root agent.yaml names them and `opengap validate` fails without
+# them. Their tool YAMLs point at ../../../tools/scripts/, so this list only
+# holds together while tools/ travels with them — which is what copying both
+# into the sandbox tests.
+AGENT="agent.yaml SOUL.md RULES.md DUTIES.md skills tools hooks memory compliance agents"
 
 fail() {
   printf '  ✗ %s\n' "$1"

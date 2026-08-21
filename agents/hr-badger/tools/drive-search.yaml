@@ -1,0 +1,42 @@
+name: drive_search
+description: >
+  Search Google Drive documents and spreadsheets by their contents. Drive
+  holds the written-down version of things — policies, onboarding, team pages,
+  customer-facing reviews, roadmaps, directories and trackers. Spreadsheet cells
+  are searched too, so questions about numbers, allocations and dates land
+  here. Returns files with an id, a kind and an excerpt of what matched.
+input_schema:
+  type: object
+  properties:
+    query:
+      type: string
+      description: >
+        What to look for, in plain words. Reduced to keywords for you and
+        matched against file names and full contents.
+    kind:
+      type: string
+      description: >
+        Restrict to documents, spreadsheets or folders. Default any. Use
+        "sheet" when the question is about numbers, utilisation, dates or
+        anything tabular. Plurals and synonyms are understood — "documents",
+        "spreadsheet", "sheets" all work — and anything unrecognised searches
+        everything rather than failing.
+    limit:
+      type: integer
+      description: Maximum files, 1-25. Default 10.
+  required: [query]
+implementation:
+  # Both spellings: the runtime reads `script`, the schema requires
+  # `type` + `path`. See docs/UPSTREAM.md finding 2.
+  type: script
+  path: ../../../tools/scripts/drive-search.mjs
+  script: ../../../tools/scripts/drive-search.mjs
+  runtime: node
+
+# Declaration, not enforcement: runtime 2.1.0 does not read annotations.
+# Enforcement is hooks/allowed-tools.txt, the Composio enable list and the
+# DIRECT_TOOLS preset.
+annotations:
+  read_only: true
+  idempotent: true
+  requires_confirmation: false

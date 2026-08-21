@@ -1,0 +1,29 @@
+# Every tool Badger may call — one name per line, anything else is blocked.
+#
+# An allowlist rather than a blocklist because it fails closed: a write tool
+# nobody thought to name can never slip through. Adding a capability means
+# adding its name here, deliberately.
+
+# The runtime's own tools, minus the three that can reach outside the agent's
+# own data. `cli` is an unrestricted shell — dist/tools/cli.js spawns with
+# `shell: true` and `env: {...process.env}`, so it hands the model every
+# secret the container holds (COMPOSIO_API_KEY above all) and walks straight
+# around the three source-side layers below. `write` and `edit` are rooted at
+# the repository, so they can rewrite tools/scripts/*.mjs — respawned on the
+# next tool call — or this file. RULES.md already forbade all three; this is
+# the same rule stated where it is enforced rather than requested.
+#
+# The learning loop is untouched: skill_learner and memory do their own
+# fs writes internally (dist/tools/skill-learner.js, dist/tools/memory.js),
+# never through the write tool. `capture_photo` is a builtin too and is
+# deliberately absent.
+read
+memory
+task_tracker
+skill_learner
+
+drive_comments
+drive_file
+drive_search
+gmail_search
+gmail_thread

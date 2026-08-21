@@ -35,6 +35,14 @@ import {
   readSkill,
   updateSkill,
 } from "./skills-store.mjs";
+import {
+  createAgent,
+  deleteAgent,
+  listAgents,
+  listToolCatalog,
+  readAgent,
+  updateAgent,
+} from "./agents-store.mjs";
 import { annotateUnverified, extractCitations, mentions, verifyCitations } from "./verify-citations.mjs";
 import { attachSourceUrls } from "./source-links.mjs";
 import { parseToolResults } from "./tool-results.mjs";
@@ -52,6 +60,19 @@ const AGENT = openAgentRepo(ROOT);
 // The skills the product lists, adds to and edits — always the same directory
 // the agent reads, whichever mode is in play.
 const SKILLS_DIR = join(AGENT.agentDir, "skills");
+// The sub-agents, in the same directory the runtime discovers them from. Each
+// one is a full agent folder: its own SOUL.md, tools/ and skills/.
+const AGENTS_DIR = join(AGENT.agentDir, "agents");
+// The tools a sub-agent may be given, read from the agent's own tools/ — the
+// catalogue is whatever Badger itself can call, never a superset.
+const TOOLS_DIR = join(AGENT.agentDir, "tools");
+// Appended for a sub-agent whose output format is JSON. Instruction rather
+// than schema enforcement: the runtime offers no structured-output mode, so
+// the honest version says what is wanted and the reader can see whether it
+// arrived.
+const JSON_OUTPUT_SUFFIX =
+  "\n\n# Output Format\n\nReturn your answer as a single JSON object and nothing else. " +
+  "No prose before or after it, no code fence. Cite sources in a `sources` array.";
 // Cloud Run injects PORT and expects the server to listen on it. BADGER_PORT
 // is the local convention; PORT wins so the same image runs in both places.
 const PORT = Number(process.env.PORT || process.env.BADGER_PORT) || 4000;
@@ -92,6 +113,10 @@ const server = createServer(async (req, res) => {
     if (url.pathname === "/api/skills" && req.method === "GET") return handleSkillsList(res);
     if (url.pathname === "/api/skills" && req.method === "POST") return await handleSkillsCreate(req, res);
     if (url.pathname.startsWith("/api/skills/")) return await handleSkillOne(req, res, url);
+    if (url.pathname === "/api/tools-catalog" && req.method === "GET") return handleToolCatalog(res);
+    if (url.pathname === "/api/agents" && req.method === "GET") return handleAgentsList(res);
+    if (url.pathname === "/api/agents" && req.method === "POST") return await handleAgentsCreate(req, res);
+    if (url.pathname.startsWith("/api/agents/")) return await handleAgentOne(req, res, url);
     if (url.pathname === "/api/sources" && req.method === "GET") return await handleSources(req, res);
     if (url.pathname === "/api/ask" && req.method === "POST") return await handleAsk(req, res);
     if (url.pathname.startsWith("/api/chats")) return await handleChats(req, res, url);
@@ -260,6 +285,12 @@ async function handleAsk(req, res) {
       ? parsed.skill
       : null;
 
+  // Which agent answers. Same rule as the skill above: only a slug that names
+  // a directory on disk is honoured, and an unknown one degrades to Badger
+  // rather than erroring — a stale tab should still get an answer.
+  const picked =
+    parsed.agent ? (listAgents(AGENTS_DIR).find((a) => a.slug === parsed.agent) ?? null) : null;
+
   const limited = rateLimit(req, "ask");
   if (limited) return json(res, 429, { error: limited });
 
@@ -271,9 +302,15 @@ async function handleAsk(req, res) {
   // Which skill this question needs, and its procedure. A skill picked from
   // the composer wins outright; otherwise we choose, because the runtime's own
   // matcher matches nothing here. See skill-match.mjs.
-  const matched = skill
-    ? { slug: skill, procedure: readProcedure(SKILLS_DIR, skill) }
-    : matchSkill(SKILLS_DIR, question);
+  //
+  // Skipped entirely when a sub-agent answers: it carries its own skills/ and
+  // the runtime loads them from its folder, so matching Badger's here would
+  // hand it the body of a skill it does not have.
+  const matched = picked
+    ? null
+    : skill
+      ? { slug: skill, procedure: readProcedure(SKILLS_DIR, skill) }
+      : matchSkill(SKILLS_DIR, question);
   const chosen = matched?.slug ?? null;
 
   const prompt = buildPrompt(history, question, {
@@ -289,8 +326,10 @@ async function handleAsk(req, res) {
   const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
   // The skill in play, announced as the run's first step. GAP emits no event
-  // when a skill is chosen, so this is sent as a `tool` frame and the trail
-  // treats it like any other step.
+  // Who is answering, and with what, announced as the run's first steps. GAP
+  // emits no event for either choice, so both are sent as `tool` frames and
+  // the trail treats them like any other step.
+  if (picked) send("tool", { index: -2, name: "agent", args: { agent: picked.slug } });
   if (chosen) send("tool", { index: -1, name: "skill", args: { skill: chosen } });
 
   const startedAt = Date.now();
@@ -311,7 +350,18 @@ async function handleAsk(req, res) {
   // One private copy of the agent repo for this run, or ROOT in dir mode.
   // Awaited before query() because the runtime does its own git work inside
   // initLocalSession and needs the directory to already be there.
-  const target = await AGENT.queryTarget();
+  const target = await AGENT.queryTarget(picked?.slug);
+
+  // Which directory the runtime loads the agent from. A sub-agent is a full
+  // agent folder one level down (spec §13), so pointing `dir` at it gives that
+  // folder's own SOUL.md, tools/, skills/ and memory/ — and only those tools.
+  //
+  // `repo` is deliberately NOT passed for a sub-agent: sdk.js:98-112 forces the
+  // agent directory to the clone root when it is present, which would run
+  // Badger instead. The run copy is already on the learning branch, and
+  // agent-repo's release() commits what the sub-agent wrote.
+  const runDir = target.repo ? target.repo.dir : target.dir;
+  const agentDir = picked ? join(runDir, "agents", picked.slug) : null;
 
   // maxTurns bounds a runaway loop, which is the failure mode that costs money
   // rather than time.
@@ -321,10 +371,13 @@ async function handleAsk(req, res) {
     // repo.dir when repo is present and ignores dir. Spreading exactly one of
     // them keeps that explicit rather than passing both and relying on which
     // one the runtime happens to prefer.
-    ...(target.repo ? { repo: target.repo } : { dir: target.dir }),
+    ...(agentDir ? { dir: agentDir } : target.repo ? { repo: target.repo } : { dir: target.dir }),
     // The agent's own directory, so memory is read from where the agent
     // writes it rather than from the image's frozen copy — see system-suffix.
-    systemPromptSuffix: buildSystemSuffix(AGENT.agentDir),
+    // For a sub-agent that is its own folder, so it reads its own memory.
+    systemPromptSuffix:
+      buildSystemSuffix(picked ? join(AGENT.agentDir, "agents", picked.slug) : AGENT.agentDir) +
+      (picked?.outputFormat === "json" ? JSON_OUTPUT_SUFFIX : ""),
     // 18, not 12: the learning loop spends five or six turns of the same
     // budget as retrieval, and at 12 the eval fell to 9/15 from 14/15. The
     // bound exists to stop a runaway loop, not to ration reading.
@@ -648,9 +701,15 @@ async function handleSkillOne(req, res, url) {
       } catch {
         return json(res, 400, { error: "body must be JSON" });
       }
-      return json(res, 200, updateSkill(dir, slug, body?.content));
+      const saved = updateSkill(dir, slug, body?.content);
+      await AGENT.saveEdit("skill", "update", slug);
+      return json(res, 200, saved);
     }
-    if (req.method === "DELETE") return json(res, 200, deleteSkill(dir, slug));
+    if (req.method === "DELETE") {
+      const removed = deleteSkill(dir, slug);
+      await AGENT.saveEdit("skill", "delete", slug);
+      return json(res, 200, removed);
+    }
     return json(res, 405, { error: "method not allowed" });
   } catch (err) {
     // Every throw from the store is a message written for a person — an
@@ -674,9 +733,94 @@ async function handleSkillsCreate(req, res) {
     // One way in: a whole SKILL.md. Written in the box or loaded from a file,
     // it is the same string by the time it arrives here.
     const { slug } = createSkillFromFile(SKILLS_DIR, body?.file);
+    await AGENT.saveEdit("skill", "create", slug);
     return json(res, 201, { slug });
   } catch (err) {
     return json(res, 400, { error: err.message });
+  }
+}
+
+
+/**
+ * The sub-agents.
+ *
+ *   GET    /api/agents          every agent, for the list and the picker
+ *   POST   /api/agents          create one from the editor's fields
+ *   GET    /api/agents/<slug>   one agent, with its instructions
+ *   PUT    /api/agents/<slug>   replace its definition
+ *   DELETE /api/agents/<slug>   remove the folder
+ *
+ * Unlike a skill, which is one file a person writes, an agent is a directory
+ * of generated files — so this takes fields rather than a document. The store
+ * owns validation and slug safety; the slug is never joined onto a path here.
+ *
+ * Every write shares the answer bucket's rate limit.
+ */
+function handleAgentsList(res) {
+  return json(res, 200, { agents: listAgents(AGENTS_DIR) });
+}
+
+/** GET /api/tools-catalog — the tools an agent can be given. */
+function handleToolCatalog(res) {
+  return json(res, 200, { tools: listToolCatalog(TOOLS_DIR) });
+}
+
+async function handleAgentsCreate(req, res) {
+  const limited = rateLimit(req, "ask");
+  if (limited) return json(res, 429, { error: limited });
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return json(res, 400, { error: "body must be JSON" });
+  }
+  try {
+    const { slug } = createAgent(AGENTS_DIR, body, { rootDir: AGENT.agentDir });
+    await AGENT.saveEdit("agent", "create", slug);
+    return json(res, 201, { slug });
+  } catch (err) {
+    return json(res, 400, { error: err.message });
+  }
+}
+
+async function handleAgentOne(req, res, url) {
+  const slug = decodeURIComponent(url.pathname.slice("/api/agents/".length));
+  try {
+    if (req.method === "GET") return json(res, 200, readAgent(AGENTS_DIR, slug));
+
+    const limited = rateLimit(req, "ask");
+    if (limited) return json(res, 429, { error: limited });
+
+    if (req.method === "PUT") {
+      let body;
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        return json(res, 400, { error: "body must be JSON" });
+      }
+      const saved = updateAgent(AGENTS_DIR, slug, body, { rootDir: AGENT.agentDir });
+      // A rename moved the folder; the Playground conversations filed under
+      // the old name have to follow it or they are listed by no page.
+      await AGENT.saveEdit("agent", "update", saved.slug);
+      if (saved.renamedFrom && historyStore.dbConfigured()) {
+        try {
+          await historyStore.renameAgentChats(saved.renamedFrom, saved.slug);
+        } catch (err) {
+          // The agent is already renamed and that is the important half.
+          console.warn(`[agents] chat sessions not moved: ${err.message}`);
+        }
+      }
+      return json(res, 200, saved);
+    }
+    if (req.method === "DELETE") {
+      const removed = deleteAgent(AGENTS_DIR, slug, { rootDir: AGENT.agentDir });
+      await AGENT.saveEdit("agent", "delete", removed.slug);
+      return json(res, 200, removed);
+    }
+    return json(res, 405, { error: "method not allowed" });
+  } catch (err) {
+    const missing = err.message === "no such agent";
+    return json(res, missing ? 404 : 400, { error: err.message });
   }
 }
 
@@ -716,7 +860,10 @@ async function chatsRoute(req, res, url) {
   const id = url.pathname.slice("/api/chats/".length);
 
   if (url.pathname === "/api/chats" && req.method === "GET") {
-    return json(res, 200, { persisted: true, chats: await historyStore.listChats(uid) });
+    // No `?agent=` means the /chat list, which is Badger's own threads only —
+    // a Playground conversation belongs to its agent's page, not here.
+    const agent = agentSlug(url.searchParams.get("agent"));
+    return json(res, 200, { persisted: true, chats: await historyStore.listChats(uid, { agent }) });
   }
 
   // Ids are minted in the browser and travel in a path segment, so they are
@@ -734,7 +881,8 @@ async function chatsRoute(req, res, url) {
     const title = String(body?.title ?? "").slice(0, 300);
     const turns = Array.isArray(body?.turns) ? body.turns : [];
     if (!title || !turns.length) return json(res, 400, { error: "title and turns are required" });
-    const ok = await historyStore.saveChat(uid, id, { title, turns });
+    const agent = agentSlug(body?.agent);
+    const ok = await historyStore.saveChat(uid, id, { title, turns, agent });
     // A false here means the id exists under a different uid. Same answer as
     // a malformed request rather than "that one is someone else's", which
     // would confirm the id exists.
@@ -742,6 +890,18 @@ async function chatsRoute(req, res, url) {
   }
 
   return json(res, 405, { error: "method not allowed" });
+}
+
+/**
+ * A sub-agent slug as it may appear on a conversation, or null.
+ *
+ * Same shape the store enforces when it creates a folder, applied here as
+ * well: this value reaches a query, and a conversation must never be filed
+ * under a name no agent could have.
+ */
+function agentSlug(value) {
+  const slug = String(value ?? "").trim();
+  return /^[a-z0-9][a-z0-9-]{0,39}$/.test(slug) ? slug : null;
 }
 
 /**
