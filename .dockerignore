@@ -4,6 +4,10 @@
 .env
 .git
 .gitagent
+# .dockerignore patterns match per path segment, so the line above is root-only
+# — measured, not assumed. Every sub-agent gets its own .gitagent the first
+# time the runtime loads it, and COPY agents/ would bake that runtime state in.
+agents/*/.gitagent
 .claude
 .agents
 

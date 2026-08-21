@@ -3,6 +3,7 @@ import { ChevronRight } from "lucide-react";
 import type { AnswerState } from "@/components/AnswerCard";
 import { describeTool, summariseSteps, type ToolStep } from "@/lib/ask";
 import { FoundRow } from "./SourceChip";
+import { AgentMark } from "@/components/agents/icons";
 
 /**
  * The run's work, as a connected trail of steps.
@@ -21,7 +22,7 @@ import { FoundRow } from "./SourceChip";
  * citation `[UNVERIFIED]` inline, where it changes what the reader believes; a
  * green tick inside a panel nobody opens changed nothing.
  */
-export function StepTrail({ answer }: { answer: AnswerState }) {
+export function StepTrail({ answer, agentColor }: { answer: AnswerState; agentColor?: string }) {
   const [open, setOpen] = useState(false);
   const { steps, running, result } = answer;
 
@@ -30,7 +31,7 @@ export function StepTrail({ answer }: { answer: AnswerState }) {
     return (
       <div className="flex flex-col">
         {rows.map((step, i) => (
-          <TrailRow key={i} lead={i === 0} running last={i === rows.length - 1}>
+          <TrailRow key={i} lead={i === 0} running last={i === rows.length - 1} color={agentColor}>
             <StepLine step={step} live={i === rows.length - 1} />
           </TrailRow>
         ))}
@@ -56,11 +57,11 @@ export function StepTrail({ answer }: { answer: AnswerState }) {
     return (
       <div className="mb-4 flex flex-col">
         {steps.map((step, i) => (
-          <TrailRow key={i} lead={i === 0} running={false} last={false}>
+          <TrailRow key={i} lead={i === 0} running={false} last={false} color={agentColor}>
             <StepLine step={step} live={false} />
           </TrailRow>
         ))}
-        <TrailRow lead={steps.length === 0} running={false} last>
+        <TrailRow lead={steps.length === 0} running={false} last color={agentColor}>
           <p className="flex h-6 items-center text-[13px] text-stone-400">Interrupted</p>
         </TrailRow>
       </div>
@@ -74,11 +75,11 @@ export function StepTrail({ answer }: { answer: AnswerState }) {
     return (
       <div className="mb-4 flex flex-col">
         {steps.map((step, i) => (
-          <TrailRow key={i} lead={i === 0} running={false} last={false}>
+          <TrailRow key={i} lead={i === 0} running={false} last={false} color={agentColor}>
             <StepLine step={step} live={false} />
           </TrailRow>
         ))}
-        <TrailRow lead={steps.length === 0} running={false} last>
+        <TrailRow lead={steps.length === 0} running={false} last color={agentColor}>
           <p className="flex min-h-6 items-center text-[13px] text-red-700">{answer.error}</p>
         </TrailRow>
       </div>
@@ -89,7 +90,7 @@ export function StepTrail({ answer }: { answer: AnswerState }) {
 
   return (
     <div className="mb-4 flex flex-col">
-      <TrailRow lead running={false} last={!open}>
+      <TrailRow lead running={false} last={!open} color={agentColor}>
         <button
           onClick={() => setOpen((v) => !v)}
           className="inline-flex h-6 items-center gap-1 text-[12.5px] text-stone-400 hover:text-stone-600"
@@ -125,11 +126,14 @@ function TrailRow({
   lead,
   running,
   last,
+  color,
   children,
 }: {
   lead: boolean;
   running: boolean;
   last: boolean;
+  /** A sub-agent's colour. Absent means this run was Badger's own. */
+  color?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -149,7 +153,12 @@ function TrailRow({
             eating the column, which is what left the lead row with no
             connector under it. */}
         <div className="flex h-6 shrink-0 items-center justify-center">
-          {lead ? (
+          {lead && color ? (
+            /* A sub-agent answered, so its own mark leads the trail. There is
+               no thinking variant of it — the pulse says the same thing and
+               swapping the mark mid-run would read as a change of author. */
+            <AgentMark color={color} size={20} className={running ? "animate-pulse" : ""} />
+          ) : lead ? (
             <img
               src={running ? "/badger-thinking.svg" : "/mark.svg"}
               alt="Badger"

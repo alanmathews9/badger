@@ -1,0 +1,29 @@
+# Every tool Eng Badger may call — one name per line, anything else is blocked.
+#
+# An allowlist rather than a blocklist because it fails closed: a write tool
+# nobody thought to name can never slip through. Adding a capability means
+# adding its name here, deliberately.
+#
+# Generated from this agent's own tools/ directory rather than copied from
+# Badger's list. A sub-agent that carried the parent's list would be gated on
+# names it does not hold, which reads as enforcement and enforces nothing.
+
+# The runtime's own tools, minus the three that can reach outside the agent's
+# own data. `cli` is an unrestricted shell — dist/tools/cli.js spawns with
+# `shell: true` and `env: {...process.env}`, so it hands the model every
+# secret the container holds. `write` and `edit` are rooted at the agent
+# directory, so they can rewrite this file or the tool YAMLs beside it.
+read
+memory
+task_tracker
+skill_learner
+
+# GitHub — read-only scripts, shared with Badger's own tools/scripts/
+github_search
+github_issue
+github_pr
+github_file
+github_commits
+
+# No gmail_* or drive_* names. Eng Badger holds no mail or document tools, so
+# a question that needs them belongs to Badger or to HR Badger.

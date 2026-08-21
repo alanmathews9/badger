@@ -34,6 +34,26 @@ runtime:
   max_turns: 40
   timeout: 300
 
+# Sub-agents, in the spec's directory form (§13): each name here must exist as
+# agents/<name>/ with its own agent.yaml, and `opengap validate` fails the
+# build when one does not (dist/commands/validate.js:60). The store keeps this
+# block in step on create and delete.
+#
+# This is a MANIFEST, not the delegation mechanism. Runtime 2.1.0 implements
+# delegation as a shell-out — formatSubAgentsForPrompt (agents.js:80) tells the
+# model to run `gitagent --dir ...` through `cli`, which Badger does not hold
+# and never will. Routing happens the other way instead: the server is told
+# which agent a question is for and calls query({ dir: "agents/<slug>" })
+# directly, so no shell is involved and the read-only layers are unchanged.
+# See docs/UPSTREAM.md finding 5.
+agents:
+  eng-badger:
+    description: >-
+      Code, issues, releases and decisions, from GitHub. Holds no mail or
+      document tools.
+  hr-badger:
+    description: "Answer a question about how this organisation works from the written policy and the mail that qualifies it, and say plainly when the two disagree."
+
 # Written in the vocabulary of the OpenGAP spec, not the reference runtime's.
 # Those disagree: dist/compliance.js (gitagent 2.1.0) reads `risk_level`,
 # `data_classification` and `human_in_the_loop` at the top of this block, while
@@ -144,7 +164,22 @@ compliance:
       - [writer, approver]
       - [writer, executor]
     assignments:
+      # Every sub-agent under agents/ holds the same single role. A sub-agent
+      # is a narrower Badger, never a more capable one: it can only ever hold
+      # a subset of the tools, so `reader` is the ceiling and adding one here
+      # cannot widen what the system can do. Each agent's own DUTIES.md states
+      # the same thing where the runtime reads it into the prompt.
+      #
+      # `badger` warns here — "[SOD] Agent badger in assignments not found in
+      # agents section" — and that is upstream, not a defect to fix. Once an
+      # `agents:` block exists, validate.js:256 requires every assigned name to
+      # appear in it, with no exemption for the root agent's own name. Adding
+      # `badger:` there would demand an agents/badger/ directory and turn the
+      # warning into an error. Do NOT silence it by dropping this line: it is
+      # the assignment the whole read-only story rests on.
       badger: [reader]
+      hr-badger: [reader]
+      eng-badger: [reader]
     isolation:
       # Trivially satisfied while one agent holds one role, and stated anyway
       # because it is the constraint any future writer role would have to meet:

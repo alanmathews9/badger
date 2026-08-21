@@ -46,6 +46,12 @@ const execFileAsync = promisify(execFile);
 
 const DEFAULT_BRANCH = "gitagent/learning";
 
+// The identity openAgentRepo() configures on the template. Passed explicitly
+// with -c on the sub-agent commit so authorship holds even in a copy whose
+// config did not come across.
+const AGENT_NAME = "badger";
+const AGENT_EMAIL = "badger@users.noreply.github.com";
+
 // Boot-time git. Synchronous on purpose: the clone must finish before the port
 // opens, or Cloud Run sends a request into a half-copied agent.
 function git(args, cwd) {
@@ -89,6 +95,105 @@ function gitFailure(err) {
     String(err?.stdout ?? "").trim(),
   ].filter(Boolean);
   return redact(parts.join(" | ")).slice(0, 600);
+}
+
+/**
+ * Commit whatever a sub-agent run left behind, so the push path below can
+ * carry it. A sub-agent runs under `dir:` rather than `repo:`, so the runtime
+ * does no git at all and its memory entry or crystallised skill would die with
+ * the run copy.
+ *
+ * The message is fixed and names the slug. No model-written text reaches git's
+ * argv. Never throws: a failure warns and the caller falls through to the
+ * existing push path rather than taking the answer down.
+ *
+ * @returns {Promise<boolean>} whether a commit was made
+ */
+export async function commitAgentWrites(dir, slug) {
+  const name = String(slug ?? "").replace(/[^a-z0-9-]/gi, "") || "unknown";
+  return commitTree(dir, `agent: ${name} learning from a run`, `what agent ${name} wrote`);
+}
+
+/**
+ * Stage and commit everything in a working tree.
+ *
+ * `message` is composed by this module from a fixed vocabulary — no caller
+ * text and no model text reaches git's argv. Never throws: recording a change
+ * failing must not take down the thing that made it.
+ *
+ * @returns {Promise<boolean>} whether a commit was made
+ */
+async function commitTree(dir, message, describing) {
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
+  try {
+    const { stdout } = await execFileAsync("git", ["status", "--porcelain"], { cwd: dir, env });
+    if (!stdout.trim()) return false;
+    await execFileAsync("git", ["add", "-A"], { cwd: dir, env });
+    await execFileAsync(
+      "git",
+      ["-c", `user.name=${AGENT_NAME}`, "-c", `user.email=${AGENT_EMAIL}`, "commit", "-m", message],
+      { cwd: dir, env }
+    );
+    return true;
+  } catch (err) {
+    console.warn(`[agent-repo] could not commit ${describing}: ${gitFailure(err)}`);
+    return false;
+  }
+}
+
+/**
+ * Push the branch, reconciling only if something else got there first.
+ *
+ * PUSH FIRST, pull on rejection — not the other way round. Pulling first looks
+ * more careful and is wrong in the case that matters: on the very first save
+ * the branch does not exist on the remote yet, `git pull origin <branch>` dies
+ * with "couldn't find remote ref", and the push never happens at all. A test
+ * against a real bare remote is what found that. Pushing first also spends no
+ * round trip in the ordinary case, where nothing else has landed.
+ *
+ * Three attempts, because the failure that retrying wins is a race between two
+ * runs pushing the same branch. A real conflict is not retryable and is left
+ * to the caller — auto-resolving would invent content nobody wrote.
+ *
+ * **`rebase` is per caller and is not a preference.** A RUN COPY holds only
+ * its own new commits on top of origin, so replaying them is safe and keeps
+ * the branch linear. The TEMPLATE also holds main's commits, arriving through
+ * the boot merge — rebasing there gives them new hashes, the same commit then
+ * exists twice, and every later boot merge conflicts in files the branch never
+ * touched. That cost a force-push and a rebuilt branch once already; see
+ * `sync()` below, which merges for the same reason.
+ *
+ * The credential goes in for the push and comes back out in `finally`, so a
+ * long-lived directory never keeps it.
+ */
+async function pushBranch(dir, url, token, branch, { rebase }) {
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
+  const reconcile = rebase
+    ? ["pull", "--rebase", "origin", branch]
+    : ["pull", "--no-rebase", "--no-edit", "origin", branch];
+  try {
+    await execFileAsync("git", ["remote", "set-url", "origin", authedUrl(url, token)], { cwd: dir, env });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await execFileAsync("git", ["push", "origin", branch], { cwd: dir, env });
+        return;
+      } catch (rejected) {
+        if (attempt === 3) throw rejected;
+        try {
+          await execFileAsync("git", reconcile, { cwd: dir, env });
+        } catch (conflict) {
+          // Leave no half-finished merge or rebase behind, and report the
+          // reconciliation failure rather than the push rejection — the
+          // conflict is the thing a person has to resolve.
+          await execFileAsync("git", ["rebase", "--abort"], { cwd: dir, env }).catch(() => {});
+          await execFileAsync("git", ["merge", "--abort"], { cwd: dir, env }).catch(() => {});
+          throw conflict;
+        }
+      }
+    }
+  } finally {
+    await execFileAsync("git", ["remote", "set-url", "origin", url], { cwd: dir, env }).catch(() => {});
+  }
 }
 
 // node_modules and .gitagent are not in git, so a fresh copy of the repo has
@@ -150,6 +255,9 @@ export function openAgentRepo(root) {
     // The options the server spreads into query(). In dir mode, one key.
     queryTarget: async () => ({ dir: root, release: async () => {} }),
     sync: async () => {},
+    // Nothing to do: in dir mode an edit lands in the real working tree, and
+    // committing it is a person's job the way every other change here is.
+    saveEdit: async () => false,
   };
 
   if (!url || !token) {
@@ -266,8 +374,11 @@ export function openAgentRepo(root) {
      * One private copy of the repo for one run. The copy is local and cheap;
      * the network work (fetch, checkout, pull, and the closing commit+push)
      * is the runtime's, inside query().
+     *
+     * `agentSlug` names a sub-agent run, whose writes release() has to commit
+     * itself. Omitted for the Badger path, where the runtime commits.
      */
-    async queryTarget() {
+    async queryTarget(agentSlug) {
       const dir = join(tmpdir(), `badger-run-${randomBytes(4).toString("hex")}`);
       try {
         await mkdir(dir, { recursive: true });
@@ -293,6 +404,7 @@ export function openAgentRepo(root) {
         // So before deleting the copy, check for commits the remote lacks and
         // rebase-and-push them; warn if that still fails.
         release: async () => {
+          if (agentSlug) await commitAgentWrites(dir, agentSlug);
           try {
             const { stdout } = await execFileAsync(
               "git",
@@ -300,27 +412,10 @@ export function openAgentRepo(root) {
               { cwd: dir, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }
             );
             if (stdout.trim()) {
-              // finalize() stripped the credential (session.js:122); put it
-              // back for this one push. The directory is deleted after.
-              const env = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
-              await execFileAsync("git", ["remote", "set-url", "origin", authedUrl(url, token)], { cwd: dir, env });
-
-              // Three attempts: the ordinary case is a race, which retrying
-              // wins. A real conflict is not retryable and gets the warning
-              // below — auto-resolving would invent memory the agent never
-              // wrote.
-              let pushed = false;
-              for (let attempt = 1; attempt <= 3 && !pushed; attempt++) {
-                try {
-                  await execFileAsync("git", ["pull", "--rebase", "origin", branch], { cwd: dir, env });
-                  await execFileAsync("git", ["push", "origin", branch], { cwd: dir, env });
-                  pushed = true;
-                } catch (e) {
-                  // Leave no half-finished rebase for the next attempt.
-                  await execFileAsync("git", ["rebase", "--abort"], { cwd: dir, env }).catch(() => {});
-                  if (attempt === 3) throw e;
-                }
-              }
+              // finalize() stripped the credential (session.js:122); pushBranch
+              // puts it back for the push and takes it out again. Rebasing is
+              // safe here and only here — see the note on pushBranch.
+              await pushBranch(dir, url, token, branch, { rebase: true });
               console.log(
                 `[agent-repo] recovered ${stdout.trim().split("\n").length} learning ` +
                   "commit(s) that lost a concurrent push"
@@ -339,11 +434,57 @@ export function openAgentRepo(root) {
     },
 
     /**
+     * Commit and push a change the PRODUCT just made — an agent or a skill
+     * created, edited or deleted through the UI.
+     *
+     * Without this the change is an untracked file in a clone under `tmpdir()`
+     * and lives exactly as long as the container. Cloud Run runs
+     * `--max-instances 1` with no `min-instances`, so it scales to zero after a
+     * few quiet minutes: create an agent, come back later, and it is gone. That
+     * was measured, not feared.
+     *
+     * **Not `initLocalSession`**, though the runtime exports it and it is the
+     * framework's own git mechanism. Its update path is
+     * `checkout <default> && reset --hard origin/<default>` (session.js:41-45),
+     * written for starting a run from a clean tree — pointed at this directory
+     * it would discard the very edit being saved. Its first-run path is
+     * `clone --depth 1`, which is the shallow clone that breaks the boot merge.
+     * So this uses the same SHAPE the framework uses — add -A, commit on the
+     * session branch, push — through the reconciliation this file already
+     * needs for concurrent runs.
+     *
+     * Best effort. The file is written either way, so a push that fails warns
+     * and leaves the product working for this instance rather than failing the
+     * request.
+     *
+     * @param {"agent"|"skill"|"schedule"} what
+     * @param {"create"|"update"|"delete"} action
+     * @param {string} slug
+     */
+    async saveEdit(what, action, slug) {
+      const name = String(slug ?? "").replace(/[^a-z0-9-]/gi, "") || "unknown";
+      // A fixed vocabulary, not the caller's string: the message is written
+      // into a public repository by a web request, so what a route passes is
+      // mapped onto one of these rather than interpolated.
+      const kind = ["agent", "schedule"].includes(what) ? what : "skill";
+      const verb = ["create", "update", "delete"].includes(action) ? action : "change";
+      const message = `ui: ${verb} ${kind} ${name}`;
+      if (!(await commitTree(template, message, `the ${kind} just ${verb}d`))) return false;
+      try {
+        await pushBranch(template, url, token, branch, { rebase: false });
+        return true;
+      } catch (err) {
+        console.warn(`[agent-repo] ${message} is committed but not pushed: ${gitFailure(err)}`);
+        return false;
+      }
+    },
+
+    /**
      * Bring the template up to date with what the last run pushed, so the
      * Skills screen shows learned skills too. `pull --rebase` not `reset
-     * --hard`: a skill added through the UI is an unpushed local commit here
-     * and a reset would discard it. Best-effort; a failure leaves a stale
-     * skill list and nothing else.
+     * --hard`: a skill or agent added through the UI is a commit here — see
+     * `saveEdit` — and a reset would discard it if the push had not landed.
+     * Best-effort; a failure leaves a stale list and nothing else.
      */
     async sync() {
       try {

@@ -1,0 +1,35 @@
+name: github_pr
+description: >
+  Read one pull request in full: state, description, the files it changes, its
+  inline review comments (anchored to file and line), and its conversation.
+  Use this for anything about a PR — review feedback, what changed, whether it
+  merged. github_issue cannot see inline review comments, which is where the
+  actionable feedback lives.
+input_schema:
+  type: object
+  properties:
+    number:
+      type: integer
+      description: The pull request number.
+    max_comments:
+      type: integer
+      description: Maximum comments per stream, 1-60. Default 30.
+  required: [number]
+implementation:
+  # Copied from the root tools/, with the path pointing back at the one
+  # shared implementation: the runtime resolves join(agentDir, "tools",
+  # script), so three `..` segments reach the repo root.
+  # Both spellings: the runtime reads `script`, the schema requires
+  # `type` + `path`. See docs/UPSTREAM.md finding 2.
+  type: script
+  path: ../../../tools/scripts/pr.mjs
+  script: ../../../tools/scripts/pr.mjs
+  runtime: node
+
+# Declaration, not enforcement: runtime 2.1.0 does not read annotations.
+# Enforcement is hooks/allowed-tools.txt, the Composio enable list and the
+# DIRECT_TOOLS preset.
+annotations:
+  read_only: true
+  idempotent: true
+  requires_confirmation: false

@@ -87,6 +87,11 @@ COPY agent.yaml SOUL.md RULES.md AGENTS.md DUTIES.md ./
 # the day one of them does, production and local do not silently disagree.
 COPY compliance/ ./compliance/
 COPY skills/ ./skills/
+# The seeded sub-agents, and any a person creates through the UI. Each is a
+# real agent folder the server runs query({dir}) against; their tool YAMLs
+# point back at tools/scripts/ above, so there is one implementation in the
+# image rather than a copy per agent.
+COPY agents/ ./agents/
 COPY tools/ ./tools/
 COPY hooks/ ./hooks/
 COPY memory/ ./memory/

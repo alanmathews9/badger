@@ -2,8 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { Tour } from "@/components/onboarding/Tour";
 import { ChatScreen } from "@/screens/ChatScreen";
 import { SearchScreen } from "@/screens/SearchScreen";
+import { AgentsScreen } from "@/screens/AgentsScreen";
+import { AgentScreen } from "@/screens/AgentScreen";
 import { SkillsScreen } from "@/screens/SkillsScreen";
 import { ToolsScreen } from "@/screens/ToolsScreen";
 import {
@@ -25,6 +28,22 @@ import {
   type SearchFacts,
 } from "@/lib/history";
 
+/** What a question needs beyond its text. See `startAsk`. */
+type AskOptions = {
+  /** A hand-picked skill, named as a /command. */
+  skill?: string | null;
+  /** Run this question as a sub-agent instead of as Badger. */
+  agent?: string | null;
+  /** The first question of a brand-new conversation, not a follow-up. */
+  fresh?: boolean;
+  /** Where conversations of this kind live — "/chat", or an agent's play path. */
+  base?: string;
+  /** The agent the whole conversation belongs to, stored alongside it. */
+  bind?: string | null;
+};
+
+type OpenOptions = { force?: boolean; base?: string; bind?: string | null };
+
 const IDLE: AnswerState = {
   running: false,
   steps: [],
@@ -44,6 +63,9 @@ const IDLE: AnswerState = {
  *   /search?q=…    results for a query
  *   /chat          a new conversation
  *   /chat/:id      one conversation, linkable and reloadable
+ *   /agents        every sub-agent, as cards
+ *   /agents/:slug/build   its definition
+ *   /agents/:slug/play    a conversation with it, /play/:id when it has one
  *   /tools         what Badger can reach
  *
  * A reloaded `/search?q=…` re-runs the search rather than restoring stored
@@ -61,6 +83,20 @@ export default function App() {
   // arrives and the pane must not assert "No chats yet" during it.
   const [chatsLoading, setChatsLoading] = useState(true);
   const [searches, setSearches] = useState<SearchEntry[]>([]);
+
+  // The Playground's conversations, for whichever agent page is open. A
+  // second list rather than a filter over `chats`: the two are separate
+  // queries, and a Playground thread must never appear in /chat's pane.
+  const [agentChats, setAgentChats] = useState<ChatSummary[]>([]);
+  const [agentChatsLoading, setAgentChatsLoading] = useState(true);
+  const loadAgentChats = useCallback((slug: string) => {
+    setAgentChatsLoading(true);
+    history
+      .listChats(slug)
+      .then(setAgentChats)
+      .catch(() => setAgentChats([]))
+      .finally(() => setAgentChatsLoading(false));
+  }, []);
 
   // The run lives above the routes on purpose: switching to Search mid-answer
   // must not cancel it. Only starting another question does that.
@@ -82,10 +118,10 @@ export default function App() {
   // Finished while the reader was elsewhere. Checked against the address bar,
   // not `activeChatId`: a run's conversation stays active while you read
   // Search, and only being on screen means you saw the answer.
-  const markFinished = useCallback((id: string | null) => {
+  const markFinished = useCallback((id: string | null, base: string) => {
     setRunningChatId(null);
     if (!id) return;
-    if (window.location.pathname.startsWith(`/chat/${id}`)) return;
+    if (window.location.pathname.startsWith(`${base}/${id}`)) return;
     setUnseenChats((prev) => {
       const next = new Set(prev);
       next.add(id);
@@ -104,6 +140,12 @@ export default function App() {
     activeIdRef.current = id;
     setActiveChatId(id);
   }, []);
+
+  // The sub-agent this conversation belongs to, or null for a /chat thread.
+  // Set once when the conversation starts and stored with it, so reopening a
+  // Playground thread still runs as that agent. A ref because the save effect
+  // below reads it and must not re-run when it changes.
+  const boundAgentRef = useRef<string | null>(null);
 
   useEffect(() => {
     fetchSources().then(setSources).catch(() => {});
@@ -139,11 +181,21 @@ export default function App() {
     const firstSave = !listed.current.has(activeChatId);
     if (streaming && !firstSave) return;
     if (firstSave) listed.current.add(activeChatId);
-    const record = { id: activeChatId, title: turns[0].question, updatedAt: Date.now(), turns };
+    const agent = boundAgentRef.current;
+    const record = {
+      id: activeChatId,
+      title: turns[0].question,
+      agent,
+      updatedAt: Date.now(),
+      turns,
+    };
+    // Refresh the list this conversation belongs to. Refreshing /chat's after
+    // a Playground save would leave the agent's own pane showing a thread
+    // that had not appeared in it yet.
     history
       .saveChat(record)
-      .then(() => history.listChats())
-      .then(setChats)
+      .then(() => history.listChats(agent))
+      .then((list) => (agent ? setAgentChats(list) : setChats(list)))
       .catch(() => {});
   }, [turns, activeChatId]);
 
@@ -158,7 +210,8 @@ export default function App() {
   }, []);
 
   const startAsk = useCallback(
-    (question: string, skill: string | null = null, fresh = false) => {
+    (question: string, options: AskOptions = {}) => {
+      const { skill = null, agent = null, fresh = false, base = "/chat", bind = null } = options;
       cancelAsk.current?.();
       dirty.current = true;
       // Abandon any conversation still being fetched. Its `setTurns` would
@@ -175,7 +228,11 @@ export default function App() {
       if (!activeIdRef.current) {
         const id = newChatId();
         setActive(id);
-        navigate(`/chat/${id}`, { replace: !fresh });
+        // Bound once, on the conversation's first question. A later question
+        // cannot move a thread to another agent — see the note in
+        // history.mjs's saveChat.
+        boundAgentRef.current = bind;
+        navigate(`${base}/${id}`, { replace: !fresh });
       }
 
       // The conversation so far, as plain text. The server strips the model's
@@ -189,7 +246,8 @@ export default function App() {
         .map((t) => ({ question: t.question, answer: t.answer.result?.answer ?? t.answer.text }))
         .filter((t) => t.answer.trim().length > 0);
 
-      // A hand-picked skill opens the trail as its own step.
+      // A hand-picked skill opens the trail as its own step. A picked agent
+      // does not: the server announces it as the run's first frame.
       const seed = skill
         ? [{ name: "skill", args: { skill } }]
         : [];
@@ -256,19 +314,20 @@ export default function App() {
           onDelta: (text) => patchLast((s) => ({ ...s, text: s.text + text })),
           onDone: (result) => {
             runningRef.current = false;
-            markFinished(askedIn);
+            markFinished(askedIn, base);
             patchLast((s) => ({ ...s, running: false, text: result.answer, result }));
             // The budget just moved. Re-read it rather than decrementing a guess.
             fetchBudget().then(setBudget).catch(() => {});
           },
           onError: (message) => {
             runningRef.current = false;
-            markFinished(askedIn);
+            markFinished(askedIn, base);
             patchLast((s) => ({ ...s, running: false, error: message }));
           },
         },
         priorTurns,
         skill,
+        agent,
       );
     },
     [turns, navigate, patchLast, setActive, markFinished],
@@ -301,7 +360,7 @@ export default function App() {
    * The load is visible, because `getChat` is a Postgres request.
    */
   const openChat = useCallback(
-    async (id: string | null, { force = false } = {}) => {
+    async (id: string | null, { force = false, base = "/chat", bind = null }: OpenOptions = {}) => {
       // Opening is what "seen" means, so the dot clears before the early
       // return — clicking the row you are on is exactly that case.
       if (id) {
@@ -322,7 +381,7 @@ export default function App() {
       // `force` is the caller saying "I am starting a run, not discarding
       // one" — askFromHome, which must land on a clean conversation.
       if (!id && !force && runningRef.current && activeIdRef.current) {
-        navigate(`/chat/${activeIdRef.current}`, { replace: true });
+        navigate(`${base}/${activeIdRef.current}`, { replace: true });
         return;
       }
 
@@ -330,6 +389,10 @@ export default function App() {
       runningRef.current = false;
       setRunningChatId(null);
       dirty.current = false;
+      // A new conversation on this screen belongs to whatever the screen is:
+      // null in /chat, the slug in an agent's Playground. A stored one
+      // overrides this below with what it was saved under.
+      boundAgentRef.current = bind;
       if (!id) {
         setActive(null);
         setTurns([]);
@@ -350,9 +413,10 @@ export default function App() {
       // A conversation this browser has never held: land on a new chat rather
       // than an empty thread pretending to be theirs.
       if (!chat) {
-        navigate("/chat", { replace: true });
+        navigate(base, { replace: true });
         return;
       }
+      boundAgentRef.current = chat.agent ?? null;
       setTurns(chat.turns);
     },
     [navigate, setActive],
@@ -370,9 +434,9 @@ export default function App() {
    * make this reset a no-op.
    */
   const askFromHome = useCallback(
-    (question: string, skill: string | null) => {
+    (question: string, skill: string | null, agent: string | null) => {
       openChat(null, { force: true });
-      startAsk(question, skill, true);
+      startAsk(question, { skill, agent, fresh: true });
     },
     [openChat, startAsk],
   );
@@ -384,6 +448,22 @@ export default function App() {
       .then(setSearches)
       .catch(() => {});
   }, []);
+
+  // Everything an agent's Playground needs. Assembled once rather than spread
+  // across two route elements, which is where the two would drift apart.
+  const playgroundProps = {
+    turns,
+    chats: agentChats,
+    loading: loadingChat,
+    chatsLoading: agentChatsLoading,
+    runningChatId,
+    unseenChats,
+    activeId: activeChatId,
+    onOpen: openChat,
+    onAsk: startAsk,
+    onStop: stopAsk,
+    onLoadChats: loadAgentChats,
+  };
 
   return (
     <SidebarProvider>
@@ -413,12 +493,42 @@ export default function App() {
             element={<ChatRoute turns={turns} chats={chats} loading={loadingChat} chatsLoading={chatsLoading} runningChatId={runningChatId} unseenChats={unseenChats} onOpen={openChat} onAsk={startAsk} onStop={stopAsk} />}
           />
           <Route path="/skills" element={<SkillsScreen />} />
+          <Route path="/agents" element={<AgentsScreen />} />
+          {/* A new agent has no slug yet, so it is a path of its own rather
+              than a mode on the one below. `?from=<slug>` clones. */}
+          <Route path="/agents/new" element={<NewAgentRoute />} />
+          <Route path="/agents/:slug" element={<Navigate to="play" replace />} />
+          <Route path="/agents/:slug/build" element={<AgentRoute tab="build" {...playgroundProps} />} />
+          <Route
+            path="/agents/:slug/play"
+            element={<AgentRoute tab="play" {...playgroundProps} />}
+          />
+          <Route
+            path="/agents/:slug/play/:id"
+            element={<AgentRoute tab="play" {...playgroundProps} />}
+          />
+          {/* The same `:id` param as /play/:id, and AgentRoute decides which
+              it is from the tab. Two params would let a stale one reach the
+              wrong panel. */}
+          <Route
+            path="/agents/:slug/executions"
+            element={<AgentRoute tab="executions" {...playgroundProps} />}
+          />
+          <Route
+            path="/agents/:slug/executions/:id"
+            element={<AgentRoute tab="executions" {...playgroundProps} />}
+          />
           <Route path="/tools" element={<ToolsScreen sources={sources} />} />
           {/* An unknown path is a typo or a stale link, not an error worth a
               page of its own. */}
           <Route path="*" element={<Navigate to="/search" replace />} />
         </Routes>
       </SidebarInset>
+
+      {/* Above the routes, so walking the tour cannot unmount it, and inside
+          the provider so the rail it points at is already laid out. It decides
+          for itself whether this browser has seen it. */}
+      <Tour />
     </SidebarProvider>
   );
 }
@@ -437,7 +547,7 @@ function SearchRoute({
   onManageSkills,
 }: {
   onSearched: (query: string, facts: SearchFacts) => void;
-  onAsk: (question: string, skill: string | null) => void;
+  onAsk: (question: string, skill: string | null, agent: string | null) => void;
   onAddSkill: () => void;
   onManageSkills: () => void;
 }) {
@@ -527,7 +637,7 @@ function ChatRoute({
   loading: boolean;
   chatsLoading: boolean;
   onOpen: (id: string | null) => void;
-  onAsk: (question: string, skill: string | null) => void;
+  onAsk: (question: string, options: AskOptions) => void;
   onStop: () => void;
 }) {
   const { id } = useParams();
@@ -559,10 +669,90 @@ function ChatRoute({
       loading={loading}
       chatsLoading={chatsLoading}
       onStop={onStop}
-      onAsk={onAsk}
+      onAsk={(question, skill, agent) => onAsk(question, { skill, agent })}
       onManageSkills={() => navigate("/skills")}
       onNewChat={() => navigate("/chat")}
       onSelectChat={(next) => navigate(`/chat/${next}`)}
+    />
+  );
+}
+
+/**
+ * The new-agent page.
+ *
+ * `?from=<slug>` clones: the editor loads that agent's definition and the
+ * save creates a new folder, so `metadata.added_via` becomes `badger-ui` even
+ * when the original was hand-written. A copy is not hand-written.
+ */
+function NewAgentRoute() {
+  const [params] = useSearchParams();
+  return <AgentScreen cloneFrom={params.get("from") ?? undefined} />;
+}
+
+/**
+ * One agent's page, on either tab.
+ *
+ * Only the Playground touches the conversation state. Opening Build leaves a
+ * run in flight alone, the same way switching to Search does.
+ */
+function AgentRoute({
+  tab,
+  turns,
+  chats,
+  loading,
+  chatsLoading,
+  runningChatId,
+  unseenChats,
+  activeId,
+  onOpen,
+  onAsk,
+  onStop,
+  onLoadChats,
+}: {
+  tab: "build" | "play" | "executions";
+  turns: ChatTurn[];
+  chats: ChatSummary[];
+  loading: boolean;
+  chatsLoading: boolean;
+  runningChatId: string | null;
+  unseenChats: Set<string>;
+  activeId: string | null;
+  onOpen: (id: string | null, options?: OpenOptions) => void;
+  onAsk: (question: string, options: AskOptions) => void;
+  onStop: () => void;
+  onLoadChats: (slug: string) => void;
+}) {
+  const { slug = "", id } = useParams();
+  const navigate = useNavigate();
+  const base = `/agents/${slug}/play`;
+
+  useEffect(() => {
+    if (tab === "play") onLoadChats(slug);
+  }, [tab, slug, onLoadChats]);
+
+  useEffect(() => {
+    if (tab !== "play") return;
+    onOpen(id ?? null, { base, bind: slug });
+  }, [tab, id, base, slug, onOpen]);
+
+  return (
+    <AgentScreen
+      slug={slug}
+      tab={tab}
+      runId={tab === "executions" ? id : undefined}
+      playground={{
+        turns,
+        chats,
+        loading,
+        chatsLoading,
+        runningChatId,
+        unseenChats,
+        activeId: id ?? activeId,
+        onAsk: (question) => onAsk(question, { agent: slug, base, bind: slug }),
+        onStop,
+        onNewChat: () => navigate(base),
+        onSelectChat: (next) => navigate(`${base}/${next}`),
+      }}
     />
   );
 }

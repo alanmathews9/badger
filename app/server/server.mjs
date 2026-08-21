@@ -16,18 +16,16 @@ import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import { query } from "@open-gitagent/gitagent";
-import { openAuditLog } from "./audit.mjs";
 import { searchAll, SearchError } from "./search.mjs";
 import { hydrateFromDb, startRefreshTimer } from "./index-search.mjs";
 import { migrate } from "../../scripts/db-migrate.mjs";
-import { authEnabled, clearSessionCookie, hasValidSession, issueSessionCookie, passphraseMatches, sessionUid } from "./auth.mjs";
+import { authEnabled, clearSessionCookie, hasValidSession, issueSessionCookie, passphraseMatches, sessionUid, tickEnabled, tickTokenMatches } from "./auth.mjs";
 import * as historyStore from "./history.mjs";
 import { TOOLKITS, TOOLKIT_LABELS, accountFor, listConnections, resolveContext } from "./connections.mjs";
 import { budgetStatus, claimAskSlot, clientIp, rateLimit } from "./limits.mjs";
 import { splashPage } from "./splash.mjs";
-import { buildSystemSuffix } from "./system-suffix.mjs";
-import { buildPrompt, parseAskBody } from "./transcript.mjs";
+import { parseAskBody } from "./transcript.mjs";
+import { RunError, runAgent } from "./run-agent.mjs";
 import {
   createSkillFromFile,
   deleteSkill,
@@ -35,12 +33,19 @@ import {
   readSkill,
   updateSkill,
 } from "./skills-store.mjs";
-import { annotateUnverified, extractCitations, mentions, verifyCitations } from "./verify-citations.mjs";
-import { attachSourceUrls } from "./source-links.mjs";
-import { parseToolResults } from "./tool-results.mjs";
-import { matchSkill, readProcedure } from "./skill-match.mjs";
-import { openAgentRepo, redact } from "./agent-repo.mjs";
-import { guardRuntimeTool } from "./tool-guard.mjs";
+import {
+  createAgent,
+  deleteAgent,
+  listAgents,
+  listToolCatalog,
+  readAgent,
+  updateAgent,
+} from "./agents-store.mjs";
+import { openAgentRepo } from "./agent-repo.mjs";
+import { readSchedule, removeSchedule, writeSchedule } from "./schedules-store.mjs";
+import { TIMEZONE_LABEL } from "./schedule-cron.mjs";
+import { listRuns, readRun, renameAgentRuns } from "./executions.mjs";
+import { runDue, runOnce } from "./scheduler.mjs";
 
 // The repo root, which is also the agent directory query() loads. The reach
 // from app/ upward into the agent is one-way and never the reverse.
@@ -52,6 +57,15 @@ const AGENT = openAgentRepo(ROOT);
 // The skills the product lists, adds to and edits — always the same directory
 // the agent reads, whichever mode is in play.
 const SKILLS_DIR = join(AGENT.agentDir, "skills");
+// The sub-agents, in the same directory the runtime discovers them from. Each
+// one is a full agent folder: its own SOUL.md, tools/ and skills/.
+const AGENTS_DIR = join(AGENT.agentDir, "agents");
+// The tools a sub-agent may be given, read from the agent's own tools/ — the
+// catalogue is whatever Badger itself can call, never a superset.
+const TOOLS_DIR = join(AGENT.agentDir, "tools");
+// Everything a run needs to find the agent on disk, in one object, because a
+// typed question and a scheduled one must resolve to the same four paths.
+const RUN_PATHS = { root: ROOT, agentDir: AGENT.agentDir, agentsDir: AGENTS_DIR, skillsDir: SKILLS_DIR, repo: AGENT };
 // Cloud Run injects PORT and expects the server to listen on it. BADGER_PORT
 // is the local convention; PORT wins so the same image runs in both places.
 const PORT = Number(process.env.PORT || process.env.BADGER_PORT) || 4000;
@@ -81,6 +95,13 @@ const server = createServer(async (req, res) => {
     // corpus or the sources; the door has to be able to draw itself.
     if (url.pathname === "/favicon.svg") return await serveStatic("/favicon.svg", res);
     if (url.pathname === "/logo.svg") return await serveStatic("/logo.svg", res);
+    // Cloud Scheduler cannot hold a session cookie, so the tick carries a
+    // shared secret in a header instead and is matched before the gate. It
+    // fails closed: with no BADGER_TICK_SECRET configured it refuses
+    // everything rather than accepting anything.
+    if (url.pathname === "/api/schedules/tick" && req.method === "POST") {
+      return await handleTick(req, res);
+    }
 
     if (!hasValidSession(req)) {
       // The app bundle and every API sit behind this.
@@ -92,6 +113,10 @@ const server = createServer(async (req, res) => {
     if (url.pathname === "/api/skills" && req.method === "GET") return handleSkillsList(res);
     if (url.pathname === "/api/skills" && req.method === "POST") return await handleSkillsCreate(req, res);
     if (url.pathname.startsWith("/api/skills/")) return await handleSkillOne(req, res, url);
+    if (url.pathname === "/api/tools-catalog" && req.method === "GET") return handleToolCatalog(res);
+    if (url.pathname === "/api/agents" && req.method === "GET") return handleAgentsList(res);
+    if (url.pathname === "/api/agents" && req.method === "POST") return await handleAgentsCreate(req, res);
+    if (url.pathname.startsWith("/api/agents/")) return await handleAgentOne(req, res, url);
     if (url.pathname === "/api/sources" && req.method === "GET") return await handleSources(req, res);
     if (url.pathname === "/api/ask" && req.method === "POST") return await handleAsk(req, res);
     if (url.pathname.startsWith("/api/chats")) return await handleChats(req, res, url);
@@ -252,13 +277,6 @@ async function handleAsk(req, res) {
   }
   const parsed = parseAskBody(body);
   if (parsed.error) return json(res, 400, { error: parsed.error });
-  const { question, history } = parsed;
-  // Only a skill that exists on disk reaches the prompt; a stale or invented
-  // slug degrades to a plain question rather than an error.
-  const skill =
-    parsed.skill && listSkills(SKILLS_DIR).some((s) => s.slug === parsed.skill)
-      ? parsed.skill
-      : null;
 
   const limited = rateLimit(req, "ask");
   if (limited) return json(res, 429, { error: limited });
@@ -268,19 +286,6 @@ async function handleAsk(req, res) {
   const slot = claimAskSlot();
   if (slot.error) return json(res, 429, { error: slot.error });
 
-  // Which skill this question needs, and its procedure. A skill picked from
-  // the composer wins outright; otherwise we choose, because the runtime's own
-  // matcher matches nothing here. See skill-match.mjs.
-  const matched = skill
-    ? { slug: skill, procedure: readProcedure(SKILLS_DIR, skill) }
-    : matchSkill(SKILLS_DIR, question);
-  const chosen = matched?.slug ?? null;
-
-  const prompt = buildPrompt(history, question, {
-    skill: chosen,
-    procedure: matched?.procedure ?? matched?.body ?? null,
-  });
-
   res.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
     "cache-control": "no-cache, no-transform",
@@ -288,329 +293,36 @@ async function handleAsk(req, res) {
   });
   const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
-  // The skill in play, announced as the run's first step. GAP emits no event
-  // when a skill is chosen, so this is sent as a `tool` frame and the trail
-  // treats it like any other step.
-  if (chosen) send("tool", { index: -1, name: "skill", args: { skill: chosen } });
-
-  const startedAt = Date.now();
-  const toolOutputs = [];
-  const toolCalls = [];
-  // The runtime's tool-call id -> the step index it was announced as.
-  const callIndex = new Map();
-  const opened = [];
-  let answer = "";
-
-  const ctx = await resolveContext();
-  if (ctx.mode === "none") {
-    send("error", { message: "No sources are configured, so there is nothing to answer from." });
-    slot.release();
-    return res.end();
-  }
-
-  // One private copy of the agent repo for this run, or ROOT in dir mode.
-  // Awaited before query() because the runtime does its own git work inside
-  // initLocalSession and needs the directory to already be there.
-  const target = await AGENT.queryTarget();
-
-  // maxTurns bounds a runaway loop, which is the failure mode that costs money
-  // rather than time.
-  const run = query({
-    prompt,
-    // `repo` and `dir` are alternatives, not a pair — sdk.js:98-112 takes
-    // repo.dir when repo is present and ignores dir. Spreading exactly one of
-    // them keeps that explicit rather than passing both and relying on which
-    // one the runtime happens to prefer.
-    ...(target.repo ? { repo: target.repo } : { dir: target.dir }),
-    // The agent's own directory, so memory is read from where the agent
-    // writes it rather than from the image's frozen copy — see system-suffix.
-    systemPromptSuffix: buildSystemSuffix(AGENT.agentDir),
-    // 18, not 12: the learning loop spends five or six turns of the same
-    // budget as retrieval, and at 12 the eval fell to 9/15 from 14/15. The
-    // bound exists to stop a runaway loop, not to ration reading.
-    maxTurns: 18,
-    // The shell and the two write tools, removed from the model's schema.
-    // hooks/allowed-tools.txt blocks them too, but this filter runs first
-    // (dist/sdk.js:179) and, unlike the hook, cannot fail open.
-    disallowedTools: ["cli", "write", "edit"],
-    // Whose GitHub this run reads. Declarative tools are spawned with a
-    // snapshot of process.env, so an env var would race between concurrent
-    // visitors; a preToolUse closure puts the identity in the call's own
-    // arguments instead — per request, and invisible to the model.
-    hooks: {
-      preToolUse: (hookCtx) => {
-        const blocked = guardRuntimeTool(hookCtx.toolName, hookCtx.args);
-        if (blocked) return { action: "block", reason: blocked };
-
-        const args = {
-          ...hookCtx.args,
-          _badger_user: ctx.userId,
-          _badger_repo: ctx.repo,
-        };
-
-        // The runtime builds its memory commit with
-        // `git commit -m "${message}"` through a shell and escapes only the
-        // quote (dist/tools/memory.js:120), so `$`, a backtick or a backslash
-        // in a model-supplied message executes as a command inside the
-        // container. Stripping them rather than blocking: a legitimate commit
-        // message never needs one, so this changes nothing the agent does and
-        // costs it no turn.
-        if (hookCtx.toolName === "memory" && typeof args.message === "string") {
-          args.message = args.message.replace(/[$`\\]/g, "");
-        }
-
-        // Tell the learning loop which skill was used, because the model
-        // often will not. `task_tracker end` fires reinforcement only if handed
-        // `skill_used` (dist/tools/task-tracker.js:227); without it no counter
-        // moves and nothing is committed.
-        //
-        // `outcome` is still the model's, so whether it worked remains its
-        // call. Only WHICH skill is filled in, and this server chose it.
-        // Lower-case the loop's enum arguments before validation. `action`
-        // and `outcome` are literal constants, so "Success" is a hard
-        // validation failure that leaves the task active and makes the
-        // following skill_learner call refuse. Every legal value is already
-        // lower-case, so this can only turn an invalid argument into the
-        // valid one meant.
-        if (hookCtx.toolName === "task_tracker" || hookCtx.toolName === "skill_learner") {
-          for (const field of ["action", "outcome"]) {
-            if (typeof args[field] === "string") args[field] = args[field].toLowerCase();
-          }
-        }
-
-        if (
-          hookCtx.toolName === "task_tracker" &&
-          args.action === "end" &&
-          chosen &&
-          !args.skill_used
-        ) {
-          args.skill_used = chosen;
-        }
-
-        return { action: "modify", args };
-      },
-    },
-  });
-
-  // The audit trail the runtime keeps only on its CLI path — see audit.mjs.
-  const audit = openAuditLog(ROOT);
-
-  // `res`, not `req`: an IncomingMessage emits 'close' when the request BODY
-  // is done, which already happened in readBody, so the listener never fired
-  // and a stopped run held its concurrency slot. `writableEnded` distinguishes
-  // a real disconnect from our own end(); slot.release() is idempotent.
-  //
-  // `run.abort()` is called but does nothing — gitagent 2.1.0 passes the
-  // AbortController's signal to nothing (docs/UPSTREAM.md finding 4). It stays
-  // so this is correct the day the runtime wires it up. The bounds that hold
-  // are maxTurns and the daily ceiling.
-  res.on("close", () => {
-    if (!res.writableEnded) run.abort?.();
-    slot.release();
-  });
-
   try {
-    for await (const msg of run) {
-      audit.record(msg);
-      switch (msg.type) {
-        case "tool_use": {
-          toolCalls.push(msg.toolName);
-          recordOpened(opened, msg);
-          const index = toolCalls.length - 1;
-          // By the runtime's own id — see tool_result for why position fails.
-          if (msg.toolCallId != null) callIndex.set(msg.toolCallId, index);
-          send("tool", { index, name: msg.toolName, args: msg.args ?? {} });
-          break;
-        }
-        case "tool_result": {
-          // Everything Badger actually retrieved. This is the corpus a
-          // citation has to appear in to count as verified.
-          const content =
-            typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
-          toolOutputs.push(content);
-          // …and, for a search, the documents it found.
-          //
-          // Attached by the runtime's `toolCallId`, which rides both frames
-          // (dist/sdk.js:376,385). Position does NOT work: the model issues
-          // several calls per turn, so frames arrive use,use,use then
-          // result,result,result and every result lands on the last step.
-          const from = msg.toolName ?? toolCalls.at(-1);
-          const results = parseToolResults(from, content);
-          if (results.length) {
-            const index = callIndex.has(msg.toolCallId)
-              ? callIndex.get(msg.toolCallId)
-              : toolCalls.length - 1;
-            send("results", { index, results });
-          }
-          break;
-        }
-        case "delta":
-          if (msg.deltaType === "text" && msg.content) send("delta", { text: msg.content });
-          break;
-        case "assistant":
-          if (msg.content) answer = msg.content;
-          break;
-        case "system":
-          // Redacted: the runtime authenticates git with the token in the URL
-          // (session.js:8), so a failed clone or push produces an error
-          // message carrying the credential, and this goes to the browser.
-          if (msg.subtype === "error") send("warning", { message: redact(msg.content) });
-          break;
-      }
-    }
-  } catch (err) {
-    // As above: an error out of query() can carry the git URL, and this goes
-    // to Cloud Logging.
-    console.error("[ask]", redact(err?.stack || err?.message || err));
-    send("error", { message: "Badger could not finish that answer." });
-    slot.release();
-    return res.end();
-  } finally {
-    audit.end();
-    slot.release();
-    // finalize() has already committed and pushed on both the success and the
-    // error path, so the copy is done with. Best-effort and not awaited: a
-    // failed cleanup must not turn a good answer into an error.
-    target.release();
-    AGENT.sync();
-  }
-
-  const verification = verifyCitations(answer, toolOutputs);
-  const cited = extractCitations(answer);
-  labelOpened(opened, toolOutputs);
-  const costs = typeof run.costs === "function" ? run.costs() : null;
-
-  send("done", {
-    // Bad citations are marked inline rather than withholding the answer: the
-    // reader needs to know which claim to distrust, not that something
-    // somewhere is wrong.
-    answer: annotateUnverified(answer, verification),
-    verification,
-    toolCalls,
-    // From what the answer cites, not what was opened: an answer can
-    // legitimately cite an issue it only saw in search results.
-    cited: attachSourceUrls(
-      resolveCitations(cited, toolOutputs),
-      opened,
-      process.env.BADGER_GITHUB_REPO ?? null,
-      // The mailbox we actually indexed, so a mail citation can be addressed
-      // by identity rather than by position. Cached after the first lookup.
-      { mailbox: await accountFor(ctx.userId, "gmail").catch(() => null) },
-    ),
-    // Opened in full and not cited — the honesty signal. Deliberately not
-    // everything that appeared in a search result: those were listed, not
-    // read.
-    opened,
-    uncited: opened.filter((item) => !isCited(item, cited)),
-    tookMs: Date.now() - startedAt,
-    costUsd: costs?.totalCostUsd ?? null,
-    inputTokens: costs?.totalInputTokens ?? null,
-    outputTokens: costs?.totalOutputTokens ?? null,
-  });
-  res.end();
-}
-
-/**
- * Note what a tool call opened, so the answer can be compared against it.
- *
- * Drives "N items were opened but not cited" and the follow-up chips.
- *
- * Mail and Drive are opened by opaque id, so there is no label to record here;
- * `labelOpened` recovers one from the tool's own output.
- */
-function recordOpened(opened, msg) {
-  const args = msg.args ?? {};
-  const add = (kind, ref, label) => {
-    if (ref == null || opened.some((o) => o.kind === kind && o.ref === String(ref))) return;
-    opened.push({ kind, ref: String(ref), label: label ?? String(ref) });
-  };
-  switch (msg.toolName) {
-    case "github_issue": return add("issue", args.number, `issue #${args.number}`);
-    case "github_pr": return add("pr", args.number, `PR #${args.number}`);
-    case "github_file": return add("file", args.path, args.path);
-    case "gmail_thread": return add("mail", args.thread_id);
-    // Both Drive reads name the same document, so they collapse to one entry.
-    case "drive_file":
-    case "drive_comments": return add("doc", args.file_id);
-  }
-}
-
-/**
- * Give the mail and document opens a human label.
- *
- * The tools print an id-to-name line at the top of their output —
- * `thread <id> — "<subject>"` and `<name>  [doc]` above `id: <file_id>` — so
- * the name costs no extra call. An unresolvable id keeps the id.
- */
-function labelOpened(opened, toolOutputs) {
-  const corpus = toolOutputs.join("\n");
-  for (const item of opened) {
-    if (item.kind === "mail") {
-      const m = corpus.match(new RegExp(`thread ${escapeRe(item.ref)} — "([^"]+)"`));
-      if (m) item.label = m[1];
-    } else if (item.kind === "doc") {
-      const m = corpus.match(new RegExp(`(.+)\\s+\\[(doc|sheet)\\]\\nid: ${escapeRe(item.ref)}`));
-      if (m) {
-        item.label = m[1].trim();
-        item.detail = m[2] === "sheet" ? "spreadsheet" : "document";
-      }
-    }
-  }
-}
-
-const escapeRe = (v) => String(v).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-/**
- * Turn the answer's citations into source cards, recovering each one's title
- * from the tool output that produced it.
- *
- * The tools print issues as "#12 [issue, open] Title", so the title needs no
- * further API call. Unrecoverable falls back to the bare reference.
- */
-function resolveCitations(cited, toolOutputs) {
-  const corpus = toolOutputs.join("\n");
-  const items = [];
-
-  for (const number of cited.numbers) {
-    const match = corpus.match(new RegExp(`#${number} \\[(issue|PR), ([^\\]]*)\\] (.+)`));
-    items.push({
-      kind: match?.[1] === "PR" ? "pr" : "issue",
-      ref: number,
-      label: match?.[3]?.trim() || `#${number}`,
-      detail: match ? `${match[1] === "PR" ? "pull request" : "issue"} #${number}, ${match[2]}` : `#${number}`,
+    const result = await runAgent({
+      question: parsed.question,
+      history: parsed.history,
+      skill: parsed.skill,
+      agent: parsed.agent,
+      emit: send,
+      // `res`, not `req`: an IncomingMessage emits 'close' when the request
+      // BODY is done, which already happened in readBody, so the listener
+      // never fired and a stopped run held its concurrency slot.
+      // `writableEnded` distinguishes a real disconnect from our own end();
+      // slot.release() is idempotent.
+      onRun: (run) =>
+        res.on("close", () => {
+          if (!res.writableEnded) run.abort?.();
+          slot.release();
+        }),
+      paths: RUN_PATHS,
     });
+    send("done", result);
+  } catch (err) {
+    send("error", {
+      message: err instanceof RunError ? err.message : "Badger could not finish that answer.",
+    });
+  } finally {
+    slot.release();
+    res.end();
   }
-
-  for (const path of cited.paths) {
-    items.push({ kind: "file", ref: path, label: path, detail: "file" });
-  }
-
-  // Mail and documents are cited by subject and by name rather than by id —
-  // the format RULES.md asks for — so the citation is its own reference.
-  for (const m of cited.mail) {
-    items.push({ kind: "mail", ref: m.subject, label: m.subject, detail: `mail, ${m.sender}` });
-  }
-
-  for (const name of cited.documents) {
-    items.push({ kind: "doc", ref: name, label: name, detail: "document" });
-  }
-
-  return items;
 }
 
-/**
- * Did the answer actually cite this opened item?
- *
- * GitHub items match literally. Mail and documents are compared against the
- * label recovered from the tool output, with the verifier's forgiving match:
- * the target is invention, not transcription.
- */
-function isCited(item, cited) {
-  if (item.kind === "file") return cited.paths.includes(item.ref);
-  if (item.kind === "mail") return cited.mail.some((m) => mentions(item.label, m.subject));
-  if (item.kind === "doc") return cited.documents.some((d) => mentions(item.label, d));
-  return cited.numbers.includes(item.ref);
-}
 
 /**
  * GET /api/skills — what the agent knows how to do, for the picker.
@@ -648,9 +360,15 @@ async function handleSkillOne(req, res, url) {
       } catch {
         return json(res, 400, { error: "body must be JSON" });
       }
-      return json(res, 200, updateSkill(dir, slug, body?.content));
+      const saved = updateSkill(dir, slug, body?.content);
+      await AGENT.saveEdit("skill", "update", slug);
+      return json(res, 200, saved);
     }
-    if (req.method === "DELETE") return json(res, 200, deleteSkill(dir, slug));
+    if (req.method === "DELETE") {
+      const removed = deleteSkill(dir, slug);
+      await AGENT.saveEdit("skill", "delete", slug);
+      return json(res, 200, removed);
+    }
     return json(res, 405, { error: "method not allowed" });
   } catch (err) {
     // Every throw from the store is a message written for a person — an
@@ -674,12 +392,211 @@ async function handleSkillsCreate(req, res) {
     // One way in: a whole SKILL.md. Written in the box or loaded from a file,
     // it is the same string by the time it arrives here.
     const { slug } = createSkillFromFile(SKILLS_DIR, body?.file);
+    await AGENT.saveEdit("skill", "create", slug);
     return json(res, 201, { slug });
   } catch (err) {
     return json(res, 400, { error: err.message });
   }
 }
 
+
+/**
+ * The sub-agents.
+ *
+ *   GET    /api/agents          every agent, for the list and the picker
+ *   POST   /api/agents          create one from the editor's fields
+ *   GET    /api/agents/<slug>   one agent, with its instructions
+ *   PUT    /api/agents/<slug>   replace its definition
+ *   DELETE /api/agents/<slug>   remove the folder
+ *
+ * Unlike a skill, which is one file a person writes, an agent is a directory
+ * of generated files — so this takes fields rather than a document. The store
+ * owns validation and slug safety; the slug is never joined onto a path here.
+ *
+ * Every write shares the answer bucket's rate limit.
+ */
+function handleAgentsList(res) {
+  return json(res, 200, { agents: listAgents(AGENTS_DIR) });
+}
+
+/** GET /api/tools-catalog — the tools an agent can be given. */
+function handleToolCatalog(res) {
+  return json(res, 200, { tools: listToolCatalog(TOOLS_DIR) });
+}
+
+async function handleAgentsCreate(req, res) {
+  const limited = rateLimit(req, "ask");
+  if (limited) return json(res, 429, { error: limited });
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return json(res, 400, { error: "body must be JSON" });
+  }
+  try {
+    const { slug } = createAgent(AGENTS_DIR, body, { rootDir: AGENT.agentDir });
+    await AGENT.saveEdit("agent", "create", slug);
+    return json(res, 201, { slug });
+  } catch (err) {
+    return json(res, 400, { error: err.message });
+  }
+}
+
+async function handleAgentOne(req, res, url) {
+  // /api/agents/<slug>, and the two collections that hang off one agent:
+  // /api/agents/<slug>/schedule and /api/agents/<slug>/executions[/<id>].
+  const [rawSlug, section, item] = url.pathname
+    .slice("/api/agents/".length)
+    .split("/")
+    .map((part) => decodeURIComponent(part));
+  const slug = rawSlug;
+  try {
+    if (section === "schedule") return await handleSchedule(req, res, slug);
+    if (section === "executions") return await handleExecutions(req, res, slug, item);
+    if (section) return json(res, 404, { error: "no such endpoint" });
+
+    if (req.method === "GET") return json(res, 200, readAgent(AGENTS_DIR, slug));
+
+    const limited = rateLimit(req, "ask");
+    if (limited) return json(res, 429, { error: limited });
+
+    if (req.method === "PUT") {
+      let body;
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        return json(res, 400, { error: "body must be JSON" });
+      }
+      const saved = updateAgent(AGENTS_DIR, slug, body, { rootDir: AGENT.agentDir });
+      // A rename moved the folder; the Playground conversations filed under
+      // the old name have to follow it or they are listed by no page.
+      await AGENT.saveEdit("agent", "update", saved.slug);
+      if (saved.renamedFrom && historyStore.dbConfigured()) {
+        try {
+          await historyStore.renameAgentChats(saved.renamedFrom, saved.slug);
+          // Its executions too. The schedule YAML travels inside the folder
+          // and needs no help; its history is in Postgres and does.
+          await renameAgentRuns(saved.renamedFrom, saved.slug);
+        } catch (err) {
+          // The agent is already renamed and that is the important half.
+          console.warn(`[agents] chat sessions not moved: ${err.message}`);
+        }
+      }
+      return json(res, 200, saved);
+    }
+    if (req.method === "DELETE") {
+      const removed = deleteAgent(AGENTS_DIR, slug, { rootDir: AGENT.agentDir });
+      await AGENT.saveEdit("agent", "delete", removed.slug);
+      return json(res, 200, removed);
+    }
+    return json(res, 405, { error: "method not allowed" });
+  } catch (err) {
+    const missing = err.message === "no such agent";
+    return json(res, missing ? 404 : 400, { error: err.message });
+  }
+}
+
+
+/**
+ * A sub-agent's schedule — the saved question it asks itself on an interval.
+ *
+ *   GET    /api/agents/<slug>/schedule   the one schedule, or null
+ *   PUT    /api/agents/<slug>/schedule   create or replace it
+ *   POST   /api/agents/<slug>/schedule   run it now, whether or not it is due
+ *   DELETE /api/agents/<slug>/schedule   remove it
+ *
+ * Every write calls AGENT.saveEdit, exactly as the agent and skill routes do.
+ * In repo mode the agent directory is a clone under tmpdir() and the instance
+ * recycles after a few minutes of quiet, so without it the schedule is gone
+ * before anyone comes back to read what it produced.
+ */
+async function handleSchedule(req, res, slug) {
+  if (req.method === "GET") {
+    return json(res, 200, { schedule: await readSchedule(AGENTS_DIR, slug), timezone: TIMEZONE_LABEL });
+  }
+
+  // Everything below either writes to the repo or spends an answer. Same
+  // limit as asking a question, for the same reason.
+  const limited = rateLimit(req, "ask");
+  if (limited) return json(res, 429, { error: limited });
+
+  if (req.method === "PUT") {
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      return json(res, 400, { error: "body must be JSON" });
+    }
+    const saved = await writeSchedule(AGENTS_DIR, slug, body);
+    await AGENT.saveEdit("schedule", "update", slug);
+    return json(res, 200, { schedule: saved, timezone: TIMEZONE_LABEL });
+  }
+
+  if (req.method === "POST") {
+    // Run now. The same code path the tick takes, with the waiting removed —
+    // so what a reviewer sees demonstrated is what actually runs unattended.
+    const ran = await runOnce(RUN_PATHS, slug);
+    return json(res, 200, { ran, schedule: await readSchedule(AGENTS_DIR, slug) });
+  }
+
+  if (req.method === "DELETE") {
+    const removed = await removeSchedule(AGENTS_DIR, slug);
+    if (removed) await AGENT.saveEdit("schedule", "delete", slug);
+    return json(res, 200, { removed });
+  }
+
+  return json(res, 405, { error: "method not allowed" });
+}
+
+/**
+ * What the schedule has produced.
+ *
+ *   GET /api/agents/<slug>/executions        the runs, newest first
+ *   GET /api/agents/<slug>/executions/<id>   one of them in full
+ *
+ * `persisted: false` is a normal answer here for the same reason it is on
+ * chats: Badger runs without a database, and a scheduler that keeps no
+ * history is a smaller product rather than a broken one. It does mean the
+ * Executions tab has nothing to show, which is what the flag says.
+ */
+async function handleExecutions(req, res, slug, id) {
+  if (req.method !== "GET") return json(res, 405, { error: "method not allowed" });
+  // Checked even though nothing here joins it onto a path, so an unknown
+  // agent is a 404 rather than an empty list that reads as "never run".
+  readAgent(AGENTS_DIR, slug);
+  if (!historyStore.dbConfigured()) return json(res, 200, { persisted: false, runs: [], run: null });
+  try {
+    if (id) return json(res, 200, { persisted: true, run: await readRun(slug, id) });
+    return json(res, 200, { persisted: true, runs: await listRuns(slug) });
+  } catch (err) {
+    console.warn(`[executions] unavailable: ${err.message}`);
+    return json(res, 200, { persisted: false, runs: [], run: null });
+  }
+}
+
+/**
+ * POST /api/schedules/tick — Cloud Scheduler, every 15 minutes, forever.
+ *
+ * One job for the whole product. It never changes as schedules come and go,
+ * so the files stay the only place a schedule exists. See scheduler.mjs.
+ */
+async function handleTick(req, res) {
+  if (!tickEnabled) return json(res, 404, { error: "no such endpoint" });
+  // A header rather than a query string: a URL is logged by every proxy
+  // between Cloud Scheduler and here, and a secret in a log is not a secret.
+  if (!tickTokenMatches(req.headers["x-badger-tick"])) {
+    return json(res, 401, { error: "not authorised" });
+  }
+  try {
+    return json(res, 200, await runDue(RUN_PATHS));
+  } catch (err) {
+    // The tick answering 500 makes Cloud Scheduler retry, which would spend
+    // the budget again on work that already half happened. It reports the
+    // failure with a 200 instead, and the failed runs are recorded as rows.
+    console.error("[tick]", err);
+    return json(res, 200, { error: "the tick failed", ran: [] });
+  }
+}
 
 /**
  * Chat history.
@@ -716,7 +633,10 @@ async function chatsRoute(req, res, url) {
   const id = url.pathname.slice("/api/chats/".length);
 
   if (url.pathname === "/api/chats" && req.method === "GET") {
-    return json(res, 200, { persisted: true, chats: await historyStore.listChats(uid) });
+    // No `?agent=` means the /chat list, which is Badger's own threads only —
+    // a Playground conversation belongs to its agent's page, not here.
+    const agent = agentSlug(url.searchParams.get("agent"));
+    return json(res, 200, { persisted: true, chats: await historyStore.listChats(uid, { agent }) });
   }
 
   // Ids are minted in the browser and travel in a path segment, so they are
@@ -734,7 +654,8 @@ async function chatsRoute(req, res, url) {
     const title = String(body?.title ?? "").slice(0, 300);
     const turns = Array.isArray(body?.turns) ? body.turns : [];
     if (!title || !turns.length) return json(res, 400, { error: "title and turns are required" });
-    const ok = await historyStore.saveChat(uid, id, { title, turns });
+    const agent = agentSlug(body?.agent);
+    const ok = await historyStore.saveChat(uid, id, { title, turns, agent });
     // A false here means the id exists under a different uid. Same answer as
     // a malformed request rather than "that one is someone else's", which
     // would confirm the id exists.
@@ -742,6 +663,18 @@ async function chatsRoute(req, res, url) {
   }
 
   return json(res, 405, { error: "method not allowed" });
+}
+
+/**
+ * A sub-agent slug as it may appear on a conversation, or null.
+ *
+ * Same shape the store enforces when it creates a folder, applied here as
+ * well: this value reaches a query, and a conversation must never be filed
+ * under a name no agent could have.
+ */
+function agentSlug(value) {
+  const slug = String(value ?? "").trim();
+  return /^[a-z0-9][a-z0-9-]{0,39}$/.test(slug) ? slug : null;
 }
 
 /**
@@ -943,4 +876,32 @@ server.listen(PORT, HOST, async () => {
   } catch (err) {
     console.error(`github unreachable — search will fail until this is fixed: ${err.message}`);
   }
+  startLocalTick();
 });
+
+/**
+ * A tick for a laptop, and only for a laptop.
+ *
+ * In production the trigger is one Cloud Scheduler job, because Cloud Run
+ * scales to zero and a timer inside a process that is not running cannot fire.
+ * On localhost there is no Cloud Scheduler, so with nothing else in place a
+ * schedule can be created, saved and shown with its next run — and then never
+ * run, which looks exactly like a bug and is not one.
+ *
+ * Off unless BADGER_LOCAL_TICK is set, and it must stay off in production:
+ * there it would be a SECOND trigger beside Cloud Scheduler, and two things
+ * deciding whether a schedule is due is the shape that ends in double runs.
+ *
+ * Every minute rather than every fifteen: `isDue` walks the slots between the
+ * last run and now, so a finer check finds the same slot sooner and fires it
+ * once. Nothing is due on the other fifty-nine.
+ */
+function startLocalTick() {
+  if (!process.env.BADGER_LOCAL_TICK) return;
+  console.log("[scheduler] local tick on — checking every minute (development only)");
+  const timer = setInterval(() => {
+    runDue(RUN_PATHS).catch((err) => console.error("[scheduler] local tick", err.message));
+  }, 60_000);
+  // Never hold the process open on its own account.
+  timer.unref?.();
+}

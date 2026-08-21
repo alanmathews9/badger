@@ -1,0 +1,52 @@
+name: github_search
+description: >
+  Search the connected GitHub repository's issues and pull requests by text.
+  This is the primary way to find anything — start here for almost every
+  question. Accepts plain words or GitHub search qualifiers. Returns numbered
+  results with title, author, date, comment count and a snippet.
+input_schema:
+  type: object
+  properties:
+    query:
+      type: string
+      description: >
+        What to look for. Ask in plain words — the query is reduced to keywords
+        and OR'd for you, so a whole question works and you do not need to
+        guess which single word will match. Comment text is searched too.
+        GitHub qualifiers are honoured and still narrow the results:
+        "state:closed", "author:name", "label:x". A "quoted phrase" is searched
+        exactly as written instead of being reduced.
+    kind:
+      type: string
+      description: Restrict to issues, to pull requests, or neither. Default any.
+    limit:
+      type: integer
+      description: Maximum results, 1-30. Default 10.
+    since_days:
+      type: integer
+      description: >
+        Restrict to the last N days. The date is computed for you — always use
+        this instead of writing a created:/merged:/closed: qualifier yourself,
+        because you do not reliably know today's date.
+    date_field:
+      type: string
+      description: Which date since_days applies to. Default created.
+  required: [query]
+implementation:
+  # Copied from the root tools/, with the path pointing back at the one
+  # shared implementation: the runtime resolves join(agentDir, "tools",
+  # script), so three `..` segments reach the repo root.
+  # Both spellings: the runtime reads `script`, the schema requires
+  # `type` + `path`. See docs/UPSTREAM.md finding 2.
+  type: script
+  path: ../../../tools/scripts/search.mjs
+  script: ../../../tools/scripts/search.mjs
+  runtime: node
+
+# Declaration, not enforcement: runtime 2.1.0 does not read annotations.
+# Enforcement is hooks/allowed-tools.txt, the Composio enable list and the
+# DIRECT_TOOLS preset.
+annotations:
+  read_only: true
+  idempotent: true
+  requires_confirmation: false

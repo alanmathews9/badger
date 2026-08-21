@@ -97,11 +97,19 @@ export function parseAskBody(body) {
 
   // The picked skill travels as a slug and is only ever used if it names a
   // skill that actually exists on disk — the server checks; here we check the
-  // shape so nothing slug-unlike reaches a prompt.
-  const skill =
-    typeof body?.skill === "string" && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(body.skill) && body.skill.length <= 60
-      ? body.skill
-      : null;
+  // shape so nothing slug-unlike reaches a prompt or a path.
+  const skill = slugOrNull(body?.skill);
 
-  return { question, history, skill };
+  // The picked sub-agent, same treatment: a slug here, checked against what is
+  // on disk by the server before it decides which directory to run from.
+  const agent = slugOrNull(body?.agent);
+
+  return { question, history, skill, agent };
+}
+
+/** A kebab-case slug from untrusted JSON, or null. */
+function slugOrNull(value) {
+  return typeof value === "string" && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(value) && value.length <= 60
+    ? value
+    : null;
 }

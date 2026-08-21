@@ -40,12 +40,12 @@ export function ToolsScreen({ sources }: { sources: SourcesResponse }) {
 
   return (
     <div className="flex h-dvh flex-col bg-white">
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-stone-200 px-4">
+      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-stone-200 px-6">
         <h1 className="text-[15px] font-semibold">Tools</h1>
       </header>
 
       <main className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
-        <div className="grid max-w-[1100px] gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {cards.map((source) => {
             const Logo = BRAND_LOGOS[source.id];
             return (

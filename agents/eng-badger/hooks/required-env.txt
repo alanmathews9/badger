@@ -1,0 +1,22 @@
+# Credentials each declared source needs, as: <source>=<ENV_VAR>
+#
+# One line per source this agent claims to search. If a source is declared here
+# its credential must exist, or the session refuses to start. The failure this
+# prevents is silent: a source the agent cannot reach returns nothing, and
+# "nothing found" is indistinguishable from "never looked".
+#
+# GitHub is reached through the declarative tools in tools/, whose scripts open
+# a Composio session. Gmail and Drive are deliberately absent here because they
+# are absent from tools/.
+
+github=COMPOSIO_API_KEY
+
+# Vertex AI runs on Application Default Credentials rather than an API key, and
+# gitagent has no pre-flight check for google-vertex — a partial setup fails
+# late and unclearly.
+model=GOOGLE_CLOUD_PROJECT
+
+# The Composio end-user whose connected accounts the tools use. Without it the
+# tools fall back to a user with no connections, and every search returns empty
+# rather than erroring.
+identity=BADGER_USER_ID

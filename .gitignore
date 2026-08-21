@@ -18,6 +18,10 @@ dist/
 # No trailing slash, for the symlink reason above.
 .gitagent
 
+# Lyzr Studio stamps the id of an exported agent into its folder. Local state
+# from `opengap export`, not part of the agent.
+agents/*/.lyzr_agent_id
+
 # Credentials. The runtime auto-loads this file from the agent dir.
 .env
 

@@ -15,17 +15,29 @@ import { query, pool, dbConfigured } from "../../tools/scripts/_db.mjs";
 
 export { dbConfigured };
 
-/** This browser's conversations, newest first. Titles only — no turns. */
-export async function listChats(uid, limit = 20) {
+/**
+ * This browser's conversations, newest first. Titles only — no turns.
+ *
+ * `agent` partitions the list rather than filtering it: a null agent is a
+ * thread in /chat and a slug is a thread in that agent's Playground, and
+ * neither list should ever show the other's.
+ */
+export async function listChats(uid, { agent = null, limit = 20 } = {}) {
   const { rows } = await query(
-    `select id, title, extract(epoch from updated_at) * 1000 as updated_at
+    `select id, title, agent, extract(epoch from updated_at) * 1000 as updated_at
        from chat_session
       where uid = $1 and not deleted
+        and agent is not distinct from $2
       order by updated_at desc
-      limit $2`,
-    [uid, limit],
+      limit $3`,
+    [uid, agent, limit],
   );
-  return rows.map((r) => ({ id: r.id, title: r.title, updatedAt: Number(r.updated_at) }));
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    agent: r.agent,
+    updatedAt: Number(r.updated_at),
+  }));
 }
 
 /**
@@ -38,7 +50,7 @@ export async function listChats(uid, limit = 20) {
  */
 export async function getChat(uid, id) {
   const { rows: sessions } = await query(
-    `select id, title, extract(epoch from updated_at) * 1000 as updated_at
+    `select id, title, agent, extract(epoch from updated_at) * 1000 as updated_at
        from chat_session
       where id = $1 and uid = $2 and not deleted`,
     [id, uid],
@@ -87,9 +99,21 @@ export async function getChat(uid, id) {
   return {
     id: sessions[0].id,
     title: sessions[0].title,
+    agent: sessions[0].agent,
     updatedAt: Number(sessions[0].updated_at),
     turns,
   };
+}
+
+/**
+ * Follow a renamed sub-agent.
+ *
+ * An agent's folder is its identity, so renaming one moves it — and every
+ * Playground conversation filed under the old slug would otherwise be
+ * unreachable: still in the table, listed by no page.
+ */
+export async function renameAgentChats(from, to) {
+  await query("update chat_session set agent = $2 where agent = $1", [from, to]);
 }
 
 /**
@@ -101,7 +125,7 @@ export async function getChat(uid, id) {
  * The whole thing is one transaction, so a failure leaves the previous version
  * intact rather than a half-written conversation.
  */
-export async function saveChat(uid, id, { title, turns }) {
+export async function saveChat(uid, id, { title, turns, agent = null }) {
   const client = await pool().connect();
   try {
     await client.query("begin");
@@ -109,13 +133,17 @@ export async function saveChat(uid, id, { title, turns }) {
     // The uid is in the insert AND in the update's where clause, so a request
     // naming someone else's conversation id writes nothing rather than
     // overwriting theirs.
+    //
+    // `agent` is set on insert and never updated. Which agent answered a
+    // conversation is fixed when it starts, the way Onyx's
+    // update_chat_session() refuses to move a session's persona.
     const { rowCount } = await client.query(
-      `insert into chat_session (id, uid, title, updated_at)
-            values ($1, $2, $3, now())
+      `insert into chat_session (id, uid, title, agent, updated_at)
+            values ($1, $2, $3, $4, now())
        on conflict (id) do update
                set title = excluded.title, updated_at = now()
              where chat_session.uid = $2`,
-      [id, uid, title],
+      [id, uid, title, agent],
     );
     if (!rowCount) {
       await client.query("rollback");
