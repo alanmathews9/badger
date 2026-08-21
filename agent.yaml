@@ -51,10 +51,10 @@ agents:
     description: >-
       Code, issues, releases and decisions, from GitHub. Holds no mail or
       document tools.
-  support-badger:
-    description: "Answer what a customer was told, what the policy says, and whether those two are the same thing."
   hr-badger:
     description: "Answer a question about how this organisation works from the written policy and the mail that qualifies it, and say plainly when the two disagree."
+  support-badger:
+    description: "Answer what a customer was told, what the policy says, and whether those two are the same thing."
 
 # Written in the vocabulary of the OpenGAP spec, not the reference runtime's.
 # Those disagree: dist/compliance.js (gitagent 2.1.0) reads `risk_level`,
