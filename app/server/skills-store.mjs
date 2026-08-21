@@ -7,10 +7,10 @@
 // Origin is recovered from frontmatter: skill_learner stamps `learned_from`,
 // this store stamps `added_via: badger-ui`, anything else is hand-written.
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { lastCommitDates } from "./git-dates.mjs";
 
-
-/** @returns {{slug: string, name: string, description: string, origin: "handwritten"|"learned"|"custom"}[]} */
+/** @returns {{slug: string, name: string, description: string, origin: "handwritten"|"learned"|"custom", updatedAt: string}[]} */
 export function listSkills(skillsDir) {
   let entries;
   try {
@@ -19,6 +19,7 @@ export function listSkills(skillsDir) {
     return [];
   }
 
+  const dates = lastCommitDates(dirname(skillsDir), "skills");
   const skills = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
@@ -41,6 +42,7 @@ export function listSkills(skillsDir) {
       name: field("name") || entry.name,
       description: field("description"),
       origin,
+      updatedAt: dates[entry.name] ?? "",
     });
   }
   return skills;
