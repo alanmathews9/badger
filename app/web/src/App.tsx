@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { Tour } from "@/components/onboarding/Tour";
 import { ChatScreen } from "@/screens/ChatScreen";
 import { SearchScreen } from "@/screens/SearchScreen";
 import { AgentsScreen } from "@/screens/AgentsScreen";
@@ -512,6 +513,11 @@ export default function App() {
           <Route path="*" element={<Navigate to="/search" replace />} />
         </Routes>
       </SidebarInset>
+
+      {/* Above the routes, so walking the tour cannot unmount it, and inside
+          the provider so the rail it points at is already laid out. It decides
+          for itself whether this browser has seen it. */}
+      <Tour />
     </SidebarProvider>
   );
 }

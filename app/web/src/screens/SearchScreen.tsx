@@ -91,7 +91,10 @@ export function SearchScreen({
           {/* Search and Chat over one box. The home screen used to offer only
               the first, so the way to ask the agent a question was to notice
               Chat in the sidebar and type it again. See `HomeBar`. */}
-          <div className="mt-6">
+          {/* The tour's anchor for the search step. An attribute rather than
+              a ref threaded through HomeBar and DigInput, neither of which has
+              any business knowing a tour exists. See `Tour.tsx`. */}
+          <div className="mt-6" data-tour="search">
             <HomeBar
               value={query}
               onChange={onQueryChange}

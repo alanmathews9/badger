@@ -108,7 +108,7 @@ export function AppSidebar({
               <SidebarMenuItem>
                 {/* /chat and /chat/<id> are the same destination. */}
                 <SidebarMenuButton asChild isActive={pathname.startsWith("/chat")} tooltip="Ask">
-                  <NavLink to="/chat">
+                  <NavLink to="/chat" data-tour="ask">
                     <MessagesSquare />
                     <span>Ask</span>
                   </NavLink>
@@ -119,7 +119,7 @@ export function AppSidebar({
                 {/* Directly under Ask, because that is where an agent is used.
                     Tools and Skills below are what one is assembled from. */}
                 <SidebarMenuButton asChild isActive={pathname.startsWith("/agents")} tooltip="Agents">
-                  <NavLink to="/agents">
+                  <NavLink to="/agents" data-tour="agents">
                     <Bot />
                     <span>Agents</span>
                   </NavLink>
@@ -128,7 +128,7 @@ export function AppSidebar({
 
               <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={pathname.startsWith("/tools")} tooltip="Tools">
-                  <NavLink to="/tools">
+                  <NavLink to="/tools" data-tour="tools">
                     <Wrench />
                     <span>Tools</span>
                     {/*
@@ -180,7 +180,7 @@ export function AppSidebar({
                     Sparkles said "AI happens here", which is the opposite of
                     the point. */}
                 <SidebarMenuButton asChild isActive={pathname.startsWith("/skills")} tooltip="Skills">
-                  <NavLink to="/skills">
+                  <NavLink to="/skills" data-tour="skills">
                     <FileText />
                     <span>Skills</span>
                   </NavLink>
