@@ -1,0 +1,31 @@
+name: github_issue
+description: >
+  Read one issue or pull request in full, including its entire comment thread.
+  Use this after github_search surfaces something relevant. The comments matter:
+  a decision's official version tends to live in the body or a file, while what
+  the team actually concluded lives in the discussion underneath.
+input_schema:
+  type: object
+  properties:
+    number:
+      type: integer
+      description: The issue or pull request number, as shown by github_search.
+    max_comments:
+      type: integer
+      description: Maximum comments to include, 1-50. Default 20.
+  required: [number]
+implementation:
+  # Both spellings: the runtime reads `script`, the schema requires
+  # `type` + `path`. See docs/UPSTREAM.md finding 2.
+  type: script
+  path: ../../../tools/scripts/issue.mjs
+  script: ../../../tools/scripts/issue.mjs
+  runtime: node
+
+# Declaration, not enforcement: runtime 2.1.0 does not read annotations.
+# Enforcement is hooks/allowed-tools.txt, the Composio enable list and the
+# DIRECT_TOOLS preset.
+annotations:
+  read_only: true
+  idempotent: true
+  requires_confirmation: false
