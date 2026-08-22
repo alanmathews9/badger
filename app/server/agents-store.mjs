@@ -126,7 +126,8 @@ function describe(dir, slug, committedAt) {
     // it does not know.
     color: COLOR.test(String(meta.color ?? "")) ? String(meta.color) : "",
     tools: toolNamesIn(join(dir, "tools")),
-    skills: subdirectories(join(dir, "skills")),
+    // Only what the pane put here; a self-learned skill is not a selection.
+    skills: subdirectories(join(dir, "skills")).filter((s) => copiedByUs(join(dir, "skills", s))),
     memory: meta.memory === true,
     outputFormat: meta.output_format === "json" ? "json" : "text",
   };
