@@ -33,6 +33,14 @@ const COLOR = /^[a-z][a-z0-9-]{0,31}$/;
 /** Runtime builtins, so the generated allowed-tools.txt can keep the ones the root list permits. */
 const BUILTINS = ["read", "memory", "task_tracker", "skill_learner", "write", "edit", "cli", "capture_photo"];
 
+// Tool-name prefix -> the source name required-env.txt calls it by. One
+// Composio key covers all of them; what varies is which the agent claims.
+const SOURCE_PREFIXES = [
+  ["github_", "github"],
+  ["gmail_", "gmail"],
+  ["drive_", "drive"],
+];
+
 const MODEL = "google-vertex:gemini-2.5-flash";
 
 /**
@@ -383,17 +391,27 @@ function stampCopied(text) {
 }
 
 /**
- * All three hook files, so the sub-agent is genuinely standalone.
+ * All three hook scripts plus their two data files, so the sub-agent is
+ * genuinely standalone.
  *
- * allowed-tools.txt is generated rather than copied: the builtins the root
- * list already permits, plus only the tools this agent has. Real enforcement
- * is still `disallowedTools` and the in-process guard — dist/hooks.js treats a
- * crash, a timeout and non-JSON output as allow, so nothing rests on this.
+ * check-sources.sh is copied, not optional. hooks.yaml declares it on
+ * on_session_start, and a declared script that is not on disk is worse than
+ * no hook at all: `sh` exits immediately, the runtime writes the event to a
+ * stdin nothing is reading, and dist/hooks.js:57 has no error handler on that
+ * stream — the unhandled EPIPE takes the whole server process down. Measured
+ * in production 2026-08-22, where every question to a UI-created agent hit it.
+ *
+ * allowed-tools.txt and required-env.txt are generated rather than copied:
+ * both describe THIS agent. The root lists GitHub; an agent holding only
+ * Drive and Gmail tools must not refuse to start over a credential it never
+ * uses. Real enforcement is still `disallowedTools` and the in-process guard
+ * — dist/hooks.js treats a crash, a timeout and non-JSON output as allow, so
+ * nothing rests on this.
  */
 function writeHooks(dir, clean, rootDir) {
   const hooksDir = join(dir, "hooks");
   mkdirSync(hooksDir, { recursive: true });
-  for (const file of ["hooks.yaml", "allow-tools.sh"]) {
+  for (const file of ["hooks.yaml", "allow-tools.sh", "check-sources.sh"]) {
     if (existsSync(join(rootDir, "hooks", file))) cpSync(join(rootDir, "hooks", file), join(hooksDir, file));
   }
 
@@ -407,6 +425,46 @@ function writeHooks(dir, clean, rootDir) {
   const builtins = BUILTINS.filter((name) => permitted.has(name));
   const lines = [...header, ...builtins, "", ...clean.tools, ""];
   writeFileSync(join(hooksDir, "allowed-tools.txt"), lines.join("\n"), "utf8");
+
+  writeFileSync(join(hooksDir, "required-env.txt"), renderRequiredEnv(clean), "utf8");
+}
+
+/**
+ * The credentials this agent's own tools need, as <source>=<ENV_VAR>.
+ *
+ * A source is named only if the agent actually holds a tool for it, so
+ * check-sources.sh refuses to start for the sources it claims and stays quiet
+ * about the rest. The model and identity lines always apply: every sub-agent
+ * runs on Vertex and reaches Composio as the same end user.
+ */
+function renderRequiredEnv(clean) {
+  const sources = SOURCE_PREFIXES.filter(([prefix]) =>
+    clean.tools.some((name) => name.startsWith(prefix)),
+  ).map(([, source]) => `${source}=COMPOSIO_API_KEY`);
+
+  return [
+    "# Credentials each declared source needs, as: <source>=<ENV_VAR>",
+    "#",
+    "# Generated from this agent's own tools/. A source the agent cannot reach",
+    "# returns nothing, and \"nothing found\" is indistinguishable from \"never",
+    "# looked\" — so if a source is named here its credential must exist or the",
+    "# session refuses to start. Sources the agent holds no tool for are absent",
+    "# rather than commented, because this file is rewritten on every save.",
+    "",
+    ...sources,
+    sources.length ? "" : null,
+    "# Vertex AI runs on Application Default Credentials and gitagent has no",
+    "# pre-flight check for google-vertex, so a partial setup fails late.",
+    "model=GOOGLE_CLOUD_PROJECT",
+    "",
+    "# The Composio end-user whose connected accounts the tools use. Without it",
+    "# the tools fall back to a user with no connections and every search",
+    "# returns empty rather than erroring.",
+    "identity=BADGER_USER_ID",
+    "",
+  ]
+    .filter((line) => line !== null)
+    .join("\n");
 }
 
 // ── Validation ────────────────────────────────────────────────────────────

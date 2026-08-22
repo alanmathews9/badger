@@ -55,8 +55,15 @@ function scratchRoot() {
     "---\nname: trace-decision\ndescription: How a decision was made.\n---\n\n1. search\n",
   );
 
-  writeFileSync(join(root, "hooks", "hooks.yaml"), "hooks:\n  pre_tool_use:\n    - script: allow-tools.sh\n");
-  writeFileSync(join(root, "hooks", "allow-tools.sh"), "#!/bin/sh\necho '{\"action\":\"allow\"}'\n");
+  // Both hooks, as the real root declares them. A fixture naming only one is
+  // what let a sub-agent ship a hooks.yaml pointing at a script nobody copied.
+  writeFileSync(
+    join(root, "hooks", "hooks.yaml"),
+    "hooks:\n  pre_tool_use:\n    - script: allow-tools.sh\n  on_session_start:\n    - script: check-sources.sh\n",
+  );
+  writeFileSync(join(root, "hooks", "allow-tools.sh"), "#!/bin/sh\ncat >/dev/null\necho '{\"action\":\"allow\"}'\n");
+  writeFileSync(join(root, "hooks", "check-sources.sh"), "#!/bin/sh\ncat >/dev/null\necho '{\"action\":\"allow\"}'\n");
+  writeFileSync(join(root, "hooks", "required-env.txt"), "github=COMPOSIO_API_KEY\n");
   writeFileSync(
     join(root, "hooks", "allowed-tools.txt"),
     "# Every tool Badger may call — one name per line.\n#\n# An allowlist rather than a blocklist because it fails closed.\nread\nmemory\ntask_tracker\nskill_learner\n\ngmail_search\ndrive_file\n",
@@ -512,4 +519,56 @@ test("a manifest edit that would not parse is refused rather than written", () =
     /no longer parses/,
   );
   assert.match(readFileSync(file, "utf8"), /name: twice\nname: twice/);
+});
+
+test("every hook script a sub-agent's hooks.yaml declares is on disk beside it", () => {
+  // The defect this pins took production down. hooks.yaml was copied whole
+  // while only some of the scripts it names were, so `sh` was handed a path
+  // that does not exist, exited before reading, and the runtime's unhandled
+  // write to its stdin (dist/hooks.js:57, no error handler) raised EPIPE and
+  // killed the server on every question to a UI-created agent.
+  const root = scratchRoot();
+  const agents = join(root, "agents");
+  createAgent(agents, spec({ slug: "hooked" }), { rootDir: root });
+
+  const hooks = join(agents, "hooked", "hooks");
+  const declared = yaml.load(readFileSync(join(hooks, "hooks.yaml"), "utf8")).hooks;
+  const scripts = Object.values(declared).flat().map((h) => h.script);
+
+  assert.deepEqual(scripts.sort(), ["allow-tools.sh", "check-sources.sh"]);
+  for (const script of scripts) {
+    assert.equal(existsSync(join(hooks, script)), true, `${script} is declared but was not written`);
+  }
+});
+
+test("required-env.txt names only the sources this agent holds a tool for", () => {
+  const root = scratchRoot();
+  const agents = join(root, "agents");
+  // check-sources.sh refuses to start over any source named here, so an agent
+  // that holds no GitHub tool must not inherit the root's github line.
+  createAgent(agents, spec({ slug: "mail-only", tools: ["gmail_search"] }), { rootDir: root });
+  createAgent(agents, spec({ slug: "toolless", tools: [] }), { rootDir: root });
+
+  const read = (slug) =>
+    readFileSync(join(agents, slug, "hooks", "required-env.txt"), "utf8")
+      .split("\n")
+      .filter((line) => line.trim() && !line.startsWith("#"));
+
+  assert.deepEqual(read("mail-only"), [
+    "gmail=COMPOSIO_API_KEY",
+    "model=GOOGLE_CLOUD_PROJECT",
+    "identity=BADGER_USER_ID",
+  ]);
+  assert.deepEqual(read("toolless"), ["model=GOOGLE_CLOUD_PROJECT", "identity=BADGER_USER_ID"]);
+});
+
+test("the hook scripts read their stdin, so a hook can never EPIPE the server", () => {
+  // dist/hooks.js:44-58 writes the event to the hook's stdin with no error
+  // handler on that stream. A script that exits without reading raises an
+  // unhandled EPIPE on any payload past the pipe buffer, which takes the whole
+  // process down rather than failing the one hook.
+  for (const script of ["allow-tools.sh", "check-sources.sh"]) {
+    const body = readFileSync(join(resolve("hooks"), script), "utf8");
+    assert.match(body, /\bcat\b/, `${script} must drain stdin`);
+  }
 });
