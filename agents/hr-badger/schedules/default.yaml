@@ -4,5 +4,7 @@ prompt: >-
   a policy change or a new policy added then list the policy changes and new policy.
 cron: 15 15 22 * *
 mode: repeat
-enabled: true
+enabled: false
 createdAt: '2026-08-22T09:38:24.384Z'
+lastRunAt: '2026-08-22T09:45:02.636Z'
+lastResult: success
