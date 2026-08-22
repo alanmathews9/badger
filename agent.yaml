@@ -55,8 +55,6 @@ agents:
     description: "Answer a question about how this organisation works from the written policy and the mail that qualifies it, and say plainly when the two disagree."
   support-badger:
     description: "Answer what a customer was told, what the policy says, and whether those two are the same thing."
-  release-comms-agent:
-    description: "Say what actually shipped, who outside engineering was told, and where those two diverge"
 
 # Written in the vocabulary of the OpenGAP spec, not the reference runtime's.
 # Those disagree: dist/compliance.js (gitagent 2.1.0) reads `risk_level`,
