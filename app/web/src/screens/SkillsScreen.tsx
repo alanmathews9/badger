@@ -82,10 +82,10 @@ export function SkillsScreen() {
           button was not, which reads as uneven padding — and a table is the
           one thing on a page that is allowed to fill the width it is given. */}
       <main className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
-        <div className="overflow-hidden rounded-xl border border-stone-200">
+        <div className="rounded-xl border border-stone-200">
           <table className="w-full table-fixed">
             <thead>
-              <tr className="border-b border-stone-200 bg-stone-50/60 text-[10.5px] tracking-[0.06em] text-stone-400 uppercase">
+              <tr className="border-b border-stone-200 text-[10.5px] tracking-[0.06em] text-stone-400 uppercase [&>th]:bg-stone-50/60 [&>th:first-child]:rounded-tl-xl [&>th:last-child]:rounded-tr-xl">
                 <th className="w-[220px] py-2.5 pl-4 text-left font-medium">Name</th>
                 <th className="w-[130px] py-2.5 text-left font-medium">Type</th>
                 <th className="py-2.5 text-left font-medium">Description</th>
@@ -169,7 +169,7 @@ function Row({
   return (
     <tr
       onClick={onOpen}
-      className="cursor-pointer border-b border-stone-100 transition-colors last:border-b-0 hover:bg-stone-50"
+      className="cursor-pointer border-b border-stone-100 transition-colors last:border-b-0 hover:bg-stone-50 [&:last-child>td:first-child]:rounded-bl-xl [&:last-child>td:last-child]:rounded-br-xl"
     >
       <td className="py-3 pl-4">
         <div className="truncate pr-3 font-mono text-[13px]">{skill.slug}</div>
@@ -237,11 +237,22 @@ function TypeTag({ origin }: { origin: SkillInfo["origin"] }) {
   );
 }
 
+const MENU_HEIGHT = 76;
+
 /** Download or delete, without opening the skill first. */
 function RowMenu({ onDownload, onDelete }: { onDownload: () => void; onDelete: () => void }) {
   const [open, setOpen] = useState(false);
+  const [up, setUp] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setOpen(false), []);
+
+  const toggle = () => {
+    if (!open) {
+      const bottom = box.current?.getBoundingClientRect().bottom ?? 0;
+      setUp(bottom + MENU_HEIGHT > window.innerHeight);
+    }
+    setOpen((v) => !v);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -272,14 +283,16 @@ function RowMenu({ onDownload, onDelete }: { onDownload: () => void; onDelete: (
       onClick={(e) => e.stopPropagation()}
     >
       <button
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggle}
         aria-label="Skill options"
         className="inline-flex size-7 items-center justify-center rounded-md text-stone-400 hover:bg-stone-200/60 hover:text-stone-900"
       >
         <MoreHorizontal className="size-4" strokeWidth={2} />
       </button>
       {open && (
-        <div className="absolute top-8 right-0 z-20 w-[170px] overflow-hidden rounded-lg border border-stone-200 bg-white py-1 shadow-lg">
+        <div
+          className={`absolute right-0 z-20 w-[170px] overflow-hidden rounded-lg border border-stone-200 bg-white py-1 shadow-lg ${up ? "bottom-8" : "top-8"}`}
+        >
           <button
             onClick={pick(onDownload)}
             className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12.5px] text-stone-700 hover:bg-stone-50"

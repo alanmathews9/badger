@@ -397,11 +397,12 @@ test("a skill the agent learned for itself survives an unrelated save", () => {
   assert.equal(existsSync(join(agents, "hr-badger", "skills", "trace-decision")), false);
   assert.equal(existsSync(join(agents, "hr-badger", "skills", "find-expert")), true);
 
-  // And it is listed, so the pane shows what the agent taught itself.
-  assert.deepEqual(readAgent(agents, "hr-badger").skills.sort(), [
-    "draft-refund-reply",
-    "find-expert",
-  ]);
+  // But it is NOT listed. This assertion used to be the opposite, so that the
+  // pane showed what the agent taught itself. The chip list is a SELECTION the
+  // pane hands back on save, and validate() checks it against the root
+  // skills/ — so a learned skill in it made the agent unsaveable:
+  // `no skill named "identify-recent-policy-changes"`, measured in production.
+  assert.deepEqual(readAgent(agents, "hr-badger").skills, ["find-expert"]);
 });
 
 test("the generated allowed-tools.txt keeps the header and names only this agent's tools", () => {
