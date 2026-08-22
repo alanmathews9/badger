@@ -9,8 +9,8 @@ metadata:
   version: 1.0.0
   category: retrieval
 confidence: 1
-usage_count: 1
-success_count: 1
+usage_count: 2
+success_count: 2
 failure_count: 0
 negative_examples: []
 ---
