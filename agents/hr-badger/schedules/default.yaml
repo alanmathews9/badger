@@ -1,0 +1,8 @@
+id: default
+prompt: >-
+  Look for new policies or policy changes in the last 1 Month. Report only NO POLICY, if there is no change. If there is
+  a policy change or new policies then list them.
+cron: 30 13 22 * *
+mode: repeat
+enabled: true
+createdAt: '2026-08-22T07:57:08.392Z'
