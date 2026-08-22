@@ -22,6 +22,13 @@
 # exits 0 with valid JSON, because the runtime treats any other outcome as
 # "allow" (see docs/NOTES.md §3).
 
+# Drain stdin before doing anything else. The runtime writes the event JSON to
+# this process and dist/hooks.js:57 puts no error handler on that stream, so a
+# script that exits without reading raises an unhandled EPIPE and takes the
+# whole server down with it. allow-tools.sh is safe because it reads the input
+# it needs; this hook needs none, so it throws it away deliberately.
+cat >/dev/null 2>&1
+
 REQUIRED="$(dirname "$0")/required-env.txt"
 
 block() {
