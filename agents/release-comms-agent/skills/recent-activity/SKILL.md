@@ -1,19 +1,19 @@
 ---
 name: recent-activity
-description: >
-  Summarise what actually happened over a period — what merged, what closed,
-  what is newly open, and what moved on a project or for a person. Use for
-  "what shipped", "what happened last week", "what changed recently", "catch me
-  up", "what's the status of", "what has {person} been working on", "standup",
-  "what did we do this month". Use whenever the question is bounded by time
-  rather than by topic.
+description: |
+  Summarise what actually happened over a period — what merged, what closed, what is newly open, and what moved on a project or for a person. Use for "what shipped", "what happened last week", "what changed recently", "catch me up", "what's the status of", "what has {person} been working on", "standup", "what did we do this month". Use whenever the question is bounded by time rather than by topic.
 license: MIT
 allowed-tools: github_search github_commits github_pr github_issue github_file gmail_search gmail_thread drive_search drive_file memory
 metadata:
   author: alan-mathews
-  version: "1.0.0"
+  version: 1.0.0
   category: retrieval
 copied_from: badger
+confidence: 0.95
+usage_count: 1
+success_count: 0
+failure_count: 1
+negative_examples: []
 ---
 
 # Digest a period of activity
