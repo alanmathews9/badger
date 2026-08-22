@@ -1,0 +1,34 @@
+name: gmail_thread
+description: >
+  Read a whole mail thread, oldest message first. A single message is rarely
+  the answer — the ask, the pushback and the decision are usually several
+  messages apart in the same exchange. Call this with a thread id from
+  gmail_search whenever a result looks relevant.
+input_schema:
+  type: object
+  properties:
+    thread_id:
+      type: string
+      description: Thread id, taken from a gmail_search result.
+    full:
+      type: boolean
+      description: >
+        Return complete message bodies instead of clipping each one. Default
+        false. Use it when a clipped message looks like it continues into the
+        part you need.
+  required: [thread_id]
+implementation:
+  # Both spellings: the runtime reads `script`, the schema requires
+  # `type` + `path`. See docs/UPSTREAM.md finding 2.
+  type: script
+  path: ../../../tools/scripts/gmail-thread.mjs
+  script: ../../../tools/scripts/gmail-thread.mjs
+  runtime: node
+
+# Declaration, not enforcement: runtime 2.1.0 does not read annotations.
+# Enforcement is hooks/allowed-tools.txt, the Composio enable list and the
+# DIRECT_TOOLS preset.
+annotations:
+  read_only: true
+  idempotent: true
+  requires_confirmation: false
