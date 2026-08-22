@@ -440,7 +440,7 @@ untrusted text.
 ## 6. Smaller notes, recorded but not worth an issue
 
 - **The Lyzr exporter's goal regex eats the goal.** `opengap`'s
-  `dist/adapters/lyzr.js:91` reads an agent's goal out of SOUL.md with
+  `opengap dist/adapters/lyzr.js:91` reads an agent's goal out of SOUL.md with
   `/##\s*(?:Values|Purpose|Goal|Mission)\s*.*?\n+([\s\S]*?)(?=\n##|…)/i`.
   Greedy `\s*` consumes the blank line after the heading, so the lazy `.*?`
   then consumes the first line of content before `\n+` can match, and the
@@ -455,7 +455,7 @@ untrusted text.
 - **Declaring sub-agents makes the root agent fail its own duties check.**
   `opengap`'s SoD validator resolves every key in
   `compliance.segregation_of_duties.assignments` against `manifest.agents`
-  (`dist/commands/validate.js:256`), which holds *sub*-agents only — so the
+  (`opengap dist/commands/validate.js:256`), which holds *sub*-agents only — so the
   root agent, which must appear in assignments to hold a role at all, is
   reported missing. The check is guarded on `manifest.agents` existing, so it
   lies dormant until the day you declare a sub-agent and then warns about a

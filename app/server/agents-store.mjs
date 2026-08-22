@@ -128,7 +128,7 @@ function describe(dir, slug, committedAt) {
  * Role, goal and instructions back out of SOUL.md.
  *
  * The first two regexes are the Lyzr Studio exporter's own
- * (dist/adapters/lyzr.js:90-91) — parsing with the same expressions is what
+ * (opengap dist/adapters/lyzr.js:90-91) — parsing with the same expressions is what
  * keeps a round trip through this editor from quietly breaking the export.
  * A missing section is an empty string, never a throw: these files can be
  * edited by hand.
@@ -271,7 +271,7 @@ function write(dir, clean, manifest, rootDir, agentsDir) {
  * SOUL.md, in the one shape the Lyzr exporter can read.
  *
  * `## Core Identity` with a single unbulleted line beneath is what
- * dist/adapters/lyzr.js:90 matches on. The goal is not that simple: line 91 is
+ * opengap dist/adapters/lyzr.js:90 matches on. The goal is not that simple: line 91 is
  * `##\s*(?:Values|Purpose|Goal|Mission)\s*.*?\n+(...)`, and the greedy `\s*`
  * eats the blank line while `.*?` then eats the first line of content — so the
  * capture starts one line late and the goal exports as whatever follows it.
@@ -521,7 +521,7 @@ function readIfPresent(file) {
  * Add or remove one entry, by editing the text.
  *
  * `opengap validate` fails the build when a name here has no folder under
- * agents/ (dist/commands/validate.js:60), so the two have to move together. A
+ * agents/ (opengap dist/commands/validate.js:60), so the two have to move together. A
  * YAML round trip would keep them in sync and delete every comment in a file
  * that is mostly comments, so this is a targeted textual edit instead.
  * Description null means remove.

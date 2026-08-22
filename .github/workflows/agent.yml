@@ -10,8 +10,10 @@
 # `validate` currently exits 1 for reasons that are not ours: the reference
 # runtime's reinforcement loop writes confidence/usage_count/success_count/
 # failure_count/negative_examples into SKILL.md frontmatter, and the standard's
-# own skill.schema.json sets additionalProperties: false. See README,
-# "Where we diverge from the standard". Until that is resolved upstream this
+# own skill.schema.json sets additionalProperties: false. Nothing wires the two
+# together — @open-gitagent/gitagent does not depend on @open-gitagent/opengap
+# and never loads its schemas — so they were free to drift and did. See
+# docs/FRAMEWORK-DEFECTS.md. Until that is resolved upstream this
 # job asserts the two things that are ours — agent.yaml and the compliance
 # configuration — and prints the full report for a human to read.
 

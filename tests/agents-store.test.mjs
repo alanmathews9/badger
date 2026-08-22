@@ -413,7 +413,7 @@ test("the generated allowed-tools.txt keeps the header and names only this agent
 // ── The root manifest ─────────────────────────────────────────────────────
 //
 // `opengap validate` fails the build when the agents: block names a folder
-// that is not there (dist/commands/validate.js:60), so create and delete both
+// that is not there (opengap dist/commands/validate.js:60), so create and delete both
 // have to move it. The file is mostly comments and must come back unreformatted.
 
 test("create and delete keep the root agents: block in sync", () => {

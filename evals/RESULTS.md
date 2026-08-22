@@ -9,6 +9,39 @@ alongside the range in the README rather than instead of it.
 
 ---
 
+## 2026-08-21, after the run-agent fixes — 15/15, $0.1869
+
+Run against `main` at `53ec29a`, immediately after the commit that fixed the
+two ways a run could finish without saying anything. First full pass the suite
+has produced.
+
+**Every question passed, and every answer carried citations** — between 2 and
+11 each, all verified against what the run actually retrieved. Cost was
+$0.1869 against $0.1768 the run before, a 6% difference on a non-deterministic
+model, which is noise.
+
+**`sync-third-rewrite` passed.** That question had failed three consecutive
+runs on the grader's wording rather than on the answer, and the pattern was
+deliberately left alone each time — editing a grader in the same breath as
+reading its failure is how an eval set stops measuring anything. It was never
+broadened, and the agent phrased its answer inside the existing pattern this
+time. Which is worth stating plainly: the previous three failures were the
+grader's, and this run is not evidence that anything was fixed.
+
+**Read this alongside the day's other measurement, not instead of it.** The
+same agent had been returning empty answers in production for 43 minutes
+earlier that day, because a duplicated key in `agent.yaml` on the learning
+branch stopped it loading at all. The eval runs against a throwaway copy of
+`main`, so it could not have caught that and did not. A green suite says the
+retrieval and the answers are good; it says nothing about the branch
+production runs from.
+
+Crystallisation fired twice — `determine-postgres-version` and
+`find-payments-expert` — and both died with the throwaway copy, which is the
+protection working. `find-payments-expert` is the same narrower duplicate of
+`find-expert` that has now been learned four separate times; the runtime's
+duplicate check compares description wording rather than meaning.
+
 ## 2026-08-20, after the security and conformance work — 14/15, $0.1768
 
 Run against `main` at `ac0e604`, after four commits that touched things the

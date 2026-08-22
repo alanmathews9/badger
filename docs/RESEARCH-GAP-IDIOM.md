@@ -706,7 +706,7 @@ registries, tags, mcp_servers, metadata`.
 **2. `hooks/` is fully specified — §9.** `hooks.yaml` declares scripts against
 lifecycle events including **`pre_tool_use`**, and the protocol is JSON on
 stdin, JSON on stdout, with `"action": "allow" | "block" | "modify"`. That is
-exactly what `hooks/allow-read-only.sh` implements. The `full` example even
+exactly what `hooks/allow-tools.sh` implements. The `full` example even
 ships `hooks/scripts/audit-tool-call.sh` and `validate-tool-output.sh` as
 reference implementations.
 
